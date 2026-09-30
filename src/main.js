@@ -16,7 +16,7 @@ import { EnemyManager } from './entities/enemies.js';
 import { FX } from './fx.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
-import { ITEMS, RECIPES, rollLoot, upgradeCost, itemName } from './items.js';
+import { ITEMS, rollLoot, upgradeCost, itemName } from './items.js';
 import { newState, saveGame, loadGame, peekSave, loadSettings, saveSettings, FOG_N } from './state.js';
 import { RNG, hashInts, randomSeedString } from './core/rng.js';
 import { clamp, dist2, lerp, damp } from './core/util.js';
@@ -54,6 +54,9 @@ class Game {
     this.projectiles = [];
     this.treeHits = new Map();
     this.activeBoss = null;
+    this.lockTarget = null;
+    this.killedSpawns = new Set();
+    this.bloodMoon = false;
     this.saveTimer = 45;
     this.fogTimer = 0;
     this.frames = 0;
@@ -88,6 +91,8 @@ class Game {
     this.audio.setVolume(s.volume);
     this.audio.setMusic(s.music);
     document.getElementById('fps').hidden = !s.showFps;
+    document.body.classList.toggle('lefty', !!s.lefty);
+    this.input.lefty = !!s.lefty;
     const q = this.qualityPreset;
     this.renderer.shadowMap.enabled = q.shadows;
     if (this.sky) {
@@ -146,6 +151,7 @@ class Game {
     this.ui.fogDirty = true;
     // Terrain near the start point
     const sp = this.startPosition();
+    this.titleFocus = { x: sp.x, z: sp.z };
     let pending = 1;
     while (pending > 0) {
       pending = this.chunks.update(sp.x, sp.z, 40);
@@ -178,6 +184,9 @@ class Game {
       this.physics.removeBody(this.player.body);
     }
     this.activeBoss = null;
+    this.lockTarget = null;
+    this.killedSpawns.clear();
+    this.bloodMoon = false;
     this.treeHits.clear();
   }
 
@@ -249,7 +258,7 @@ class Game {
     if (this.mode === 'title' || this.mode === 'loading') {
       this._titleCamera(dt, t);
       this.sky.update(dt * 0.2, this.camera.position, this.camTarget, 'moor', DAY_LENGTH, null);
-      if (this.locations) this.locations.update(this.camTarget.x, this.camTarget.z, dt, t, this.chunks.viewChunks * WORLD.CHUNK);
+      if (this.locations && this.mode === 'title') this.locations.update(this.camTarget.x, this.camTarget.z, dt, t, this.chunks.viewChunks * WORLD.CHUNK);
       if (this.mode === 'title') this.ui.navigate(this.input);
       this.renderer.render(this.scene, this.camera);
       this.input.endFrame();
@@ -293,6 +302,7 @@ class Game {
   fixedUpdate(h) {
     const st = this.state;
     st.stats.playTime += h;
+    this._lockOn();
     this.player.update(h, this.input, this.cameraYaw);
     this.enemies.update(h);
     this._updateBombs(h);
@@ -306,8 +316,11 @@ class Game {
     this.chunks.update(p.pos.x, p.pos.z, 5);
     this.locations.update(p.pos.x, p.pos.z, dt, t, this.chunks.viewChunks * WORLD.CHUNK);
     const biome = this.gen.biomeAt(p.pos.x, p.pos.z);
+    const prevTime = this.sky.time;
+    this.sky.blood = this.bloodMoon ? 1 : 0;
     const skyOut = this.sky.update(dt, this.camera.position, p.pos, biome, st.ended ? DAY_LENGTH * 4 : DAY_LENGTH, () => this.audio.play('thunder'));
     st.time = this.sky.time;
+    this._calendar(prevTime, st.time);
     this._camera(dt);
     this.fx.update(dt, this.camera);
     this._updateCorpses(dt);
@@ -323,6 +336,7 @@ class Game {
       boss: !!this.activeBoss,
     });
     this._discovery();
+    this._hints(dt);
     this._nearInteract();
     this._remnant();
     this.fogTimer -= dt;
@@ -330,18 +344,90 @@ class Game {
     this.saveTimer -= dt;
     if (this.saveTimer <= 0 && !p.dead && !this.activeBoss) { this.saveTimer = 45; this.save(); }
     this.ui.updateHUD(dt);
+    this.ui.updateReticle(this.camera);
+  }
+
+  // One-time contextual tips for new players
+  hint(key, text, dur = 6) {
+    const h = this.state.hints;
+    if (h.has(key)) return;
+    h.add(key);
+    this.ui.toast(text, dur);
+  }
+
+  _hints(dt) {
+    this.hintT = (this.hintT || 0) - dt;
+    if (this.hintT > 0) return;
+    this.hintT = 1;
+    const st = this.state;
+    const p = this.player;
+    const touch = this.input.touchMode;
+    if (st.stats.playTime < 8) return;
+    if (!st.hints.has('move')) return this.hint('move', touch ? 'Drag on the left to walk; push to the edge to run. Drag on the right to look around.' : 'WASD to move, Shift to run. Click the view to capture the mouse and look around.');
+    if (this.enemies.list.some((e) => e.aggro && !e.isBoss)) this.hint('fight', touch ? 'Tap the sword to strike, hold it for a heavy blow. Roll to slip past attacks.' : 'Left click to strike, hold for a heavy blow. Q to roll through attacks.');
+    if (st.player.hp < p.maxHp * 0.4) this.hint('flask', touch ? 'You are badly hurt. Tap the flask to drink.' : 'You are badly hurt. Press R to drink from your flask.');
+    if (this.sky.isNight) this.hint('night', touch ? 'Night falls. Tap the torch button to light your way and hold back dread.' : 'Night falls. Press F to light a torch and hold back dread.');
+    if (st.player.dread > 50) this.hint('dread', 'Dread is rising. Fire, torchlight, pale herbs or a shrine will calm it.');
+    if (this.activeBoss) this.hint('boss', touch ? 'A guardian. Tap the crosshair to lock on, and watch for its glowing wind-up.' : 'A guardian. Press T to lock on, and watch for its glowing wind-up.');
+    if (st.player.embers >= this.levelCost()) this.hint('level', 'You have enough embers to grow stronger. Rest at a shrine to level up.');
+    if (this.nearInteract && this.nearInteract.action === 'craft') this.hint('craft', 'Campfires let you craft. Wood from dead trees, cloth and resin from crates and packs.');
+    if (this.nearInteract && this.nearInteract.action === 'climb') this.hint('tower', 'Climb watchtowers to chart the land around them on your map.');
+  }
+
+  // Day counter and the blood moon that rises every fourth night
+  _calendar(prev, now) {
+    const st = this.state;
+    if (now < prev) st.day = (st.day || 0) + 1;
+    if (prev < 0.76 && now >= 0.76 && (st.day || 0) % 4 === 3 && !st.ended) {
+      this.bloodMoon = true;
+      document.body.classList.add('bloodmoon');
+      this.ui.banner('Night falls', 'The moon rises red', true);
+      setTimeout(() => this.mode === 'play' && this.ui.toast('Blood moon: more foes walk tonight, and their embers run rich.', 5), 3000);
+    }
+    if (this.bloodMoon && prev < 0.24 && now >= 0.24) {
+      this.bloodMoon = false;
+      document.body.classList.remove('bloodmoon');
+      this.ui.toast('Dawn. The red moon sets.');
+    }
+  }
+
+  _lockOn() {
+    const inp = this.input;
+    const p = this.player;
+    if (inp.consume('lock')) {
+      if (this.lockTarget) this.lockTarget = null;
+      else {
+        const fx = Math.sin(this.cameraYaw), fz = Math.cos(this.cameraYaw);
+        let best = null, bs = Infinity;
+        for (const e of this.enemies.list) {
+          const dx = e.pos.x - p.pos.x, dz = e.pos.z - p.pos.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 24) continue;
+          const dot = (dx * fx + dz * fz) / (d || 1);
+          const score = d * (2 - dot) * (e.isBoss ? 0.5 : 1);
+          if (dot > -0.2 && score < bs) { bs = score; best = e; }
+        }
+        this.lockTarget = best;
+        if (!best) this.ui.toast('No foe close enough to lock on to.', 1.5);
+      }
+    }
+    const t = this.lockTarget;
+    if (t && (t.dead || !this.enemies.list.includes(t) || dist2(t.pos.x, t.pos.z, p.pos.x, p.pos.z) > 30)) this.lockTarget = null;
+    document.getElementById('c-lock').classList.toggle('on', !!this.lockTarget);
   }
 
   _titleCamera(dt, t) {
-    const sp = this.gen.spawn;
+    // Orbit wherever the journey will resume (spawn shrine for a new world)
+    const f = this.titleFocus || this.gen.spawn;
     const a = t * 0.04;
     const r = 26;
-    const x = sp.x + Math.cos(a) * r, z = sp.z + Math.sin(a) * r;
+    const x = f.x + Math.cos(a) * r, z = f.z + Math.sin(a) * r;
     const y = Math.max(this.gen.height(x, z), 0) + 9;
     this.camera.position.set(x, y, z);
-    this.camTarget.set(sp.x, sp.y + 2, sp.z);
+    this.camTarget.set(f.x, this.gen.height(f.x, f.z) + 2, f.z);
     this.camera.lookAt(this.camTarget);
-    if (this.chunks) this.chunks.update(sp.x, sp.z, 4);
+    // Only stream terrain on the title itself; while loading, buildWorld owns streaming
+    if (this.chunks && this.mode === 'title') this.chunks.update(f.x, f.z, 4);
   }
 
   _camera(dt) {
@@ -351,8 +437,15 @@ class Game {
       this.cameraYaw -= inp.look.x;
       this.cameraPitch = clamp(this.cameraPitch + inp.look.y, -0.55, 1.2);
     }
+    if (this.lockTarget && this.mode === 'play') {
+      const t = this.lockTarget;
+      const want = Math.atan2(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
+      const d = Math.atan2(Math.sin(want - this.cameraYaw), Math.cos(want - this.cameraYaw));
+      this.cameraYaw += d * Math.min(1, dt * 6);
+      this.cameraPitch += (0.22 - this.cameraPitch) * Math.min(1, dt * 3);
+    }
     // Gentle auto-follow behind the player when moving on touch without looking
-    if (inp.touchMode && !inp.lookTouch && p.speedNow > 1 && Math.abs(inp.move.x) > 0.2) {
+    if (!this.lockTarget && inp.touchMode && !inp.lookTouch && p.speedNow > 1 && Math.abs(inp.move.x) > 0.2) {
       const behind = p.facing;
       const d = Math.atan2(Math.sin(behind - this.cameraYaw), Math.cos(behind - this.cameraYaw));
       this.cameraYaw += d * Math.min(1, dt * 0.8);
@@ -380,7 +473,7 @@ class Game {
     this.camera.lookAt(this.camTarget.x, this.camTarget.y + 0.3, this.camTarget.z);
   }
 
-  shake(a) { this.shakeAmt = Math.max(this.shakeAmt, a); }
+  shake(a) { if (this.settings.shake) this.shakeAmt = Math.max(this.shakeAmt, a); }
   hitstop(t) { this.hitstopT = Math.max(this.hitstopT, t); }
   vibrate(ms) {
     if (this.settings.vibration && navigator.vibrate) { try { navigator.vibrate(ms); } catch { /* not allowed */ } }
@@ -516,6 +609,10 @@ class Game {
         this.lightBeacon(it);
         break;
       }
+      case 'trade':
+        this.pause();
+        this.ui.openTrade();
+        break;
       case 'climb': {
         this.ui.fade(true);
         setTimeout(() => {
@@ -618,6 +715,7 @@ class Game {
   }
 
   respawnEnemies() {
+    this.killedSpawns.clear();
     for (const e of [...this.enemies.list]) if (!e.isBoss || !e.aggro) this.enemies.remove(e);
     for (const rt of this.locations.rt.values()) {
       if (rt.active) { this.locations._deactivate(rt); this.locations._activate(rt); }
@@ -697,6 +795,24 @@ class Game {
     for (const [id, n] of Object.entries(recipe.needs)) this.takeItem(id, n);
     this.giveItem(recipe.out, recipe.qty);
     if (recipe.once) this.state.crafted.add(recipe.out);
+  }
+
+  buy(ware) {
+    const st = this.state;
+    const bought = st.bought || (st.bought = {});
+    const price = ware.special ? ware.price * (1 + (bought.flask || 0)) : ware.price;
+    if (st.player.embers < price) return;
+    st.player.embers -= price;
+    if (ware.special) {
+      bought.flask = (bought.flask || 0) + 1;
+      st.player.flaskMax++;
+      st.player.flasks++;
+      this.ui.toast('Your flask can hold another draught.');
+    } else {
+      this.giveItem(ware.id, 1);
+      if (ware.once) bought[ware.id] = true;
+    }
+    this.audio.play('ember');
   }
 
   upgradeWeapon(id) {
@@ -838,7 +954,9 @@ class Game {
   onEnemyKilled(e) {
     const st = this.state;
     st.stats.kills++;
-    const embers = Math.round(e.embers * (this.player.charm === 'miser_coin' ? 1.25 : 1));
+    if (e.spawnKey) this.killedSpawns.add(e.spawnKey);
+    if (this.lockTarget === e) this.lockTarget = null;
+    const embers = Math.round(e.embers * (this.player.charm === 'miser_coin' ? 1.25 : 1) * (this.bloodMoon ? 1.5 : 1));
     st.player.embers += embers;
     this.fx.burst(e.pos.x, e.pos.y, e.pos.z, 0xe0803c, 12, 2);
     this.audio.play('ember', e.pos);
@@ -1058,6 +1176,7 @@ class Game {
     this.ui.hud.hidden = true;
     this.mode = 'title';
     this.player.root.visible = false;
+    this.titleFocus = { x: this.player.pos.x, z: this.player.pos.z };
     this.enemies.clear();
     this.activeBoss = null;
     this.ui.refreshTitle();

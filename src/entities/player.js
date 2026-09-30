@@ -228,6 +228,10 @@ export class Player {
     if (desired.y > 0 && mv.y < desired.y * 0.5) this.vel.y = Math.min(this.vel.y, 0);
 
     this.speedNow = Math.hypot(mv.x, mv.z) / Math.max(dt, 1e-4);
+    if (this.grounded && this.action !== 'roll') {
+      this.stepDist = (this.stepDist || 0) + Math.hypot(mv.x, mv.z);
+      if (this.stepDist > 1.7) { this.stepDist = 0; game.audio.play('step'); }
+    }
 
     // ---- action effects ----
     if (this.action === 'attack' && !this.swingHit && this.actionT >= (this.heavy ? 0.55 : 0.4)) {
@@ -263,7 +267,7 @@ export class Player {
 
     // ---- torch ----
     if (s.torchOn) {
-      s.torchFuel -= dt;
+      s.torchFuel -= dt * (1 + game.sky.w.rain);
       if (s.torchFuel <= 0) { s.torchFuel = 0; this.toggleTorch(false); game.ui.toast('Your torch gutters out.'); }
     }
     this.torchLight.intensity = s.torchOn ? 9 * (0.92 + 0.08 * Math.sin(performance.now() * 0.02)) : 0;
@@ -293,12 +297,13 @@ export class Player {
     // Soft lock: face the best enemy near the intended direction
     const aimX = dl > 0.01 ? dirX : Math.sin(this.facing);
     const aimZ = dl > 0.01 ? dirZ : Math.cos(this.facing);
-    const target = this.game.enemies.softTarget(this.pos, aimX, aimZ, w.reach + 3);
+    const lock = this.game.lockTarget;
+    const target = lock && !lock.dead ? lock : this.game.enemies.softTarget(this.pos, aimX, aimZ, w.reach + 3);
     if (target) this.facing = Math.atan2(target.pos.x - this.pos.x, target.pos.z - this.pos.z);
     else if (dl > 0.01) this.facing = Math.atan2(dirX, dirZ);
     this.heavy = heavy;
     this.combo = this.action === 'attack' ? (this.combo + 1) % 3 : 0;
-    this.lunge = target && dist2(target.pos.x, target.pos.z, this.pos.x, this.pos.z) > w.reach * 0.8 ? 5 : 1.5;
+    this.lunge = target && dist2(target.pos.x, target.pos.z, this.pos.x, this.pos.z) > w.reach * 0.8 && dist2(target.pos.x, target.pos.z, this.pos.x, this.pos.z) < w.reach + 3 ? 5 : 1.5;
     this.startAction('attack', (heavy ? 0.95 : 0.6) / w.speed);
     this.swingHit = false;
     this.queued = false;

@@ -141,6 +141,10 @@ export class Audio {
       case 'chop': this._noise(0.1, 'bandpass', 700, 3, 0.6 * vol); this._tone('square', 200, 0.05, 0.1 * vol); break;
       case 'discover': [196, 247, 294].forEach((f, i) => setTimeout(() => this.ctx && this._tone('triangle', f, 1.8, 0.09), i * 250)); break;
       case 'levelup': [262, 330, 392, 523].forEach((f, i) => setTimeout(() => this.ctx && this._tone('triangle', f, 0.8, 0.1), i * 110)); break;
+      case 'crows':
+        for (let i = 0; i < 4; i++) setTimeout(() => this.ctx && this._tone('sawtooth', 900 + Math.random() * 300, 0.12, 0.05 * vol, 500), i * 140 + Math.random() * 80);
+        this._noise(0.8, 'bandpass', 2000, 1, 0.12 * vol);
+        break;
       case 'ui': this._tone('triangle', 660, 0.06, 0.05); break;
       case 'step': this._noise(0.06, 'lowpass', 500, 1, 0.12 * vol); break;
       default: break;

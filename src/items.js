@@ -89,3 +89,19 @@ export function itemName(id, level = 0) {
   if (!d) return id;
   return level > 0 ? `${d.name} +${level}` : d.name;
 }
+
+// The Pale Merchant's wares, priced in embers
+export const MERCHANT = [
+  { id: 'torch', price: 60 },
+  { id: 'dried_meat', price: 70 },
+  { id: 'pale_herb', price: 90 },
+  { id: 'firebomb', price: 140 },
+  { id: 'cloth', price: 35 },
+  { id: 'resin', price: 45 },
+  { id: 'iron_scrap', price: 80 },
+  { id: 'ember_shard', price: 450 },
+  { id: 'gambeson', price: 600, once: true },
+  { id: 'pilgrim_spear', price: 900, once: true },
+  { id: 'ember_locket', price: 1200, once: true },
+  { id: 'flask', price: 1500, special: true, name: 'Flask ember', desc: 'Your flask holds one more draught.' },
+];

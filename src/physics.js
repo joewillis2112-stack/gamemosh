@@ -41,7 +41,7 @@ export class Physics {
     this.controller = this.world.createCharacterController(0.03);
     this.controller.setMaxSlopeClimbAngle((50 * Math.PI) / 180);
     this.controller.setMinSlopeSlideAngle((55 * Math.PI) / 180);
-    this.controller.enableAutostep(0.45, 0.2, false);
+    this.controller.enableAutostep(0.55, 0.2, false);
     this.controller.enableSnapToGround(0.4);
     this.controller.setApplyImpulsesToDynamicBodies(true);
     this.controller.setCharacterMass(70);

@@ -24,7 +24,13 @@ A dark-fantasy survival RPG that runs in a phone browser. Every world is generat
 9. **Procedural lore notes** at ruins and standing stones, collected in the journal.
 10. **Synthesised audio**: wind, rain, thunder, combat sounds, a heartbeat at low health, and whispers at high dread. There are no audio files.
 11. **Autosave**, plus a continue option on the title screen.
-12. **Quality settings** (low/medium/high), look sensitivity, invert look, vibration, and a frame counter.
+12. **Quality settings** (low/medium/high), look sensitivity, invert look, vibration, screen shake, left-handed button layout, and a frame counter.
+13. **The Pale Merchant** at the first shrine and some camps sells supplies, gear and flask upgrades for embers.
+14. **Lock-on targeting** (crosshair button, T key, or right-stick click) that steers the camera and your swings.
+15. **Blood moon** every fourth night: a red sky, more foes, and embers worth half again as much.
+16. **Crows** that scatter when you approach ruins, gallows and wrecks, plus footsteps.
+17. **One-time tips** that appear the first time you meet each situation (combat, night, low health, bosses, crafting).
+18. **Slain defenders stay dead** until you rest at a shrine.
 
 ## Develop
 
@@ -34,6 +40,7 @@ npm run build      # writes dist/index.html
 node tests/smoke.mjs out/            # boots the game headless and screenshots it
 node tests/smoke.mjs out/ --mobile   # same at phone size with touch
 node tests/combat.mjs                # scripted melee, damage, death/respawn, explosion checks
+node tests/flow.mjs out/             # full journey: shrine, level up, trade, chest, boss, beacons, ending, continue
 ```
 
 Source layout: `src/world/` (generation, chunks, structures, sky), `src/entities/` (player, enemies, models), `src/ui.js`, `src/main.js` (game rules and loop). Tuning numbers live in `src/config.js` and `src/items.js`.

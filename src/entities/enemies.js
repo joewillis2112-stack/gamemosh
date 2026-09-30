@@ -15,10 +15,10 @@ export const TYPES = {
 };
 
 const BOSSES = {
-  warden: { base: 'hollow', name: 'warden', scale: 2.2, hp: 720, dmg: 34, reach: 4.4, weapon: 'greatsword', o: { slouch: true, eyes: 'ember', bulk: 1.2, colors: { skin: 0x7a7468, torso: 0x2f2a25, legs: 0x221e1b } }, moves: ['swing', 'swing', 'slam', 'charge'] },
-  knight: { base: 'knight', name: 'knight', scale: 1.9, hp: 680, dmg: 32, reach: 4.0, weapon: 'greatsword', o: { helm: true, bulk: 1.25, eyes: 'ember', colors: { torso: 0x1e1f23, legs: 0x151518 } }, moves: ['swing', 'swing', 'slam', 'charge'] },
-  witch: { base: 'wraith', name: 'witch', scale: 1.7, hp: 540, dmg: 26, reach: 3.0, o: { color: 0x2a1512, eyes: 'ember' }, moves: ['volley', 'volley', 'nova', 'blink'] },
-  beast: { base: 'wolf', name: 'beast', scale: 2.5, hp: 620, dmg: 30, reach: 3.2, o: { color: 0x2a2522 }, moves: ['lunge', 'lunge', 'lunge', 'howl'] },
+  warden: { base: 'hollow', name: 'warden', scale: 2.2, hp: 420, dmg: 34, reach: 4.4, weapon: 'greatsword', o: { slouch: true, eyes: 'ember', bulk: 1.2, colors: { skin: 0x7a7468, torso: 0x2f2a25, legs: 0x221e1b } }, moves: ['swing', 'swing', 'slam', 'charge'] },
+  knight: { base: 'knight', name: 'knight', scale: 1.9, hp: 400, dmg: 32, reach: 4.0, weapon: 'greatsword', o: { helm: true, bulk: 1.25, eyes: 'ember', colors: { torso: 0x1e1f23, legs: 0x151518 } }, moves: ['swing', 'swing', 'slam', 'charge'] },
+  witch: { base: 'wraith', name: 'witch', scale: 1.7, hp: 320, dmg: 26, reach: 3.0, o: { color: 0x2a1512, eyes: 'ember' }, moves: ['volley', 'volley', 'nova', 'blink'] },
+  beast: { base: 'wolf', name: 'beast', scale: 2.5, hp: 360, dmg: 30, reach: 3.2, o: { color: 0x2a2522 }, moves: ['lunge', 'lunge', 'lunge', 'howl'] },
 };
 
 let nextId = 1;
@@ -37,7 +37,7 @@ class Enemy {
     this.level = opts.level || 1;
     const lv = this.level - 1;
     this.scale = bossDef ? bossDef.scale : opts.elite ? 1.25 : 1;
-    this.maxHp = (bossDef ? bossDef.hp * (1 + lv * 0.18) : base.hp * (1 + lv * 0.35)) * (opts.elite ? 2 : 1);
+    this.maxHp = (bossDef ? bossDef.hp * (1 + lv * 0.22) : base.hp * (1 + lv * 0.35)) * (opts.elite ? 2 : 1);
     this.hp = this.maxHp;
     this.dmg = (bossDef ? bossDef.dmg : base.dmg) * (1 + lv * 0.16) * (opts.elite ? 1.3 : 1);
     this.reach = bossDef ? bossDef.reach : base.reach * this.scale;
@@ -48,6 +48,7 @@ class Enemy {
     this.wild = !!opts.wild;
     this.home = new THREE.Vector3(x, 0, z);
     this.nightOnly = !!opts.nightOnly;
+    this.spawnKey = opts.spawnKey || null;
 
     const ro = { ...(base.o || {}), ...(bossDef ? bossDef.o : {}), scale: this.scale };
     if (opts.elite && ro.colors) ro.colors = { ...ro.colors, torso: 0x4a2622 };
@@ -400,10 +401,16 @@ export class EnemyManager {
     const loc = rt.loc;
     const lvl = game.gen.dangerAt(loc.x, loc.z);
     const night = game.sky.isNight;
-    for (const s of rt.b.spawns) {
-      if (s.nightOnly && !night) continue;
+    rt.b.spawns.forEach((s, i) => {
+      if (s.nightOnly && !night) return;
+      const spawnKey = `${loc.id}:${i}`;
+      if (game.killedSpawns.has(spawnKey)) return; // stays dead until you rest
       const elite = loc.kind === 'major' && Math.random() < 0.12;
-      this.spawn(s.type, s.x, s.z, { level: lvl, locId: loc.id, elite, nightOnly: s.nightOnly });
+      this.spawn(s.type, s.x, s.z, { level: lvl, locId: loc.id, elite, nightOnly: s.nightOnly, spawnKey });
+    });
+    if (game.bloodMoon && rt.b.spawns.length) {
+      const s = rt.b.spawns[0];
+      this.spawn(s.type === 'wolf' ? 'wolf' : 'hollow', s.x + 3, s.z - 2, { level: lvl + 1, locId: loc.id, elite: true });
     }
     if (loc.kind === 'major' && !game.state.bosses.has(loc.id) && rt.b.bossSpawn) {
       const bs = rt.b.bossSpawn;
@@ -450,9 +457,9 @@ export class EnemyManager {
     }
     if (this.wildTimer > 0 || p.dead) return;
     const night = game.sky.isNight;
-    this.wildTimer = night ? 7 : 12;
+    this.wildTimer = game.bloodMoon ? 4 : night ? 7 : 12;
     const wildCount = this.list.filter((e) => e.wild).length;
-    const cap = night ? 7 : 4;
+    const cap = (night ? 7 : 4) + (game.bloodMoon ? 3 : 0);
     if (wildCount >= cap) return;
     // Never spawn right next to a shrine
     if (game.locations.nearestFireDist(p.pos.x, p.pos.z, ['shrine']) < 40) return;

@@ -1,5 +1,5 @@
 // All DOM interface: title, HUD, menus, shrine, map, journal, settings, and controller/keyboard navigation.
-import { ITEMS, RECIPES, itemName, upgradeCost } from './items.js';
+import { ITEMS, RECIPES, MERCHANT, itemName, upgradeCost } from './items.js';
 import { WORLD, QUALITY } from './config.js';
 import { MAP_N } from './world/mapgen.js';
 import { FOG_N, peekSave } from './state.js';
@@ -100,6 +100,7 @@ export class UI {
     click('#m-quit', () => g.saveAndQuit());
     click('#s-leave', () => g.leaveShrine());
     click('#reader-close', () => { this.close('reader'); g.resume(); });
+    click('#trade-close', () => { this.close('trade'); g.resume(); });
     click('#d-respawn', () => g.respawn());
     click('#e-continue', () => { this.close('ending'); g.resume(); });
     for (const b of $$('#menu [data-tab]')) b.addEventListener('click', () => { g.audio.play('ui'); this.menuTab(b.dataset.tab); });
@@ -467,7 +468,28 @@ export class UI {
 
   renderMap(body) {
     body.innerHTML = `<div class="map-wrap"><canvas id="bigmap" width="512" height="512"></canvas></div><div class="map-legend"><span>◆ Guardian ruin</span><span>● Shrine</span><span>■ Other place</span><span style="color:#e0803c">▲ You</span></div>`;
-    this.drawBigMap($('#bigmap'));
+    const canvas = $('#bigmap');
+    this.drawBigMap(canvas);
+    // Tap a marker to name it
+    canvas.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const g = this.game;
+      const r = canvas.getBoundingClientRect();
+      const wx = ((e.clientX - r.left) / r.width) * WORLD.HALF * 2 - WORLD.HALF;
+      const wz = ((e.clientY - r.top) / r.height) * WORLD.HALF * 2 - WORLD.HALF;
+      let best = null, bd = 60;
+      for (const loc of g.gen.locations) {
+        const known = g.state.discovered.has(loc.id) || g.state.seen.has(loc.id);
+        if (!known && loc.kind !== 'major') continue;
+        const d = dist2(wx, wz, loc.x, loc.z);
+        if (d < bd) { bd = d; best = loc; }
+      }
+      if (!best) return;
+      const known = g.state.discovered.has(best.id) || g.state.seen.has(best.id);
+      const d = Math.round(dist2(g.player.pos.x, g.player.pos.z, best.x, best.z));
+      const status = best.kind === 'major' ? (g.state.beacons.has(best.id) ? ' · beacon lit' : g.state.bosses.has(best.id) ? ' · guardian slain' : '') : '';
+      this.toast(`${known ? best.name : `Unknown ${TYPE_LABEL[best.type].toLowerCase()}`}${known ? ` (${TYPE_LABEL[best.type]})` : ''} · ${d} m away${status}`, 3.5);
+    });
   }
 
   drawBigMap(canvas, opts = {}) {
@@ -554,6 +576,8 @@ export class UI {
       <div class="set-row"><label for="set-vol">Sound</label><input id="set-vol" type="range" min="0" max="1" step="0.05" value="${s.volume}"></div>
       <div class="set-row"><label for="set-mus">Music</label><input id="set-mus" type="range" min="0" max="1" step="0.05" value="${s.music}"></div>
       <div class="set-row"><span>Vibration</span><div class="seg" id="set-vib"><button data-v="1" aria-pressed="${s.vibration}">On</button><button data-v="0" aria-pressed="${!s.vibration}">Off</button></div></div>
+      <div class="set-row"><span>Button side</span><div class="seg" id="set-lefty"><button data-v="0" aria-pressed="${!s.lefty}">Right</button><button data-v="1" aria-pressed="${!!s.lefty}">Left</button></div></div>
+      <div class="set-row"><span>Screen shake</span><div class="seg" id="set-shake"><button data-v="1" aria-pressed="${s.shake}">On</button><button data-v="0" aria-pressed="${!s.shake}">Off</button></div></div>
       <div class="set-row"><span>Frame counter</span><div class="seg" id="set-fps"><button data-v="1" aria-pressed="${s.showFps}">On</button><button data-v="0" aria-pressed="${!s.showFps}">Off</button></div></div>
       <p class="fine" style="margin-top:12px">Low graphics shortens the view distance and thins vegetation. Use it if your phone runs hot.</p>`;
     const seg = (id, fn) => $$(`#${id} button`, body).forEach((b) => b.addEventListener('click', () => {
@@ -566,6 +590,8 @@ export class UI {
     seg('set-inv', (b) => { s.invertY = b.dataset.v === '1'; });
     seg('set-vib', (b) => { s.vibration = b.dataset.v === '1'; });
     seg('set-fps', (b) => { s.showFps = b.dataset.v === '1'; });
+    seg('set-lefty', (b) => { s.lefty = b.dataset.v === '1'; });
+    seg('set-shake', (b) => { s.shake = b.dataset.v === '1'; });
     $('#set-sens', body).addEventListener('input', (e) => { s.sensitivity = +e.target.value; g.applySettings(); });
     $('#set-vol', body).addEventListener('input', (e) => { s.volume = +e.target.value; g.applySettings(); });
     $('#set-mus', body).addEventListener('input', (e) => { s.music = +e.target.value; g.applySettings(); });
@@ -624,6 +650,45 @@ export class UI {
       return `<div class="recipe"><strong>${esc(itemName(id, lvl))} → +${lvl + 1}</strong><button class="mbtn slim${can ? ' primary' : ''}" data-forge="${id}" ${can ? '' : 'disabled'}>Temper</button><div class="needs">${needs}</div></div>`;
     }).join('')}</div>`;
     for (const b of $$('[data-forge]', body)) b.addEventListener('click', () => { g.upgradeWeapon(b.dataset.forge); this.renderForge(body); });
+  }
+
+  // ---------- merchant ----------
+  openTrade() {
+    this.open('trade');
+    this.renderTrade();
+  }
+
+  renderTrade() {
+    const g = this.game;
+    const st = g.state;
+    const body = $('#trade-body');
+    const embers = st.player.embers;
+    const bought = st.bought || (st.bought = {});
+    let html = `<p>You carry <span class="price">${fmtInt(embers)}</span> embers.</p><div class="list">`;
+    MERCHANT.forEach((w, i) => {
+      if (w.once && (bought[w.id] || st.inv[w.id])) return;
+      const price = w.special ? w.price * (1 + (bought.flask || 0)) : w.price;
+      const name = w.special ? w.name : ITEMS[w.id].name;
+      const desc = w.special ? w.desc : ITEMS[w.id].desc;
+      const owned = w.special ? `Flask holds ${st.player.flaskMax}` : `You have ${st.inv[w.id] || 0}`;
+      const can = embers >= price;
+      html += `<div class="recipe"><strong>${esc(name)} <span class="price">${fmtInt(price)}</span></strong><button class="mbtn slim${can ? ' primary' : ''}" data-buy="${i}" ${can ? '' : 'disabled'}>Buy</button><div class="needs">${esc(desc)} ${owned}.</div></div>`;
+    });
+    body.innerHTML = `${html}</div>`;
+    for (const b of $$('[data-buy]', body)) b.addEventListener('click', () => { g.buy(MERCHANT[+b.dataset.buy]); this.renderTrade(); });
+  }
+
+  // Lock-on marker over the targeted enemy
+  updateReticle(camera) {
+    const el = $('#reticle');
+    const t = this.game.lockTarget;
+    if (!t || t.dead || this.game.mode !== 'play') { el.hidden = true; return; }
+    const v = t.pos.clone();
+    v.y += 0.6 * t.scale;
+    v.project(camera);
+    if (v.z > 1) { el.hidden = true; return; }
+    el.hidden = false;
+    el.style.transform = `translate(${(v.x * 0.5 + 0.5) * window.innerWidth}px, ${(-v.y * 0.5 + 0.5) * window.innerHeight}px)`;
   }
 
   // ---------- controller / keyboard navigation for menus ----------

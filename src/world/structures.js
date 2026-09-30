@@ -23,6 +23,7 @@ export class Builder {
     this.props = [];
     this.spawns = [];
     this.chests = [];
+    this.npcs = [];
     this.stack = [];
     this.tx = 0; this.tz = 0; this.tr = 0;
     this.rng = new RNG(hashInts(loc.seed, 5));
@@ -146,6 +147,17 @@ export class Builder {
     this.box(x, 0, z, 1.1, 0.6, 0.7, PAL.darkWood, { ry, collide: true, visible: false });
     return it;
   }
+  // A wandering trader who sells supplies for embers
+  addMerchant(x, z, ry) {
+    const [lx, lz] = this.xf(x, z);
+    const p = this.world(lx, 0, lz);
+    this.npcs.push({ ...p, ry: ry + this.tr + this.loc.rot, kind: 'merchant' });
+    this.box(x, 0, z, 0.8, 1.6, 0.8, 0, { collide: true, visible: false });
+    this.proto('shrub', x + 0.9, 0, z + 0.3, 0.5, 0);
+    this.box(x - 0.9, 0, z + 0.2, 0.7, 0.5, 0.5, PAL.cloth, { collide: false });
+    return this.addInteract(x, 0.8, z, 'trade', 'Trade with the Pale Merchant', { r: 2.8 });
+  }
+
   addNote(x, y, z) {
     this.box(x, y, z, 0.35, 0.03, 0.45, 0xb9ad8c, { collide: false, ry: this.rng.range(-0.4, 0.4) });
     return this.addInteract(x, y + 0.2, z, 'note', 'Read note', { r: 2 });
@@ -281,10 +293,10 @@ function cathedral(b) {
   }
   for (let z = -L + 3; z < L; z += 7) if (r.chance(0.6)) b.box(0, 10.2, z, W * 2 + 1.5, 0.5, 0.5, PAL.darkWood, { collide: false });
   // Altar + beacon
-  b.box(-6, 0, -L - 5, 12, 0.6, 8, PAL.stone);
-  b.box(0, 0.6, -L + 2, 4, 1.1, 1.8, PAL.stone);
-  beacon(b, 0, -L - 2);
-  b.addNote(0.8, 1.72, -L + 2);
+  b.box(0, 0, -L - 2, 12, 0.45, 8, PAL.stone);
+  b.box(0, 0.45, -L + 2, 4, 1.1, 1.8, PAL.stone);
+  beacon(b, 0, -L - 2, 0.45);
+  b.addNote(0.8, 1.57, -L + 2);
   b.addChest(-W + 2.5, -L + 3, 0.2, 0.7);
   b.addChest(W - 2.5, L - 3, 3.1, 0.4);
   b.bossSpawn = b.world(...rot(b, 0, -6));
@@ -336,9 +348,8 @@ function necropolis(b) {
       if (r.chance(0.35)) b.box(gx, -0.05, gz + 0.9, 0.8, 0.15, 1.6, 0x3a3428, { collide: false });
     }
   }
-  b.box(0, 0, 0, 12, 1, 12, PAL.darkStone);
-  b.box(0, 1, 0, 9, 1, 9, PAL.stone);
-  b.box(0, 2, 0, 6, 1, 6, PAL.darkStone);
+  // Stepped tomb: half-metre steps you can walk up
+  for (let i = 0; i < 6; i++) b.box(0, i * 0.5, 0, 12 - i * 1.1, 0.5, 12 - i * 1.1, i % 2 ? PAL.stone : PAL.darkStone);
   beacon(b, 0, 0, 3);
   for (let i = 0; i < 4; i++) b.proto('dead', r.range(-24, 24), 0, r.range(-24, 24), r.range(0.9, 1.2), r.range(0, 6), { collide: 'tree' });
   b.addChest(-15, -11, 0, 0.7);
@@ -429,6 +440,7 @@ function shrine(b) {
   b.cyl(0, 0.35, 0.7, 0.45, 0.8, PAL.iron, { seg: 8 });
   const fire = b.addFire(0, 1.3, 0.7, 'shrine', 0.9, true);
   b.addInteract(0, 0.8, 0.7, 'rest', 'Rest at shrine', { fire, r: 3 });
+  if (b.loc.isSpawn) b.addMerchant(4.8, -2.4, -Math.PI / 2);
 }
 
 function watchtower(b) {
@@ -490,7 +502,8 @@ function camp(b) {
   b.addInteract(r.range(-3, 3), 0.3, -5.5, 'loot', 'Search the packs', { quality: 0.3 });
   b.box(0, 0, -5.5, 0.8, 0.5, 0.6, PAL.cloth, { collide: false });
   if (r.chance(0.5)) b.addNote(2, 0.02, 2.5);
-  for (let i = 0; i < r.int(1, 3); i++) b.addSpawn(r.range(-6, 6), r.range(-6, 6), 'hollow');
+  if (r.chance(0.35)) b.addMerchant(-2.6, 2.2, 2.4);
+  else for (let i = 0; i < r.int(1, 3); i++) b.addSpawn(r.range(-6, 6), r.range(-6, 6), 'hollow');
 }
 
 function gallows(b) {

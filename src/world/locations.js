@@ -4,6 +4,9 @@ import { R, GROUPS } from '../physics.js';
 import { buildLocation } from './structures.js';
 import { PAL } from './meshkit.js';
 import { dist2 } from '../core/util.js';
+import { HumanoidRig } from '../entities/models.js';
+import { spawnCrows, updateCrows } from './crows.js';
+import { RNG, hashInts } from '../core/rng.js';
 
 const VISUAL_PAD = 120; // metres beyond chunk view distance to keep silhouettes
 const ACTIVE_R = 150;
@@ -128,6 +131,10 @@ export class LocationManager {
         l.distance = f.kind === 'beacon' ? 30 : 15;
       } else l.intensity = 0;
     }
+    // Crows
+    for (const rt of this.rt.values()) {
+      if (rt.crows.length && rt.active && updateCrows(rt.crows, px, pz, dt, t)) this.game.audio.play('crows', { x: rt.loc.x, z: rt.loc.z });
+    }
     // Chest lids
     for (const rt of this.rt.values()) {
       for (const c of rt.b.chests) {
@@ -183,7 +190,18 @@ export class LocationManager {
       if (state.opened.has(c.id)) lid.rotation.x = -1.25;
       group.add(g);
     }
-    const rt = { loc, b, mesh, group, active: false, colliders: [], props: [] };
+    for (const n of b.npcs) {
+      const rig = new HumanoidRig({ hood: true, cloak: true, eyes: 'pale', colors: { torso: 0x6a6358, legs: 0x3a352f, cloak: 0x8a8578, hood: 0x9a958a, skin: 0xb0a898 } });
+      rig.root.position.set(n.x, n.y, n.z);
+      rig.root.rotation.y = n.ry;
+      rig.hips.position.y = 0.55; // sits cross-legged
+      rig.legL.rotation.x = rig.legR.rotation.x = -1.4;
+      rig.armL.rotation.x = rig.armR.rotation.x = -0.6;
+      group.add(rig.root);
+      n.rig = rig;
+    }
+    const crows = spawnCrows(loc, group, this.gen, new RNG(hashInts(loc.seed, 404)));
+    const rt = { loc, b, mesh, group, active: false, colliders: [], props: [], crows };
     this.rt.set(loc.id, rt);
     return rt;
   }

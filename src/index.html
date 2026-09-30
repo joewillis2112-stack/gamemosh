@@ -34,7 +34,6 @@
       </div>
     </div>
     <div id="objective"></div>
-    <div id="toasts"></div>
     <div id="pickups"></div>
     <div id="bossbar" hidden><div class="bname"></div><div class="bbar"><i></i></div></div>
     <button id="prompt" data-btn="interact" hidden><kbd>E</kbd><span></span></button>
@@ -45,11 +44,14 @@
       <button class="cbtn small" data-btn="throw" id="c-throw" aria-label="Throw firebomb"><svg viewBox="0 0 24 24"><circle cx="11" cy="14" r="6"/><path d="M14 8l3-3M17 5l2 1"/></svg><em id="bomb-n">0</em></button>
       <button class="cbtn mid" data-btn="jump" aria-label="Jump"><svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg></button>
       <button class="cbtn mid" data-btn="dodge" aria-label="Roll"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/></svg></button>
+      <button class="cbtn small" data-btn="lock" id="c-lock" aria-label="Lock on to the nearest enemy"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg></button>
       <button class="cbtn big" data-btn="attack" aria-label="Attack. Hold for a heavy attack"><svg viewBox="0 0 24 24"><path d="M5 19l9-9M14 4l6 0 0 6-8 8-6-6z"/></svg></button>
     </div>
     <div id="fps" hidden></div>
   </div>
   <div id="numbers"></div>
+  <div id="toasts"></div>
+  <div id="reticle" hidden></div>
 
   <!-- Title -->
   <section id="title" class="screen">
@@ -128,6 +130,15 @@
     </div>
   </section>
 
+  <section id="trade" class="screen panel-screen" hidden>
+    <div class="panel narrow tall">
+      <h2>The Pale Merchant</h2>
+      <p class="fine" id="trade-sub">“Embers for goods. Goods for embers. The dark takes no coin.”</p>
+      <div class="tab-body" id="trade-body"></div>
+      <div class="row end foot"><button id="trade-close" class="mbtn slim primary">Leave</button></div>
+    </div>
+  </section>
+
   <section id="reader" class="screen panel-screen" hidden>
     <div class="panel narrow parchment">
       <h2 id="reader-title"></h2>
@@ -161,11 +172,11 @@
         <h3>Goal</h3>
         <p>Six guardians hold the old ruins. Defeat each one, then light its beacon. When all six burn, the Gloam lifts.</p>
         <h3>Touch</h3>
-        <p>Drag the left side to move; push the stick to its edge to sprint. Drag the right side to look. Tap the sword to attack, hold it for a heavy blow. Roll through attacks: you cannot be hurt mid-roll.</p>
+        <p>Drag the left side to move; push the stick to its edge to sprint. Drag the right side to look. Tap the sword to attack, hold it for a heavy blow. Roll through attacks: you cannot be hurt mid-roll. The crosshair button locks on to the nearest foe.</p>
         <h3>Keyboard</h3>
-        <p>WASD move, mouse look (click to capture), left click attack (hold for heavy), Shift sprint, Space jump, Q roll, E interact, R flask, F torch, G firebomb, Tab gear, M map, Esc menu.</p>
+        <p>WASD move, mouse look (click to capture), left click attack (hold for heavy), Shift sprint, Space jump, Q roll, E interact, T lock on, R flask, F torch, G firebomb, Tab gear, M map, Esc menu.</p>
         <h3>Controller</h3>
-        <p>Left stick move, right stick look, X / Square attack, A / Cross jump, B / Circle roll, Y / Triangle interact, LB flask, RB firebomb, Back map, Start menu.</p>
+        <p>Left stick move, right stick look, X / Square attack, A / Cross jump, B / Circle roll, Y / Triangle interact, LB flask, RB firebomb, right stick click lock on, Back map, Start menu.</p>
         <h3>Dread</h3>
         <p>Darkness, the blight and wraiths fill your dread meter. High dread draws wraiths to you and, at its peak, wounds you. Carry a torch at night, stand near fire, or rest at a shrine.</p>
         <h3>Embers</h3>

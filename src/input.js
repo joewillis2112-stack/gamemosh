@@ -4,7 +4,7 @@
 const KEYMAP = {
   KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyQ: 'dodge', ControlLeft: 'dodge', KeyE: 'interact', KeyR: 'flask',
-  KeyF: 'torch', KeyG: 'throw', KeyC: 'use', Tab: 'inventory', KeyI: 'inventory', KeyM: 'map', Escape: 'menu', KeyJ: 'journal',
+  KeyF: 'torch', KeyG: 'throw', KeyT: 'lock', KeyC: 'use', Tab: 'inventory', KeyI: 'inventory', KeyM: 'map', Escape: 'menu', KeyJ: 'journal',
 };
 
 export class Input {
@@ -22,6 +22,7 @@ export class Input {
     this.sensitivity = 1;
     this.invertY = false;
     this.enabled = true;
+    this.lefty = false;
     this.joy = null; // { id, ox, oy, x, y }
     this.lookTouch = null;
     this.gamepad = { active: false, prevButtons: [] };
@@ -138,7 +139,8 @@ export class Input {
       this.setTouchMode(true);
       e.preventDefault();
       const w = window.innerWidth;
-      if (e.clientX < w * 0.45 && !this.joy) {
+      const onStickSide = this.lefty ? e.clientX > w * 0.55 : e.clientX < w * 0.45;
+      if (onStickSide && !this.joy) {
         this.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY };
       } else if (!this.lookTouch) {
         this.lookTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
@@ -232,7 +234,7 @@ export class Input {
     this.look.x += rx * dt * 2.6 * this.sensitivity;
     this.look.y += ry * dt * 2.0 * this.sensitivity * (this.invertY ? -1 : 1);
     // Standard mapping
-    const map = { 0: 'jump', 1: 'dodge', 2: 'attack', 3: 'interact', 4: 'flask', 5: 'throw', 10: 'sprint', 9: 'menu', 8: 'map', 12: 'up_d', 13: 'down_d', 14: 'left_d', 15: 'right_d', 7: 'attack', 6: 'torch' };
+    const map = { 0: 'jump', 1: 'dodge', 2: 'attack', 3: 'interact', 4: 'flask', 5: 'throw', 10: 'sprint', 9: 'menu', 8: 'map', 12: 'up_d', 13: 'down_d', 14: 'left_d', 15: 'right_d', 7: 'attack', 6: 'torch', 11: 'lock' };
     const prev = this.gamepad.prevButtons;
     gp.buttons.forEach((b, i) => {
       const name = map[i];

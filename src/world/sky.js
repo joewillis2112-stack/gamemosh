@@ -43,7 +43,10 @@ export class Sky {
       night: { value: 0 },
       cloud: { value: 0 },
       time: { value: 0 },
+      blood: { value: 0 },
     };
+    this.blood = 0;
+    this.bloodAmt = 0;
     const skyMat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       side: THREE.BackSide,
@@ -51,7 +54,7 @@ export class Sky {
       fog: false,
       vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`,
       fragmentShader: `
-        uniform vec3 top; uniform vec3 hor; uniform vec3 sunDir; uniform vec3 sunCol; uniform float night; uniform float cloud; uniform float time;
+        uniform vec3 top; uniform vec3 hor; uniform vec3 sunDir; uniform vec3 sunCol; uniform float night; uniform float cloud; uniform float time; uniform float blood;
         varying vec3 vDir;
         float hash(vec3 p){ p = fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
         void main(){
@@ -63,7 +66,8 @@ export class Sky {
           c += sunCol * (pow(s, 400.0)*1.5 + pow(s, 8.0)*0.18) * (1.0-cloud*0.8);
           vec3 md = -sunDir;
           float m = max(dot(d, md), 0.0);
-          c += vec3(0.75,0.8,0.9) * (smoothstep(0.9993,0.9996,m)*0.9 + pow(m,60.0)*0.08) * night * (1.0-cloud*0.7);
+          vec3 moonC = mix(vec3(0.75,0.8,0.9), vec3(0.9,0.2,0.12), blood);
+          c += moonC * (smoothstep(0.9993,0.9996,m)*0.9 + pow(m,60.0)*(0.08+blood*0.25)) * night * (1.0-cloud*0.5*(1.0-blood));
           vec3 sp = floor(d*380.0);
           float st = step(0.9975, hash(sp)) * smoothstep(0.0,0.3,h);
           float tw = 0.6+0.4*sin(time*3.0+hash(sp+1.0)*40.0);
@@ -185,6 +189,14 @@ export class Sky {
       const ashC = new THREE.Color(0x4a3531).multiplyScalar(1 - nightF * 0.7);
       top.lerp(ashC, this.w.ash * 0.5); hor.lerp(ashC, this.w.ash * 0.6); fog.lerp(ashC, this.w.ash * 0.6);
     }
+    // Blood moon tint
+    this.bloodAmt = lerp(this.bloodAmt, this.blood, 1 - Math.exp(-dt * 0.5));
+    if (this.bloodAmt > 0.01) {
+      const b = this.bloodAmt * nightF;
+      const red = new THREE.Color(0x3a0c0a);
+      top.lerp(red, b * 0.6); hor.lerp(new THREE.Color(0x5a1812), b * 0.7); fog.lerp(new THREE.Color(0x2a0d0b), b * 0.7);
+    }
+    this.uniforms.blood.value = this.bloodAmt;
     // Lightning
     if (this.w.storm > 0.5 && Math.random() < dt * 0.08) {
       this.flash = 1;
@@ -212,7 +224,7 @@ export class Sky {
     const lightDir = e > 0 ? sunDir : sunDir.clone().negate();
     this.sun.position.copy(playerPos).addScaledVector(lightDir, 120);
     this.sun.target.position.copy(playerPos);
-    this.sun.color.copy(e > 0 ? pick('sun') : PAL.night.sun);
+    this.sun.color.copy(e > 0 ? pick('sun') : PAL.night.sun.clone().lerp(new THREE.Color(0xc0402c), this.bloodAmt));
     this.sun.intensity = (e > 0 ? pickN('sunI') * smoothstep(-0.02, 0.15, e) : PAL.night.sunI * smoothstep(0, -0.2, e)) * (1 - cloud * 0.45) + fl * 2;
     // three.js Lambert divides by PI; scale so intensity 1 means "albedo as authored"
     this.sun.intensity *= Math.PI;

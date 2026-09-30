@@ -2,7 +2,7 @@
 // still runs where storage is blocked.
 import { SAVE_KEY, SETTINGS_KEY } from './config.js';
 
-const SETS = ['opened', 'notes', 'discovered', 'seen', 'beacons', 'bosses', 'crafted'];
+const SETS = ['opened', 'notes', 'discovered', 'seen', 'beacons', 'bosses', 'crafted', 'hints'];
 export const FOG_N = 128; // fog-of-war grid cells per side
 
 export function newState(seed) {
@@ -28,11 +28,14 @@ export function newState(seed) {
     beacons: new Set(),
     bosses: new Set(),
     crafted: new Set(),
+    hints: new Set(),
     harvested: [],
     shrine: null,
     time: 0.3,
     fog: new Uint8Array(FOG_N * FOG_N),
     remnant: null,
+    day: 0,
+    bought: {},
     stats: { kills: 0, deaths: 0, playTime: 0, bossKills: 0 },
     ended: false,
   };
@@ -113,6 +116,8 @@ export const DEFAULT_SETTINGS = {
   music: 0.5,
   vibration: true,
   showFps: false,
+  lefty: false,
+  shake: true,
 };
 
 export function loadSettings() {
