@@ -39,7 +39,7 @@ class Enemy {
     this.scale = bossDef ? bossDef.scale : opts.elite ? 1.25 : 1;
     this.maxHp = (bossDef ? bossDef.hp * (1 + lv * 0.22) : base.hp * (1 + lv * 0.35)) * (opts.elite ? 2 : 1);
     this.hp = this.maxHp;
-    this.dmg = (bossDef ? bossDef.dmg : base.dmg) * (1 + lv * 0.16) * (opts.elite ? 1.3 : 1);
+    this.dmg = (bossDef ? bossDef.dmg : base.dmg) * (1 + lv * (bossDef ? 0.1 : 0.16)) * (opts.elite ? 1.3 : 1);
     this.reach = bossDef ? bossDef.reach : base.reach * this.scale;
     this.embers = Math.round((bossDef ? 900 + lv * 250 : base.embers * (1 + lv * 0.55)) * (opts.elite ? 3 : 1));
     this.name = opts.name || (opts.elite ? `Elder ${base.name}` : base.name);
@@ -208,7 +208,7 @@ class Enemy {
         break;
       }
       case 'recover': {
-        const rec = def.recover * (this.isBoss ? 0.8 : 1);
+        const rec = def.recover * (this.isBoss ? 1.15 : 1);
         if (this.stateT >= rec) this.setState(this.aggro ? 'chase' : 'idle');
         break;
       }
@@ -241,8 +241,12 @@ class Enemy {
     const t = this.body.translation();
     let nx = t.x + mv.x, ny = t.y + mv.y, nz = t.z + mv.z;
     const gh = game.gen.height(nx, nz);
-    if (ny < gh - 2) ny = gh + this.halfH + this.radius + 0.2;
-    if (ny < WORLD.WATER - 3) { this.die(0, 0, true); return; }
+    // Never let feet sink under the terrain (e.g. while its chunk is unloaded)
+    if (ny - this.halfH - this.radius < gh - 0.5) { ny = gh + this.halfH + this.radius + 0.1; this.vel.y = 0; }
+    if (ny < WORLD.WATER - 3) {
+      if (this.isBoss) { const hy = game.gen.height(this.home.x, this.home.z) + this.halfH + this.radius + 0.5; this.body.setTranslation({ x: this.home.x, y: hy, z: this.home.z }, true); nx = this.home.x; ny = hy; nz = this.home.z; }
+      else { this.die(0, 0, true); return; }
+    }
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     this.pos.set(nx, ny, nz);
     this.speed = Math.hypot(mv.x, mv.z) / Math.max(dt, 1e-4);
@@ -261,7 +265,8 @@ class Enemy {
     const moves = this.bossDef.moves;
     let m = moves[this.moveIdx++ % moves.length];
     if (this.bossDef.name === 'witch') {
-      if (d < 4.5) m = 'nova';
+      const now = this.game.state.stats.playTime;
+      if (d < 4.5 && now - (this.lastNova || -99) > 6) { m = 'nova'; this.lastNova = now; }
       else if (m === 'nova') m = 'volley';
     } else {
       if (m === 'charge' && d < 6) m = 'swing';
@@ -277,8 +282,12 @@ class Enemy {
       m = 'lunge';
     }
     if (m === 'blink') {
+      // Blink somewhere dry inside the ruin, near the player
       const a = Math.random() * Math.PI * 2;
-      const nx = this.game.player.pos.x + Math.cos(a) * 10, nz = this.game.player.pos.z + Math.sin(a) * 10;
+      let nx = this.game.player.pos.x + Math.cos(a) * 10, nz = this.game.player.pos.z + Math.sin(a) * 10;
+      const hx = nx - this.home.x, hz = nz - this.home.z, hd = Math.hypot(hx, hz);
+      if (hd > 16) { nx = this.home.x + (hx / hd) * 16; nz = this.home.z + (hz / hd) * 16; }
+      if (this.game.gen.height(nx, nz) < WORLD.WATER + 0.5) { this.setState('recover'); return; }
       this.game.fx.burst(this.pos.x, this.pos.y, this.pos.z, 0x331410, 20, 3);
       const ny = this.game.gen.height(nx, nz) + 2;
       this.body.setTranslation({ x: nx, y: ny, z: nz }, true);
@@ -412,7 +421,8 @@ export class EnemyManager {
       const s = rt.b.spawns[0];
       this.spawn(s.type === 'wolf' ? 'wolf' : 'hollow', s.x + 3, s.z - 2, { level: lvl + 1, locId: loc.id, elite: true });
     }
-    if (loc.kind === 'major' && !game.state.bosses.has(loc.id) && rt.b.bossSpawn) {
+    const bossAlive = this.list.some((e) => e.isBoss && e.locId === loc.id);
+    if (loc.kind === 'major' && !game.state.bosses.has(loc.id) && rt.b.bossSpawn && !bossAlive) {
       const bs = rt.b.bossSpawn;
       this.spawn(loc.bossKind === 'beast' ? 'wolf' : 'hollow', bs.x, bs.z, { boss: loc.bossKind, level: lvl, locId: loc.id, name: loc.bossName });
     }
@@ -423,8 +433,10 @@ export class EnemyManager {
   }
 
   despawnForLocation(locId) {
+    const p = this.game.player.pos;
     for (const e of [...this.list]) {
-      if (e.locId === locId && !e.aggro) this.remove(e);
+      if (e.locId !== locId) continue;
+      if (!e.aggro || e.isBoss || dist2(e.pos.x, e.pos.z, p.x, p.z) > 120) this.remove(e);
     }
   }
 
@@ -435,7 +447,7 @@ export class EnemyManager {
       const d = Math.hypot(dx, dz);
       if (d > range + e.radius) continue;
       const dot = (dx * ax + dz * az) / (d || 1);
-      if (dot < 0.2 && d > 1.2) continue;
+      if (dot < 0.2 && d > 1.2 + e.radius * 1.5) continue;
       const score = d * (2 - dot);
       if (score < bestScore) { bestScore = score; best = e; }
     }

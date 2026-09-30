@@ -221,7 +221,12 @@ export class WorldGen {
     loc.name = locationName(nameRng, type);
     if (loc.kind === 'major') {
       loc.bossKind = BOSS_KINDS[(this.locations.filter((l) => l.kind === 'major').length + (this.seed % 4)) % 4];
-      loc.bossName = bossName(nameRng, loc.bossKind);
+      this.usedBossFirst = this.usedBossFirst || new Set();
+      for (let i = 0; i < 20; i++) {
+        loc.bossName = bossName(nameRng, loc.bossKind);
+        if (!this.usedBossFirst.has(loc.bossName.split(',')[0])) break;
+      }
+      this.usedBossFirst.add(loc.bossName.split(',')[0]);
     }
     this.locations.push(loc);
     this._addToGrid(loc);

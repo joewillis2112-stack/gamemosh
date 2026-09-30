@@ -202,8 +202,13 @@ export class HumanoidRig {
         armL = -2.2;
         this.head.rotation.x = -0.4;
         break;
-      case 'dead':
+      case 'dead': {
+        const k = Math.min(1, t * 1.6);
+        bodyPitch = -1.45 * k * k;
+        legL = 0.2; legR = -0.15; armL = -2.6 * k; armR = -2.2 * k;
+        hipsY = 0.95 - 0.35 * k;
         break;
+      }
       default:
         break;
     }

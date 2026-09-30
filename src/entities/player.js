@@ -90,10 +90,7 @@ export class Player {
   update(dt, input, camYaw) {
     const game = this.game;
     const s = this.s;
-    if (this.dead) {
-      this.rig.animate(dt, { speed: 0, grounded: true, action: 'dead' });
-      return;
-    }
+    if (this.dead) return;
     this.iframes = Math.max(0, this.iframes - dt);
     this.hurtCooldown = Math.max(0, this.hurtCooldown - dt);
     if (this.actionDur > 0) {
@@ -207,7 +204,7 @@ export class Player {
     } else this._edgeWarned = false;
     // Safety net: never fall through the ground
     const gh = game.gen.height(nx, nz);
-    if (ny < gh - 2) { ny = gh + 1; this.vel.y = 0; }
+    if (ny - PLAYER.halfHeight - PLAYER.radius < gh - 0.6) { ny = gh + PLAYER.halfHeight + PLAYER.radius + 0.05; this.vel.y = 0; }
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     this.pos.set(nx, ny, nz);
 
@@ -394,12 +391,13 @@ export class Player {
         const l = Math.hypot(dx, dz) || 1;
         this.vel.x += (dx / l) * 5;
         this.vel.z += (dz / l) * 5;
-        if (amount > 12 && this.action !== 'roll') { this.startAction('hit', 0.35); this.charging = false; }
+        if (amount > Math.max(20, this.maxHp * 0.16) && this.action !== 'roll') { this.startAction('hit', 0.35); this.charging = false; }
       }
     }
     if (s.hp <= 0) {
       s.hp = 0;
       this.dead = true;
+      this.deadT = 0;
       this.action = 'none';
       this.game.onPlayerDeath();
     }

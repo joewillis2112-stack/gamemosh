@@ -457,6 +457,9 @@ function watchtower(b) {
   b.box(0.45, 0, 2.25, 0.08, hgt, 0.08, PAL.wood, { collide: false });
   const top = b.world(...rot(b, 0, 0));
   b.addInteract(0, 0.8, 2.6, 'climb', 'Climb the tower', { top: { x: top.x, y: b.loc.y + hgt + 0.5, z: top.z } });
+  const [bx, bz] = b.xf(0, 3.6);
+  const base = b.world(bx, 0, bz);
+  b.addInteract(0, hgt + 0.9, 0, 'descend', 'Climb down', { top: { x: base.x, y: b.loc.y + 0.2, z: base.z }, r: 2.2 });
   if (r.chance(0.6)) b.addChest(2.8, -1.5, 0.3, 0.3);
   for (let i = 0; i < r.int(0, 2); i++) b.addSpawn(r.range(-6, 6), r.range(-6, 6), 'hollow');
 }

@@ -80,6 +80,7 @@ export class UI {
       $('#seed-input').value = randomSeedString();
       $('#ng-warn').hidden = !peekSave();
       this.open('newgame');
+      if (!document.body.classList.contains('touch')) setTimeout(() => $('#seed-input').select(), 50);
     });
     click('#seed-random', () => { $('#seed-input').value = randomSeedString(); });
     click('#ng-back', () => this.close('newgame'));
@@ -377,7 +378,13 @@ export class UI {
     const slot = (label, id) => `<div class="slot"><span>${label}</span><span>${id ? esc(itemName(id, label === 'Weapon' ? st.weaponLvl[id] || 0 : 0)) : '—'}</span></div>`;
     body.innerHTML = `<div class="gear-layout"><div><div class="slots">${slot('Weapon', eq.weapon)}${slot('Armour', eq.armor)}${slot('Charm', eq.charm)}</div><div class="inv-list">${list}</div></div><div class="detail" id="gear-detail"><p class="fine">Select an item to see it.</p></div></div>`;
     for (const b of $$('.inv-item', body)) {
-      b.addEventListener('click', () => { $$('.inv-item', body).forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); this._gearDetail(b.dataset.id); });
+      b.addEventListener('click', () => {
+        $$('.inv-item', body).forEach((x) => x.classList.remove('sel'));
+        b.classList.add('sel');
+        this._gearDetail(b.dataset.id);
+        const d = $('#gear-detail');
+        if (d) d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
       b.addEventListener('focus', () => this._gearDetail(b.dataset.id));
     }
   }

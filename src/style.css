@@ -186,7 +186,7 @@ input[type=text] { flex: 1; min-width: 0; background: rgba(0,0,0,.4); border: 1p
 
 /* map */
 .map-wrap { display: grid; place-items: center; }
-#bigmap { display: block; aspect-ratio: 1; width: min(100%, 520px, calc(100dvh - 250px)); height: auto; min-width: 220px; touch-action: none; border: 1px solid #6a5a40; }
+#bigmap { display: block; aspect-ratio: 1; width: min(100%, 520px, calc(100dvh - 190px)); height: auto; min-width: 150px; border: 1px solid #6a5a40; }
 .map-legend { font-size: 13px; color: var(--parch-dim); margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
 
 /* journal */
@@ -250,3 +250,10 @@ input[type=range] { width: 140px; accent-color: var(--ember); }
 /* Left-handed layout: buttons on the left, stick on the right */
 body.lefty #controls { right: auto; left: calc(14px + var(--sa-l)); transform: scaleX(-1); }
 body.lefty #controls .cbtn svg, body.lefty #controls .cbtn em { transform: scaleX(-1); }
+
+/* Narrow screens: wrap menu tabs instead of hiding them offscreen; show item details above the list */
+@media (max-width: 640px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+  .tabs button { padding: 6px 9px; font-size: 16px; }
+  .gear-layout .detail { order: -1; position: sticky; top: 0; z-index: 1; background: var(--slab-2); }
+}

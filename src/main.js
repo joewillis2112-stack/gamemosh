@@ -35,7 +35,7 @@ class Game {
     // Colours are authored as they should appear on screen, so skip linear conversion.
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1200);
     this.cameraYaw = 0;
@@ -100,8 +100,11 @@ class Game {
       this.sky.sun.castShadow = q.shadows;
     }
     if (this.chunks) {
+      const changed = this.chunks.viewChunks !== q.viewChunks || this.chunks.vegDensity !== q.veg;
       this.chunks.viewChunks = q.viewChunks;
       this.chunks.vegDensity = q.veg;
+      // Rebuild terrain so the new detail level applies everywhere, not just to new chunks
+      if (changed && (this.mode === 'play' || this.mode === 'paused')) this.chunks.clear();
     }
     this.resize();
   }
@@ -166,6 +169,9 @@ class Game {
     this.camTarget.set(sp.x, sp.y + 1.4, sp.z);
     this.sky.time = state.time;
     this.sky.setWeather('overcast', true);
+    this.bloodMoon = !!state.bloodMoon;
+    this.sky.bloodAmt = this.bloodMoon ? 1 : 0;
+    document.body.classList.toggle('bloodmoon', this.bloodMoon);
   }
 
   teardown() {
@@ -272,6 +278,7 @@ class Game {
       if (this.hitstopT > 0) { this.hitstopT -= dt; simDt = dt * 0.15; }
       this._menuKeys();
       const steps = this.physics.step(simDt, (h) => this.fixedUpdate(h));
+      this.simDt = steps / 60; // world clock follows simulated time, not frame time
       if (steps > 0) { this.input.pressed.clear(); this.input.released.clear(); }
       if (this.mode === 'play' || this.mode === 'dead') this.frameUpdate(dt, t);
     } else {
@@ -279,7 +286,12 @@ class Game {
       this.ui.navigate(this.input);
       this._menuKeys();
       this.fx.update(dt, this.camera);
-      if (this.mode === 'dead') this._camera(dt);
+      if (this.mode === 'dead') {
+        const p = this.player;
+        p.deadT = (p.deadT || 0) + dt;
+        p.rig.animate(dt, { speed: 0, grounded: true, action: 'dead', t: p.deadT });
+        this._camera(dt);
+      }
       this.input.pressed.clear();
     }
     this.renderer.render(this.scene, this.camera);
@@ -318,7 +330,7 @@ class Game {
     const biome = this.gen.biomeAt(p.pos.x, p.pos.z);
     const prevTime = this.sky.time;
     this.sky.blood = this.bloodMoon ? 1 : 0;
-    const skyOut = this.sky.update(dt, this.camera.position, p.pos, biome, st.ended ? DAY_LENGTH * 4 : DAY_LENGTH, () => this.audio.play('thunder'));
+    const skyOut = this.sky.update(this.simDt || 0, this.camera.position, p.pos, biome, st.ended ? DAY_LENGTH * 4 : DAY_LENGTH, () => this.audio.play('thunder'));
     st.time = this.sky.time;
     this._calendar(prevTime, st.time);
     this._camera(dt);
@@ -380,12 +392,14 @@ class Game {
     if (now < prev) st.day = (st.day || 0) + 1;
     if (prev < 0.76 && now >= 0.76 && (st.day || 0) % 4 === 3 && !st.ended) {
       this.bloodMoon = true;
+      st.bloodMoon = true;
       document.body.classList.add('bloodmoon');
       this.ui.banner('Night falls', 'The moon rises red', true);
       setTimeout(() => this.mode === 'play' && this.ui.toast('Blood moon: more foes walk tonight, and their embers run rich.', 5), 3000);
     }
     if (this.bloodMoon && prev < 0.24 && now >= 0.24) {
       this.bloodMoon = false;
+      st.bloodMoon = false;
       document.body.classList.remove('bloodmoon');
       this.ui.toast('Dawn. The red moon sets.');
     }
@@ -459,7 +473,8 @@ class Game {
     const dir = new THREE.Vector3(-Math.sin(this.cameraYaw) * cp, sp, -Math.cos(this.cameraYaw) * cp);
     let d = dist;
     const hit = this.physics.raycast({ x: this.camTarget.x, y: this.camTarget.y, z: this.camTarget.z }, { x: dir.x, y: dir.y, z: dir.z }, dist, GROUPS.worldOnly);
-    if (hit !== null) d = Math.max(0.6, hit - 0.3);
+    if (hit !== null) d = Math.max(1.0, hit - 0.3);
+    d = this._clearOfTrees(dir, d);
     const cam = this.camera.position;
     cam.copy(this.camTarget).addScaledVector(dir, d);
     const gh = this.gen.height(cam.x, cam.z) + 0.4;
@@ -471,6 +486,23 @@ class Game {
       this.shakeAmt = Math.max(0, this.shakeAmt - dt * 1.6);
     }
     this.camera.lookAt(this.camTarget.x, this.camTarget.y + 0.3, this.camTarget.z);
+  }
+
+  // Pull the camera in when it would sit inside a tree's canopy
+  _clearOfTrees(dir, d) {
+    const filter = groups(0xffff, G.STATIC);
+    for (let k = 0; k < 6 && d > 1.2; k++) {
+      const c = { x: this.camTarget.x + dir.x * d, y: this.camTarget.y + dir.y * d, z: this.camTarget.z + dir.z * d };
+      let inCanopy = false;
+      this.physics.overlapSphere(c, 1.9, filter, (col) => {
+        const info = this.physics.info.get(col.handle);
+        if (info && info.kind === 'tree' && c.y > info.h + 1.5 && c.y < info.h + 9) { inCanopy = true; return false; }
+        return true;
+      });
+      if (!inCanopy) break;
+      d -= 1;
+    }
+    return d;
   }
 
   shake(a) { if (this.settings.shake) this.shakeAmt = Math.max(this.shakeAmt, a); }
@@ -498,7 +530,7 @@ class Game {
     let decay = 0;
     if (fireD < 12) decay += 10;
     if (!night && biome !== 'blight') decay += 1.2;
-    if (s.torchOn && night) decay += 0.5;
+    if (s.torchOn) decay += night ? 0.5 : 0.6;
     if (this.state.ended) { gain *= 0.2; decay += 1; }
     s.dread = clamp(s.dread + (gain - decay) * h, 0, 100);
     if (s.dread >= 100) p.hurt(3 * h, null, 'dread', true);
@@ -622,6 +654,14 @@ class Game {
         }, 450);
         break;
       }
+      case 'descend': {
+        this.ui.fade(true);
+        setTimeout(() => {
+          this.player.teleport(it.top.x, this.gen.height(it.top.x, it.top.z) + 1.2, it.top.z);
+          this.ui.fade(false);
+        }, 450);
+        break;
+      }
       default: break;
     }
   }
@@ -716,7 +756,7 @@ class Game {
 
   respawnEnemies() {
     this.killedSpawns.clear();
-    for (const e of [...this.enemies.list]) if (!e.isBoss || !e.aggro) this.enemies.remove(e);
+    for (const e of [...this.enemies.list]) this.enemies.remove(e);
     for (const rt of this.locations.rt.values()) {
       if (rt.active) { this.locations._deactivate(rt); this.locations._activate(rt); }
     }

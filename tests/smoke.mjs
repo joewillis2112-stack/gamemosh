@@ -40,8 +40,18 @@ if (!mobile) {
   await page.waitForTimeout(2000);
   await page.keyboard.up('KeyW');
   await page.mouse.move(640, 360);
+  const yaw0 = await page.evaluate(() => window.__game.cameraYaw);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(760, 360, { steps: 6 });
+  await page.mouse.up({ button: 'right' });
+  await page.waitForTimeout(400);
+  const yaw1 = await page.evaluate(() => window.__game.cameraYaw);
+  if (Math.abs(yaw1 - yaw0) < 0.05) errors.push('mouse drag did not turn the camera');
+  const st0 = await page.evaluate(() => window.__game.state.player.stamina);
   await page.mouse.down(); await page.waitForTimeout(80); await page.mouse.up();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(1200);
+  const attacked = await page.evaluate((s0) => window.__game.state.player.stamina < s0 - 5 || window.__game.player.action === 'attack', st0);
+  if (!attacked) errors.push('mouse click did not attack');
   await page.keyboard.press('KeyQ');
   await page.waitForTimeout(800);
 } else {

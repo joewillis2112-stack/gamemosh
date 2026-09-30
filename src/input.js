@@ -26,6 +26,12 @@ export class Input {
     this.joy = null; // { id, ox, oy, x, y }
     this.lookTouch = null;
     this.gamepad = { active: false, prevButtons: [] };
+    // Phones/tablets start in touch mode so the buttons show at spawn
+    try { if (window.matchMedia('(pointer: coarse)').matches) this.setTouchMode(true); } catch { /* old browser */ }
+    window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') this.setTouchMode(true);
+      else if (e.pointerType === 'mouse') this.setTouchMode(false);
+    }, true);
     this._bindKeyboard();
     this._bindMouse();
     this._bindTouch();
@@ -100,7 +106,8 @@ export class Input {
   }
 
   _bindMouse() {
-    const c = this.canvas;
+    // The touch layer sits over the canvas, so mouse events arrive there
+    const c = this.root.querySelector('#touch-zone');
     this.dragLook = false;
     c.addEventListener('mousedown', (e) => {
       if (this.touchMode || !this.enabled) return;

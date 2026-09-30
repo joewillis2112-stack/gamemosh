@@ -246,7 +246,7 @@ export class LocationManager {
       R.RigidBodyDesc.dynamic().setTranslation(x, y, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setLinearDamping(0.2).setAngularDamping(0.4),
     );
     const cd = kind === 'crate' ? R.ColliderDesc.cuboid(0.45, 0.45, 0.45) : R.ColliderDesc.cylinder(0.5, kind === 'pitch' ? 0.4 : 0.38);
-    cd.setDensity(kind === 'crate' ? 0.35 : 0.5).setFriction(0.7).setCollisionGroups(GROUPS.prop);
+    cd.setDensity(kind === 'crate' ? 12 : 15).setFriction(0.7).setCollisionGroups(GROUPS.prop);
     const col = this.physics.world.createCollider(cd, body);
     const prop = { kind, body, mesh, hp: kind === 'pitch' ? 10 : kind === 'crate' ? 22 : 30 };
     this.physics.info.set(col.handle, { kind: 'prop', prop });
@@ -266,7 +266,8 @@ export class LocationManager {
   damageProp(p, dmg, dir, source) {
     if (!this.props.has(p)) return;
     p.hp -= dmg;
-    p.body.applyImpulse({ x: dir.x * dmg * 0.6, y: 2 + dmg * 0.1, z: dir.z * dmg * 0.6 }, true);
+    const m = p.body.mass();
+    p.body.applyImpulse({ x: dir.x * m * Math.min(4, dmg * 0.12), y: m * 1.5, z: dir.z * m * Math.min(4, dmg * 0.12) }, true);
     if (p.hp > 0) return;
     const t = p.body.translation();
     this.removeProp(p);
