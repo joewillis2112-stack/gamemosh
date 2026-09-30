@@ -1,3 +1,4 @@
 node_modules/
 test-output/
 dist/artifact.html
+tests/_qa_*
