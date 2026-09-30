@@ -7,7 +7,7 @@ Research date: 2026-09-30. Two parts: **Part A** is written to be handed to Opus
 ## Part A — Brief for Opus 5.5: "gamemoshing" in Rust
 
 ### A0. What this is (and isn't)
-"Merging games" here = one Rust engine hosts content and mechanics from several games at once. The reference project is **chasmlol/2010-rust-rewrite-mashup** (MW2 + Skate 3 + Minecraft in one game). Its README and v0.1.0 release credit Claude Opus 5.5 as co-author.
+"Merging games" (people also call it "gamemoshing"; same thing) = one Rust engine hosts content and mechanics from several games at once. The reference project is **chasmlol/2010-rust-rewrite-mashup** (MW2 + Skate 3 + Minecraft in one game). Its README and v0.1.0 release credit Claude Opus 5.5 as co-author.
 
 It is **not** file-swapping between original binaries. It works because:
 1. Someone already rewrote each game's runtime in Rust (open code, no assets).
@@ -93,6 +93,11 @@ Source: repo README, releases v0.1.0 / v0.3.0, makeuseof article. Repo: `github.
 - [ ] `make` (or run the `xtask` equivalents), `steamcmd`, `curl`.
 - [ ] Linux/mac alternative: system libs listed in A1.
 
+**Does it have to be desktop?** Split it in two:
+- *Writing code / planning / docs:* no. Claude Code on the web (or phone) can do this from anywhere.
+- *Building, running, verifying:* yes, some real machine. Needs a GPU, your game files, and (for the Skate 3 side) Windows + MSVC + LLVM. Phones/tablets can't run it. Options: your own PC; a rented Windows GPU cloud PC you remote into from any device (you'd have to upload game files there); IW4L alone also builds on Linux/macOS, and skate-3-rust-engine has experimental Linux/macOS support via PRs, so a non-Windows box may work but is less proven. A cloud Claude container has no GPU and no game files; software rendering might get screenshots but I haven't tested it and it would be slow.
+- Practical hybrid: Opus works from the cloud or phone, you run/playtest on the PC and paste back results.
+
 **Where to run Claude Code:**
 - [ ] Run it **locally on the PC with the games**, not in this cloud container. The container has no GPU and no game files, so Opus can't verify anything visual there. Cloud is fine for writing code and docs.
 
@@ -116,8 +121,8 @@ Source: repo README, releases v0.1.0 / v0.3.0, makeuseof article. Repo: `github.
 ---
 
 ## Part C — What I couldn't verify
-- I found **one** prominent project (plus forks: vmpprotect, johnseth97, MayKosiba, whosstyler, etc.) and a single press article calling it a trend. Forks aren't proof of a broad "merge games" movement. Searching "gamemosh" only turned up unrelated games/jams. If you saw this trend somewhere specific (a video, a Discord, a tweet), send it and I'll re-check.
-- I could **not** read `SKATE.md` or `BUILD.md` at the mashup repo root (404), nor the crate source. Details of how the Skate 3 data is converted and how the physics is hooked into the IW4L player are inferred from release notes only.
+- I found **one** prominent project (plus forks: vmpprotect, johnseth97, MayKosiba, whosstyler, etc.) and a single press article calling it a trend. Forks aren't proof of a broad movement; "gamemosh" is just the community's nickname for it and doesn't surface as a term in search.
+- I did not read the crate source or `SKATE.md`. Opus should read `SKATE.md`, `BUILD.md`, and the code directly from the upstream rebuilds (IW4L, skate-3-rust-engine, MinecraftOSS) after cloning them, rather than trusting this brief's second-hand summary. Details of how Skate 3 data is converted and how the physics hooks into the IW4L player are inferred from release notes only.
 - Exact Xbox 360 formats parsed, exact crate names, and total disk footprint are unknown.
 - The "Minecraft 26.3" version naming is quoted from the README; I didn't check it against Mojang's current numbering.
 - The X post by Aakash Gupta returned HTTP 402; not read.
