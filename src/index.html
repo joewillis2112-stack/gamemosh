@@ -1,0 +1,203 @@
+<title>Gloamreach</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+<style>/*STYLE*/</style>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <!-- Touch layer: left half = move stick, right half = look -->
+  <div id="touch-zone"></div>
+  <div id="joy-base"><div id="joy-knob"></div></div>
+
+  <div id="hud" hidden>
+    <div id="vignette"></div>
+    <div id="hurt"></div>
+    <div id="dread-veil"></div>
+    <div class="hud-top">
+      <div id="bars">
+        <div class="bar hp"><i></i><b></b></div>
+        <div class="bar st"><i></i></div>
+        <div class="bar dr" title="Dread"><i></i><span>Dread</span></div>
+        <div id="status-row">
+          <span id="embers" title="Embers"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-4 0-7z"/></svg><em>0</em></span>
+          <span id="clock"></span>
+        </div>
+      </div>
+      <div id="compass"><div id="compass-strip"></div><div id="compass-tick"></div></div>
+      <div id="topright">
+        <button id="btn-menu" class="icon-btn" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <canvas id="minimap" width="150" height="150" aria-label="Minimap. Tap to open the map"></canvas>
+      </div>
+    </div>
+    <div id="objective"></div>
+    <div id="pickups"></div>
+    <div id="bossbar" hidden><div class="bname"></div><div class="bbar"><i></i></div></div>
+    <button id="prompt" data-btn="interact" hidden><kbd>E</kbd><span></span></button>
+
+    <div id="controls">
+      <button class="cbtn small" data-btn="flask" id="c-flask" aria-label="Drink flask"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-4 7a4 4 0 0 0 3.5 6h5a4 4 0 0 0 3.5-6l-4-7V3"/></svg><em id="flask-n">3</em></button>
+      <button class="cbtn small" data-btn="torch" id="c-torch" aria-label="Toggle torch"><svg viewBox="0 0 24 24"><path d="M12 21v-9M9 12h6l-1-3h-4zM12 9c-2-2 0-5 0-6 2 2 3 4 0 6z"/></svg></button>
+      <button class="cbtn small" data-btn="throw" id="c-throw" aria-label="Throw firebomb"><svg viewBox="0 0 24 24"><circle cx="11" cy="14" r="6"/><path d="M14 8l3-3M17 5l2 1"/></svg><em id="bomb-n">0</em></button>
+      <button class="cbtn mid" data-btn="jump" aria-label="Jump"><svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg></button>
+      <button class="cbtn mid" data-btn="dodge" aria-label="Roll"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/></svg></button>
+      <button class="cbtn small" data-btn="lock" id="c-lock" aria-label="Lock on to the nearest enemy"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg></button>
+      <button class="cbtn big" data-btn="attack" aria-label="Attack. Hold for a heavy attack"><svg viewBox="0 0 24 24"><path d="M5 19l9-9M14 4l6 0 0 6-8 8-6-6z"/></svg></button>
+    </div>
+    <div id="fps" hidden></div>
+  </div>
+  <div id="numbers"></div>
+  <div id="toasts"></div>
+  <div id="reticle" hidden></div>
+
+  <!-- Title -->
+  <section id="title" class="screen">
+    <div class="title-inner">
+      <h1>Gloamreach</h1>
+      <p class="tag">The six beacons are cold. Relight them, and the morning may return.</p>
+      <div class="menu-list" id="title-menu">
+        <button id="t-continue" class="mbtn" hidden>Continue</button>
+        <button id="t-new" class="mbtn">New journey</button>
+        <button id="t-settings" class="mbtn">Settings</button>
+        <button id="t-help" class="mbtn">How to play</button>
+      </div>
+      <div id="t-save-info" class="fine"></div>
+    </div>
+  </section>
+
+  <section id="newgame" class="screen panel-screen" hidden>
+    <div class="panel narrow">
+      <h2>New journey</h2>
+      <p class="fine">Every seed builds a different reach: its terrain, ruins, roads, guardians and loot. Share a seed and a friend walks the same land.</p>
+      <label for="seed-input" class="lbl">World seed</label>
+      <div class="row">
+        <input id="seed-input" type="text" autocomplete="off" spellcheck="false" maxlength="40">
+        <button id="seed-random" class="mbtn slim">Reroll</button>
+      </div>
+      <div class="row end">
+        <button id="ng-back" class="mbtn slim ghost">Back</button>
+        <button id="ng-begin" class="mbtn slim primary">Begin</button>
+      </div>
+      <p class="fine warn" id="ng-warn" hidden>Starting a new journey replaces your current save.</p>
+    </div>
+  </section>
+
+  <section id="loading" class="screen" hidden>
+    <div class="load-inner">
+      <h2 id="load-title">Charting the reach</h2>
+      <div class="loadbar"><i id="load-fill"></i></div>
+      <p class="fine" id="load-seed"></p>
+    </div>
+  </section>
+
+  <!-- Pause menu with tabs -->
+  <section id="menu" class="screen panel-screen" hidden>
+    <div class="panel wide">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="gear">Gear</button>
+        <button role="tab" data-tab="char">Character</button>
+        <button role="tab" data-tab="craft">Craft</button>
+        <button role="tab" data-tab="map">Map</button>
+        <button role="tab" data-tab="journal">Journal</button>
+        <button role="tab" data-tab="settings">Settings</button>
+      </nav>
+      <div class="tab-body" id="tab-body"></div>
+      <div class="row end foot">
+        <button id="m-quit" class="mbtn slim ghost">Save and quit</button>
+        <button id="m-resume" class="mbtn slim primary">Resume</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Shrine -->
+  <section id="shrine" class="screen panel-screen" hidden>
+    <div class="panel wide">
+      <h2 id="shrine-name">Shrine</h2>
+      <p class="fine" id="shrine-sub">You rest. Your flask is refilled and the dead stir again.</p>
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-stab="level">Level up</button>
+        <button role="tab" data-stab="travel">Travel</button>
+        <button role="tab" data-stab="craft">Craft</button>
+        <button role="tab" data-stab="forge">Reforge</button>
+      </nav>
+      <div class="tab-body" id="shrine-body"></div>
+      <div class="row end foot">
+        <button id="s-leave" class="mbtn slim primary">Leave the shrine</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="trade" class="screen panel-screen" hidden>
+    <div class="panel narrow tall">
+      <h2>The Pale Merchant</h2>
+      <p class="fine" id="trade-sub">“Embers for goods. Goods for embers. The dark takes no coin.”</p>
+      <div class="tab-body" id="trade-body"></div>
+      <div class="row end foot"><button id="trade-close" class="mbtn slim primary">Leave</button></div>
+    </div>
+  </section>
+
+  <section id="reader" class="screen panel-screen" hidden>
+    <div class="panel narrow parchment">
+      <h2 id="reader-title"></h2>
+      <p id="reader-text"></p>
+      <div class="row end"><button id="reader-close" class="mbtn slim primary">Close</button></div>
+    </div>
+  </section>
+
+  <section id="death" class="screen" hidden>
+    <div class="death-inner">
+      <h1>You have fallen</h1>
+      <p class="fine" id="death-sub"></p>
+      <button id="d-respawn" class="mbtn">Rise again</button>
+    </div>
+  </section>
+
+  <section id="ending" class="screen panel-screen" hidden>
+    <div class="panel narrow">
+      <h2>The Gloam recedes</h2>
+      <p id="ending-text"></p>
+      <div class="row end">
+        <button id="e-continue" class="mbtn slim primary">Keep wandering</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="help" class="screen panel-screen" hidden>
+    <div class="panel narrow">
+      <h2>How to play</h2>
+      <div class="help-grid">
+        <h3>Goal</h3>
+        <p>Six guardians hold the old ruins. Defeat each one, then light its beacon. When all six burn, the Gloam lifts.</p>
+        <h3>Touch</h3>
+        <p>Drag the left side to move; push the stick to its edge to sprint. Drag the right side to look. Tap the sword to attack, hold it for a heavy blow. Roll through attacks: you cannot be hurt mid-roll. The crosshair button locks on to the nearest foe.</p>
+        <h3>Keyboard</h3>
+        <p>WASD move, mouse look (click to capture), left click attack (hold for heavy), Shift sprint, Space jump, Q roll, E interact, T lock on, R flask, F torch, G firebomb, Tab gear, M map, Esc menu.</p>
+        <h3>Controller</h3>
+        <p>Left stick move, right stick look, X / Square attack, A / Cross jump, B / Circle roll, Y / Triangle interact, LB flask, RB firebomb, right stick click lock on, Back map, Start menu.</p>
+        <h3>Dread</h3>
+        <p>Darkness, the blight and wraiths fill your dread meter. High dread draws wraiths to you and, at its peak, wounds you. Carry a torch at night, stand near fire, or rest at a shrine.</p>
+        <h3>Embers</h3>
+        <p>Fallen foes give embers. Spend them at shrines to grow stronger. If you die, your embers stay where you fell; reach them before you die again.</p>
+        <h3>Survival</h3>
+        <p>Strike dead trees for wood and rocks for iron. Loot chests, camps and cairns. Craft torches, firebombs and armour by any fire. Climb watchtowers to chart the land around them.</p>
+      </div>
+      <div class="row end"><button id="help-close" class="mbtn slim primary">Close</button></div>
+    </div>
+  </section>
+
+  <section id="settings-screen" class="screen panel-screen" hidden>
+    <div class="panel narrow">
+      <h2>Settings</h2>
+      <div id="settings-body"></div>
+      <div class="row end"><button id="settings-close" class="mbtn slim primary">Done</button></div>
+    </div>
+  </section>
+
+  <div id="banner" hidden><small></small><strong></strong></div>
+  <div id="fade"></div>
+  <div id="boot-error" hidden></div>
+</div>
+<script>/*SCRIPT*/</script>
