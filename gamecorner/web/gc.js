@@ -13,40 +13,46 @@ const SAVE_KEY = 'gca.save';
 const FLAGS_KEY = 'gca.flags';
 const MUTE_KEY = 'gca.muted';
 const AUTOSAVE_MS = 30000;
+const PENDING_KEY = 'gca.pending'; // an unfinished cabinet run, paid out on CONTINUE
 
 const CARTS = [
   {
     id: 'celeste',
     title: 'CELESTE CLASSIC',
     by: 'Maddy Thorson & Noel Berry',
-    rule: '10 coins per screen climbed. Summit: +200.',
+    rule: '50 coins per screen climbed. Summit: +500.',
+    controls: 'A jump · B dash',
     metric(g) {
       const x = g('room.x'), y = g('room.y');
       if (!(x >= 0 && y >= 0)) return 0;
       const level = (x % 8) + y * 8;
       return level >= 31 ? 0 : level;
     },
-    payout: (m) => m * 10 + (m >= 30 ? 200 : 0),
+    payout: (m) => m * 50 + (m >= 30 ? 500 : 0),
     unit: (m) => `${m} screen${m === 1 ? '' : 's'}`,
   },
   {
     id: 'bubblegum',
     title: 'BUBBLEGUM SPIN',
     by: 'Bee_Randon',
-    rule: '1 coin per 100 points.',
+    rule: '1 coin per 200 points.',
+    controls: 'A fire · B hold for stats',
+    // The cart fires on ❎ and shows stats on 🅾; put fire on the big A button.
+    swapAB: true,
     // The cart prints score.."0", so on-screen points are score * 10.
     metric(g) { const s = g('score'); return s > 0 ? Math.floor(s) * 10 : 0; },
-    payout: (m) => Math.floor(m / 100),
+    payout: (m) => Math.floor(m / 200),
     unit: (m) => `${m} pts`,
   },
   {
     id: 'ghostwave',
     title: 'GHOST WAVE',
-    by: 'Conor',
-    rule: '1 coin per 10 points.',
+    by: 'monorail',
+    rule: '1 coin per 20 points.',
+    controls: 'A guns · B rockets',
     // Score is kept as a 16.16 fixed-point fraction (printed with tostr(s, 2)).
     metric(g) { const s = g('score'); return s > 0 ? Math.round(s * 65536) : 0; },
-    payout: (m) => Math.floor(m / 10),
+    payout: (m) => Math.floor(m / 20),
     unit: (m) => `${m} pts`,
   },
 ];
@@ -71,6 +77,7 @@ const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'start', 'select'];
 const input = {
   touch: new Set(),
   keys: new Set(),
+  padHeld: new Set(),
   // Presses that started since the last poll; a tap shorter than one frame
   // still counts for that frame.
   latched: new Set(),
@@ -103,7 +110,9 @@ const input = {
   // Swallow whatever is held now until every button is released, so a press
   // that closed one screen doesn't also act on the next.
   lock() {
-    for (const x of [...this.held, ...this.touch, ...this.keys]) this.locked.add(x);
+    // Only buttons still physically down are swallowed; a fresh tap after
+    // this point must count.
+    for (const x of [...this.touch, ...this.keys, ...this.padHeld]) this.locked.add(x);
     this.latched.clear();
     this.held = new Set();
   },
@@ -119,14 +128,14 @@ const input = {
     if (this.down('down')) m |= GB.DOWN;
     return m;
   },
-  picoMask() {
+  picoMask(swapAB = false) {
     let m = 0;
     if (this.down('left')) m |= PICO.LEFT;
     if (this.down('right')) m |= PICO.RIGHT;
     if (this.down('up')) m |= PICO.UP;
     if (this.down('down')) m |= PICO.DOWN;
-    if (this.down('a')) m |= PICO.O;
-    if (this.down('b')) m |= PICO.X;
+    if (this.down('a')) m |= swapAB ? PICO.X : PICO.O;
+    if (this.down('b')) m |= swapAB ? PICO.O : PICO.X;
     return m;
   },
 };
@@ -283,7 +292,9 @@ const audio = {
   },
   fill_(buf) {
     const L = buf.getChannelData(0), R = buf.getChannelData(1), n = L.length;
-    if (this.muted || !game.runner) { L.fill(0); R.fill(0); return; }
+    // Silent when muted, or when the main loop has stopped (hidden tab, stall):
+    // the chips would otherwise hold their last note.
+    if (this.muted || !game.runner || performance.now() - game.alive > 250) { L.fill(0); R.fill(0); return; }
     if (game.mode === 'poke') {
       const s = game.runner.render_audio(n, this.ctx.sampleRate);
       for (let i = 0; i < n; i++) { L[i] = s[2 * i]; R[i] = s[2 * i + 1]; }
@@ -344,6 +355,9 @@ const game = {
   pickIndex: 0,
   frames: 0,
   slotsOpened: 0,
+  carry: 0, // button bits from taps that landed between ticks
+  alive: 0, // last time the main loop ran; audio goes quiet when it stops
+  lastPending: 0,
 };
 window.__gca = game; // test hooks
 window.__gcaAudio = audio;
@@ -365,6 +379,28 @@ function autosave(reason) {
   if (store.set(SAVE_KEY, s)) store.set(FLAGS_KEY, r.export_flags());
   game.lastSave = performance.now();
   game.lastSaveReason = reason;
+}
+
+// A cabinet run in progress is written down so closing the page mid-run
+// doesn't lose the coins it earned; CONTINUE pays it out.
+function savePending(now = performance.now()) {
+  if (!game.cart) return;
+  game.lastPending = now;
+  store.set(PENDING_KEY, JSON.stringify({ cart: game.cart.id, best: game.best }));
+}
+function recoverPending() {
+  const raw = store.get(PENDING_KEY);
+  store.del(PENDING_KEY);
+  if (!raw) return false;
+  let rec;
+  try { rec = JSON.parse(raw); } catch { return false; }
+  const cart = CARTS.find((c) => c.id === rec.cart);
+  if (!cart) return false;
+  const won = cart.payout(rec.best || 0);
+  if (won <= 0) return false;
+  const total = game.runner.add_coins(won);
+  showPayout(won, `Your last ${cart.title} run was unfinished: ${cart.unit(rec.best)}. COIN CASE: ${total}.`);
+  return true;
 }
 
 // Re-enter the current spot so the map's music starts after a boot.
@@ -389,7 +425,7 @@ function boot(kind) {
       player: {
         playerName: 'RED', rivalName: 'BLUE',
         mapName: quick ? 'GameCorner' : 'RedsHouse2F',
-        positionX: quick ? 17 : 0, positionY: quick ? 15 : 0,
+        positionX: quick ? 17 : 3, positionY: quick ? 15 : 6,
         playTimeHours: 0, playTimeMinutes: 0, money: quick ? 5000 : 3000,
       },
       badges: [],
@@ -406,23 +442,29 @@ function boot(kind) {
   autosave('boot');
 }
 
-let armedNew = false;
+let armed = null;
 function startGame(kind) {
-  // No window.confirm: sandboxed pages can block it. A second tap confirms.
-  if (kind === 'new' && store.get(SAVE_KEY) && !armedNew) {
-    armedNew = true;
-    $('btn-new').textContent = 'TAP AGAIN: ERASE SAVE';
+  // Both fresh starts replace the save. No window.confirm (sandboxed pages
+  // can block it): a second tap on the same button confirms.
+  if (kind !== 'continue' && store.get(SAVE_KEY) && armed !== kind) {
+    armed = kind;
+    $('btn-new').textContent = 'NEW ADVENTURE';
+    $('btn-quick').textContent = 'GO TO THE GAME CORNER';
+    $(kind === 'new' ? 'btn-new' : 'btn-quick').textContent = 'TAP AGAIN: ERASE SAVE';
     return;
   }
   game.started = true;
   unlockAudio();
   boot(kind);
+  if (kind !== 'continue') store.del(PENDING_KEY);
   $('title').hidden = true;
   setScreen('poke');
   game.mode = 'poke';
   game.acc = 0;
+  game.carry = 0;
   input.lock();
   hudCoins();
+  if (kind === 'continue') recoverPending();
 }
 
 // ---- cabinet picker
@@ -442,7 +484,7 @@ function openPicker() {
   list.innerHTML = '';
   CARTS.forEach((c, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<b>${c.title}</b><span>${c.by}</span><em>${c.rule}</em>`;
+    li.innerHTML = `<b>${c.title}</b><span>${c.by}</span><em>${c.rule}</em><i>${c.controls} · START cash out</i>`;
     li.addEventListener('click', () => { game.pickIndex = i; renderPick(); playCart(i); });
     list.appendChild(li);
   });
@@ -473,6 +515,7 @@ function closePicker() {
   $('picker').hidden = true;
   game.mode = 'poke';
   game.acc = 0;
+  game.carry = 0;
   input.lock();
   autosave('picker');
 }
@@ -488,10 +531,12 @@ function playCart(i) {
   game.cart = cart;
   game.best = 0;
   game.acc = 0;
+  game.carry = 0;
   audio.picoPhase = 0; audio.picoLast = 0;
   $('picker').hidden = true;
   $('arcade-hud').hidden = false;
   $('arcade-title').textContent = cart.title;
+  $('arcade-controls').textContent = cart.controls;
   updateArcadeHud();
   setScreen('pico');
   game.mode = 'arcade';
@@ -499,13 +544,18 @@ function playCart(i) {
 }
 function updateArcadeHud() {
   const c = game.cart;
-  $('arcade-score').textContent = `${c.unit(game.best)} → ${c.payout(game.best)} coins`;
+  $('arcade-score').textContent = `${c.unit(game.best)} = ${c.payout(game.best)} COINS`;
 }
-function arcadeTick() {
-  pico.step(input.picoMask());
+function arcadeTick(mask) {
+  pico.step(mask);
   if (pico.hasError()) return;
   const m = game.cart.metric((n) => pico.global(n));
-  if (m > game.best) { game.best = m; updateArcadeHud(); }
+  if (m > game.best) {
+    game.best = m;
+    updateArcadeHud();
+    const now = performance.now();
+    if (now - game.lastPending > 5000) savePending(now);
+  }
 }
 function askCashOut() {
   game.mode = 'confirm';
@@ -521,22 +571,27 @@ function resumeArcade() {
   $('confirm').hidden = true;
   game.mode = 'arcade';
   game.acc = 0;
+  game.carry = 0;
   input.lock();
 }
 function cashOut() {
   const won = game.cart.payout(game.best);
   const total = game.runner.add_coins(won);
-  hudCoins();
+  store.del(PENDING_KEY);
   $('confirm').hidden = true;
   $('arcade-hud').hidden = true;
+  showPayout(won, `${game.cart.title}: ${game.cart.unit(game.best)}. COIN CASE: ${total}.`);
+  autosave('payout');
+}
+function showPayout(won, detail) {
+  hudCoins();
   $('payout-amount').textContent = won > 0 ? `+${won} COINS` : 'NO COINS';
-  $('payout-detail').textContent = `${game.cart.title}: ${game.cart.unit(game.best)}. COIN CASE: ${total}.`;
+  $('payout-detail').textContent = detail;
   $('payout').hidden = false;
   game.mode = 'payout';
   game.lastWin = won;
   if (won > 0) buzz(40);
   input.lock();
-  autosave('payout');
 }
 function payoutInput() {
   if (input.pressed('a') || input.pressed('b') || input.pressed('start')) closePayout();
@@ -547,14 +602,15 @@ function closePayout() {
   ctx2d.putImageData(pokeImage, 0, 0);
   game.mode = 'poke';
   game.acc = 0;
+  game.carry = 0;
   input.lock();
   hudCoins();
 }
 
 // ---------------------------------------------------------------- main loop
-function pokeTick() {
+function pokeTick(mask) {
   const r = game.runner;
-  const px = r.tick(input.gbMask());
+  const px = r.tick(mask);
   game.frames++;
   if (r.screen_name() === 'Slots') {
     // Keep the last overworld frame on screen; the slot machine never shows.
@@ -569,29 +625,40 @@ function pokeTick() {
 function frame(now) {
   const dt = Math.min(100, now - (game.last || now));
   game.last = now;
+  game.alive = performance.now();
   input.poll();
   switch (game.mode) {
     case 'poke': {
       game.acc += dt;
       const step = 1000 / POKE_HZ;
+      // A tap shorter than a frame is carried until a tick actually runs.
+      game.carry |= input.gbMask();
       let n = 0, drew = false;
       while (game.acc >= step && n < 4 && game.mode === 'poke') {
         game.acc -= step; n++;
         drew = true;
-        if (!pokeTick()) break;
+        const mask = game.carry | input.gbMask();
+        game.carry = 0;
+        if (!pokeTick(mask)) break;
       }
       if (n === 4) game.acc = 0;
       if (drew) ctx2d.putImageData(pokeImage, 0, 0);
       if (game.frames % 30 === 0) hudCoins();
-      if (now - game.lastSave > AUTOSAVE_MS && game.runner.screen_name() === 'Overworld') autosave('timer');
+      if (game.mode === 'poke' && now - game.lastSave > AUTOSAVE_MS && game.runner.screen_name() === 'Overworld') autosave('timer');
       break;
     }
     case 'arcade': {
       if (input.pressed('start') || input.pressed('select')) { askCashOut(); break; }
       game.acc += dt;
       const step = 1000 / pico.fps();
+      game.carry |= input.picoMask(game.cart.swapAB);
       let n = 0;
-      while (game.acc >= step && n < 3) { game.acc -= step; n++; arcadeTick(); }
+      while (game.acc >= step && n < 3) {
+        game.acc -= step; n++;
+        const mask = game.carry | input.picoMask(game.cart.swapAB);
+        game.carry = 0;
+        arcadeTick(mask);
+      }
       if (n === 3) game.acc = 0;
       if (n) { pico.blit(picoImage); ctx2d.putImageData(picoImage, 0, 0); }
       break;
@@ -628,8 +695,19 @@ async function main() {
   $('btn-continue').addEventListener('click', () => startGame('continue'));
   $('btn-new').addEventListener('click', () => startGame('new'));
   $('btn-quick').addEventListener('click', () => startGame('quick'));
-  addEventListener('visibilitychange', () => { if (document.hidden && game.mode === 'poke') autosave('hidden'); });
-  addEventListener('pagehide', () => { if (game.mode === 'poke') autosave('pagehide'); });
+  const leaving = (why) => {
+    if (game.mode === 'poke') autosave(why);
+    if (game.mode === 'arcade' || game.mode === 'confirm') savePending();
+  };
+  addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      leaving('hidden');
+      if (audio.ctx) audio.ctx.suspend().catch(() => {});
+    } else if (audio.ctx && game.started) {
+      audio.ctx.resume().catch(() => {});
+    }
+  });
+  addEventListener('pagehide', () => leaving('pagehide'));
 
   try {
     await initPokered({ module_or_path: b64bytes(ASSETS.pk) });

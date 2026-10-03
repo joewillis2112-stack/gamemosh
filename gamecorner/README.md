@@ -12,13 +12,15 @@ It runs in a phone browser. `dist/index.html` is the whole game in one file.
 
 Walk up to a slot machine and press A, or talk to the woman tending them and pick PLAY. The cabinet picker opens instead of the slots.
 
-| Cabinet | By | Pays |
-|---|---|---|
-| Celeste Classic | Maddy Thorson & Noel Berry | 10 coins per screen climbed, +200 for the summit |
-| Bubblegum Spin | Bee_Randon | 1 coin per 100 points |
-| Ghost Wave | Conor | 1 coin per 10 points |
+| Cabinet | By | Pays | Controls |
+|---|---|---|---|
+| Celeste Classic | Maddy Thorson & Noel Berry | 50 coins per screen climbed, +500 for the summit | A jump · B dash |
+| Bubblegum Spin | Bee_Randon | 1 coin per 200 points | A fire · B hold for stats |
+| Ghost Wave | monorail | 1 coin per 20 points | A guns · B rockets |
 
-In a cabinet, **START** (or the CASH OUT button) ends the run and pays out your best result. **B** at the prompt keeps playing.
+In a cabinet, **START** (or the CASH OUT button) ends the run and pays out your best result. **B** at the prompt keeps playing. If you close the page mid-run, CONTINUE pays out what that run had earned.
+
+Both fresh starts (NEW ADVENTURE and GO TO THE GAME CORNER) ask for a second tap when there's a save to erase.
 
 **Controls:** the on-screen pad (d-pad, A, B, START, SELECT). On a keyboard: arrows/WASD, Z = A, X = B, Enter = START, Shift = SELECT. A gamepad also works. In a cabinet, A = PICO-8 🅾️ and B = ❎.
 
@@ -50,6 +52,7 @@ npm install                 # at the repo root, for esbuild + playwright-core
 gamecorner/build.sh         # clones both repos at the pinned commits, patches, builds wasm, bundles dist/index.html
 node gamecorner/tests/play.mjs   # headless phone: quick start → slot → cabinet → cash out → reload → continue
 node gamecorner/tests/extra.mjs  # every cabinet runs, new adventure, audio, landscape layout
+node gamecorner/tests/more.mjs   # erase guard, slot-machine woman, unfinished-run payout, buying a prize
 ```
 
 You need Rust 1.94+ with the `wasm32-unknown-unknown` target, git and Node 20+. The build fetches Pokémon's graphics from pret/pokered and installs `wasm-bindgen-cli 0.2.128` into `.work/`.
