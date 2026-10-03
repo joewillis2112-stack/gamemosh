@@ -7,7 +7,8 @@ was cloned or its page fetched, and the top picks were checked a second time.
 
 | File | What's in it |
 |---|---|
-| [SHORTLIST.md](SHORTLIST.md) | **Start here.** The ranked top picks, 8 mashup pairings, and a cut list. |
+| [SHORTLIST.md](SHORTLIST.md) | The ranked top picks, 8 mashup pairings, and a cut list. |
+| [MOBILE_PICKS.md](MOBILE_PICKS.md) | **Start here for building.** The 2–3 moshes proven to run on a phone. Each piece was built for wasm and they were run together on one page; screenshots and test pages are in `mobile-proto/`. |
 | [VERIFIED_ROUND2.md](VERIFIED_ROUND2.md) | **Round 2.**
   - 14 more Rust rewrites (A58–A71), 12 more rebuildable games, and 5 new pairings (P9–P13).
   - A table of engines that ship readable game code (LÖVE, PICO-8, C#, Godot, RPG Maker…). |
