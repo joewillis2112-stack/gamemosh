@@ -27,6 +27,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 | 4 | Infinity Blade IPA extraction plan: started down a path the user then abandoned as "gonna spiral" | Didn't flag the walls before starting | For open-ended asset or RE work, name the likely blockers before doing anything |
 | 5 | Round 1 research agent: listed Iron Doom as a full port and DukeNukemRust as complete, and missed skate-3-rust-engine | Agents over-trust READMEs | Always run a second filter/verify pass, and spot-check surprising claims myself (commit counts, dates, co-author trailers) |
 | 6 | Round 2 agent marked vange-rs "AI-written: yes" from 133 Claude-authored commits, but the project is from 2016 | "Has AI commits" is not "AI-written" | Report the AI share and the project start date. Count commits, not trailers (one commit can carry several) |
+| 7 | Rounds 1 and 2 said open-pokered had "assets in repo" and chipdx was "phone-ready". Building them showed open-pokered fetches its graphics at build time, and chipdx needs rustc 1.95 and ships a 16 MB wasm | Desk research can't see build-time gotchas | "Runs on mobile" is only claimed after a real wasm build and a headless mobile run. Desk research ranks; builds decide |
 
 ## 3. Domain knowledge: game mashups
 
@@ -68,6 +69,15 @@ A working log for this repo. It records common themes, what has been learned, mi
 - vgrichina/re-skill is a Claude Code skill: ROM → annotated disassembly → web port. It produced a Battle City port.
 - Small NES, Game Boy and DOS games can be turned into rebuild candidates this way.
 
+**Mobile build facts (from building them, 2026-10-03)**
+- **pico-r:** stable Rust, 197 KB gzipped, zero imports, host-driven. Makes a good guest.
+- **open-pokered:** use `pokered-runner-web` (host-driven `tick → 160×144 RGBA`, 0.47 ms per tick). `pokered-web` owns a winit loop. Run `scripts/fetch-gfx.sh` before building.
+- **Iron Wolf:** nightly only (E0554/E0658 on stable). Owns its own 70 Hz loop, has no touch, and is 270 KB gzipped.
+- **SDLPoP-rs:** build the release (2.77 MB raw; the documented build is debug at 25.7 MB). It runs in a Worker with SharedArrayBuffer, so it needs COOP/COEP headers. GitHub Pages and single-file pages are out.
+- **chipdx:** rustc ≥ 1.95, and 15 MB gzipped because the music is embedded.
+- **Battle City** (re-skill) is JS only.
+- **Several wasm games share one page fine** when each is driven by a single `requestAnimationFrame` loop. Pieces that own a winit loop must be separate modules.
+
 **Recompilation (N64Recomp, XenonRecomp)**
 - These turn console binaries into machine-generated C/C++. That's useful for running a game natively, but hard to read and port. All are C/C++; none are Rust or wasm so far.
 
@@ -106,11 +116,15 @@ A working log for this repo. It records common themes, what has been learned, mi
 
 - Does Gloamreach run at a playable frame rate on the user's actual phone, and does Rapier's WASM load inside the claude.ai artifact on mobile?
 - MinecraftOSS has no public repo. Where does it come from (mashup issue #21)?
-- Which pairing, if any, should be built first? The cheapest phone-ready options are P9 (Wolf Arcade: Iron Wolf + pico-r), P10 (Battle Chip) and round 1's P2 (Pokémon Game Corner + Ruffle).
-- pico-r has no touch pad. A phone build needs an on-screen d-pad overlay.
+- Build Game Corner Arcade (open-pokered + pico-r) first, per `mashup-research/MOBILE_PICKS.md`. Is the user's phone fast enough? Nothing has been run on a real device yet.
+- pico-r and Iron Wolf have no touch input, so a phone build needs an on-screen overlay.
 
 ## 7. Session log
 
 - **2026-09-29 → 30:** wrote GAMEMOSH_BRIEF.md. Mobile mashup discussion; the Infinity Blade route was abandoned. Built Gloamreach (seeded dark-fantasy RPG, mobile, Three.js + Rapier). QA agent playthrough; all findings fixed.
 - **2026-10-01:** spent a day running idle PR check-ins (mistake #1). The user stopped it. Merged PR #1.
 - **2026-10-03:** read chasmlol/2010-rust-rewrite-mashup. Research round 1 (research agent, then filter agent) produced `mashup-research/` (PR #2, merged). Created this file. Research round 2: I gathered leads with web searches, then a sub-agent verified and filtered them (14 Rust additions, 12 rebuildable games, 5 pairings). Results are in `mashup-research/VERIFIED_ROUND2.md`. My spot checks qualified the vange-rs and Legaia authorship claims.
+- **2026-10-03 (later):**
+  - Wrote `INSTRUCTIONS.md`, a guide to rewriting and moshing games. Sources: the mashup's code and agent docs (`CONTEXT.md` journal and suffixes, the skate adapter, collision, rails, rig), Legaia's `CLAUDE.md`, re-skill, and the Bun port write-up.
+  - A sub-agent built 8 pieces for wasm and ran them in a headless mobile browser. The ranked picks are in `mashup-research/MOBILE_PICKS.md`: (1) Game Corner Arcade, (2) Wolf Arcade, (3) Wolfenstein of Persia. Three games ran together on one page (the screenshot is checked in).
+  - Added `CLAUDE.md`.

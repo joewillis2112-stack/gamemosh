@@ -1,0 +1,15 @@
+<!doctype html><html><body style="margin:0;background:#000"><canvas id="c" width="160" height="144" style="width:320px;image-rendering:pixelated"></canvas><pre id="o" style="color:#0f0;white-space:pre-wrap"></pre>
+<script type="module">
+import init,{PokeredRunner} from './pk/pokered_runner_web.js';
+await init(); const o=document.getElementById('o'); const ctx=document.getElementById('c').getContext('2d'); const img=ctx.createImageData(160,144);
+const r=new PokeredRunner(null); const run=(n,b=0)=>{for(let i=0;i<n;i++) img.data.set(r.tick(b)); ctx.putImageData(img,0,0);};
+run(60); r.warp_to('GameCorner',0,0); run(120);
+let log='after warp: map='+r.current_map()+' pos='+r.player_position()+' screen='+r.screen_name()+'\n';
+let s=JSON.parse(r.export_save()); const find=(obj,k,p='')=>{for(const key in obj){if(key===k)return [p+key,obj[key]]; if(obj[key]&&typeof obj[key]==='object'){const f=find(obj[key],k,p+key+'.');if(f)return f;}}};
+const pc=find(s,'player_coins'); log+='coins field: '+JSON.stringify(pc)+'\n';
+// set coins and reimport
+const set=(obj,k,v)=>{for(const key in obj){if(key===k){obj[key]=v;return true} if(obj[key]&&typeof obj[key]==='object'&&set(obj[key],k,v))return true;}return false;};
+set(s,'player_coins',500); log+='import ok='+r.import_save(JSON.stringify(s))+'\n'; run(120);
+log+='after import: map='+r.current_map()+' pos='+r.player_position()+' screen='+r.screen_name()+' coins='+JSON.stringify(find(JSON.parse(r.export_save()),'player_coins'))+'\n';
+o.textContent=log; window.done=log;
+</script></body></html>

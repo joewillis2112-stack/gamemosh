@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:#111;color:#0f0;font:11px monospace}canvas{image-rendering:pixelated;display:block}#vga{width:390px;height:244px}#pico{width:192px;height:192px}#pk{width:192px;height:173px}iframe{width:390px;height:300px;border:0}.row{display:flex;gap:4px}</style></head><body>
+<canvas id="vga" width="640" height="400" tabindex="0"></canvas><input id="upload" type="file" style="display:none">
+<div class="row"><canvas id="pico" width="128" height="128"></canvas><canvas id="pk" width="160" height="144"></canvas></div>
+<pre id="o"></pre><div id="popwrap"></div>
+<script type="module">
+import {loadPico,blitPico,stats,count} from './common.js';
+const q=new URLSearchParams(location.search); const o=document.getElementById('o');
+const orig=CanvasRenderingContext2D.prototype.putImageData;
+CanvasRenderingContext2D.prototype.putImageData=function(...a){count('draw:'+this.canvas.id);return orig.apply(this,a);};
+window.stats=stats; window.errors=[]; window.addEventListener('error',e=>errors.push(e.message));
+if(q.get('w')){ const m=await import('./iw/iw.js'); await m.default(); m.iw_init('upload');
+  const c=document.getElementById('vga'); window.wkey=(k,ms=150)=>{c.dispatchEvent(new KeyboardEvent('keydown',{key:k}));setTimeout(()=>c.dispatchEvent(new KeyboardEvent('keyup',{key:k})),ms)}; }
+let pico=null, pk=null;
+if(q.get('p')) pico=await loadPico('./pico/pico_r.wasm','./pico/celeste.p8.png');
+if(q.get('k')){ const m=await import('./pk/pokered_runner_web.js'); await m.default(); pk=new m.PokeredRunner(null); window.pk=pk; }
+if(q.get('pop')){ const f=document.createElement('iframe'); f.src='./pop/index.html'; document.getElementById('popwrap').appendChild(f); window.popframe=f; }
+const pctx=document.getElementById('pico').getContext('2d'), pimg=pctx.createImageData(128,128);
+const kctx=document.getElementById('pk').getContext('2d'), kimg=kctx.createImageData(160,144);
+window.picoButtons=0; window.pkButtons=0;
+let last=performance.now(), accP=0, accK=0, t0=performance.now();
+function frame(now){ const dt=Math.min(100,now-last); last=now; accP+=dt; accK+=dt;
+  if(pico){ let n=0; while(accP>=1000/30 && n<4){ pico.web_set_buttons(0,window.picoButtons); pico.web_update(); count('tick:pico'); accP-=1000/30; n++; } if(n) blitPico(pico,pctx,pimg); }
+  if(pk){ let n=0,buf=null; while(accK>=1000/59.73 && n<4){ buf=pk.tick(window.pkButtons); count('tick:pk'); accK-=1000/59.73; n++; } if(buf){kimg.data.set(buf);kctx.putImageData(kimg,0,0);} }
+  count('raf'); o.textContent=JSON.stringify({secs:((now-t0)/1000).toFixed(1),...stats,errors:window.errors.length});
+  requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+window.rate=()=>{const s=(performance.now()-t0)/1000;const r={};for(const k in stats)r[k]=(stats[k]/s).toFixed(1);return r;};
+window.reset=()=>{for(const k in stats)delete stats[k]; t0=performance.now();};
+</script></body></html>
