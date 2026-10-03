@@ -642,6 +642,7 @@ async function main() {
   delete ASSETS.pico;
   $('loading').hidden = true;
   $('btn-continue').hidden = !store.get(SAVE_KEY);
+  if (!store.set('gca.probe', '1')) $('nosave').hidden = false;
   $('title').querySelector('.menu').hidden = false;
   titleIndex = 0;
   renderTitle();

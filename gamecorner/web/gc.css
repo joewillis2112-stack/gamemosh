@@ -71,6 +71,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #title .sub { margin: 0; font-size: 8px; color: var(--dim); }
 #title .hint { margin: 4px 0 0; font-size: 7px; line-height: 1.6; color: var(--dim); max-width: 34ch; }
 #loading { font-size: 9px; color: var(--ink); }
+#nosave { margin: 0; font-size: 7px; line-height: 1.6; color: var(--pink); max-width: 34ch; }
 .menu { display: flex; flex-direction: column; gap: 6px; width: min(92%, 300px); }
 .menu button, .row button, #payout-ok {
   background: var(--paper); color: var(--paper-ink); border: 3px solid var(--paper-ink);
