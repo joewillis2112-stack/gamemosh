@@ -1,0 +1,169 @@
+:root {
+  --bg: #17181f;
+  --shell: #2b2e3a;
+  --shell-hi: #3a3e4d;
+  --ink: #f4f1e8;
+  --dim: #9aa0b4;
+  --gold: #ffcc33;
+  --pink: #ff4f8b;
+  --paper: #f8f8f0;
+  --paper-ink: #1d1d22;
+  --btn: #3c4050;
+  --btn-down: #222530;
+  --a: #c8285a;
+  --pixel: 'Press Start 2P', ui-monospace, 'Courier New', monospace;
+  --pad: clamp(112px, 36vw, 150px); /* d-pad and face-button block size */
+  color-scheme: dark; /* one deliberate look: a handheld at night */
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font-family: var(--pixel); overflow: hidden; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; touch-action: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+
+#app {
+  height: 100vh; height: 100dvh;
+  display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: minmax(0, 1fr);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ---------- top bar */
+#hud {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px 4px; font-size: 9px; letter-spacing: .5px;
+}
+#brand { color: var(--gold); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#coins { color: var(--gold); background: #000; padding: 5px 7px; border: 2px solid var(--gold); }
+#mute {
+  background: transparent; border: 2px solid var(--dim); color: var(--dim);
+  padding: 5px 7px; font-size: 8px;
+}
+
+/* ---------- screen */
+#stage { display: flex; align-items: center; justify-content: center; padding: 6px 16px; min-height: 0; }
+#bezel {
+  width: min(100%, 560px, calc((100dvh - 330px) * 10 / 9));
+  min-width: 240px;
+  background: linear-gradient(160deg, var(--shell-hi), var(--shell));
+  border-radius: 12px 12px 36px 12px; padding: 14px 14px 10px;
+  box-shadow: 0 10px 30px #0008, inset 0 1px 0 #ffffff14;
+}
+#glass {
+  position: relative; aspect-ratio: 10 / 9; background: #000; overflow: hidden;
+  border-radius: 4px; box-shadow: inset 0 0 0 2px #000;
+}
+#screen {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  height: 100%; aspect-ratio: 160 / 144; width: auto;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+}
+#screen.square { aspect-ratio: 1 / 1; }
+
+/* ---------- overlays */
+.overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 10px;
+}
+.overlay[hidden], [hidden] { display: none !important; }
+#title { background: radial-gradient(circle at 50% 30%, #3b1840, #0d0d14 75%); }
+#title h1 { margin: 0; font-size: clamp(14px, 5vw, 22px); line-height: 1.4; color: var(--gold); text-shadow: 3px 3px 0 var(--pink); }
+#title h1 span { color: var(--ink); text-shadow: 3px 3px 0 #3a7bd5; }
+#title .sub { margin: 0; font-size: 8px; color: var(--dim); }
+#title .hint { margin: 4px 0 0; font-size: 7px; line-height: 1.6; color: var(--dim); max-width: 34ch; }
+#loading { font-size: 9px; color: var(--ink); }
+#nosave { margin: 0; font-size: 7px; line-height: 1.6; color: var(--pink); max-width: 34ch; }
+.menu { display: flex; flex-direction: column; gap: 6px; width: min(92%, 300px); }
+.menu button, .row button, #payout-ok {
+  background: var(--paper); color: var(--paper-ink); border: 3px solid var(--paper-ink);
+  box-shadow: 0 0 0 2px var(--paper); padding: 8px 6px; font-size: 9px;
+}
+.menu button.sel, .row button:focus-visible { outline: none; background: var(--gold); }
+.menu button.sel::before { content: '> '; }
+
+.box { background: var(--paper); color: var(--paper-ink); border: 4px double var(--paper-ink); justify-content: flex-start; }
+#picker h2 { margin: 2px 0 0; font-size: 10px; }
+#gift { margin: 0; font-size: 8px; color: var(--a); line-height: 1.5; }
+#picker-coins { margin: 0; font-size: 8px; }
+#cabinets { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+#cabinets li {
+  display: grid; text-align: left; gap: 3px; padding: 6px 6px 6px 18px;
+  border: 2px solid transparent; position: relative; cursor: pointer;
+}
+#cabinets li b { font-size: 9px; }
+#cabinets li span { font-size: 7px; color: #555; }
+#cabinets li em { font-style: normal; font-size: 7px; color: #2e6b3a; line-height: 1.5; }
+#cabinets li i { font-style: normal; font-size: 7px; color: #6b2e4a; line-height: 1.5; }
+#cabinets li.sel { border-color: var(--paper-ink); }
+#cabinets li.sel::before { content: '>'; position: absolute; left: 4px; top: 6px; font-size: 9px; }
+#cabinets li.leave { text-align: left; }
+.box .hint { margin-top: auto; font-size: 7px; color: #555; }
+#confirm, #payout { justify-content: center; }
+#confirm-text { font-size: 9px; line-height: 1.7; margin: 0 4px; }
+.row { display: flex; flex-direction: column; gap: 6px; width: 92%; }
+#payout-amount { font-size: 16px; margin: 0; color: var(--a); }
+#payout-detail { font-size: 8px; line-height: 1.7; margin: 0 6px; }
+
+#arcade-hud {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 8px;
+  margin-top: 8px; font-size: 7px; color: var(--ink);
+}
+#arcade-title { color: var(--gold); }
+#arcade-score { grid-column: 1; grid-row: 2; }
+#arcade-controls { grid-column: 1 / -1; grid-row: 3; color: var(--dim); }
+#cashout { grid-column: 2; grid-row: 1 / span 2; }
+#cashout { background: var(--pink); border: none; color: #fff; padding: 6px 7px; font-size: 7px; border-radius: 3px; }
+
+/* ---------- touch pad */
+#pad {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; align-self: end;
+  gap: 6px; padding: 6px 16px max(22px, env(safe-area-inset-bottom)); touch-action: none; min-width: 0;
+}
+#dpad {
+  position: relative; width: var(--pad); height: var(--pad); justify-self: start;
+}
+#dpad .arm, #dpad .hub { position: absolute; background: var(--btn); }
+#dpad .up, #dpad .down { left: 33.4%; width: 33.3%; height: 34.7%; }
+#dpad .left, #dpad .right { top: 33.4%; width: 34.7%; height: 33.3%; }
+#dpad .up { top: 0; border-radius: 8px 8px 0 0; }
+#dpad .down { bottom: 0; border-radius: 0 0 8px 8px; }
+#dpad .left { left: 0; border-radius: 8px 0 0 8px; }
+#dpad .right { right: 0; border-radius: 0 8px 8px 0; }
+#dpad .hub { left: 33.4%; top: 33.4%; width: 33.3%; height: 33.3%; }
+#dpad.up .up, #dpad.down .down, #dpad.left .left, #dpad.right .right { background: var(--btn-down); }
+#mid { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.pill {
+  background: var(--btn); border: none; border-radius: 12px; padding: 8px 10px;
+  font-size: 7px; color: var(--dim); transform: rotate(-20deg);
+}
+#face { position: relative; width: var(--pad); height: calc(var(--pad) * .87); justify-self: end; }
+.round {
+  position: absolute; width: calc(var(--pad) * .44); height: calc(var(--pad) * .44); border-radius: 50%; border: none;
+  background: var(--a); color: #fff; font-size: 14px; box-shadow: 0 4px 0 #6d1530;
+}
+.round.a { right: 0; top: 0; }
+.round.b { left: 0; bottom: 0; }
+.pill.down, .round.down { filter: brightness(.7); transform: translateY(2px); }
+.pill.down { transform: rotate(-20deg) translateY(2px); }
+
+/* Short screens: smaller pad so the game screen keeps its size. */
+@media (max-height: 700px) and (orientation: portrait) {
+  :root { --pad: clamp(104px, 32vw, 128px); }
+  #bezel { width: min(100%, 560px, calc((100dvh - 270px) * 10 / 9)); }
+}
+
+/* Landscape phones: controls either side of the screen. */
+@media (orientation: landscape) and (max-height: 600px) {
+  #app { grid-template-rows: auto 1fr; }
+  #stage { align-items: center; }
+  #hud { padding: 6px 16px 0; }
+  #stage { padding: 4px 190px 6px; }
+  #bezel { width: min(100%, calc((100dvh - 70px) * 10 / 9)); padding: 8px 8px 6px; border-radius: 10px; }
+  #arcade-hud { margin-top: 4px; }
+  #pad { position: fixed; inset: 40px 0 0 0; align-self: stretch; pointer-events: none; display: block; padding: 0; }
+  #dpad, #face, #mid { pointer-events: auto; position: absolute; }
+  #dpad { left: max(16px, env(safe-area-inset-left)); bottom: 24px; }
+  #face { right: max(16px, env(safe-area-inset-right)); bottom: 30px; }
+  #mid { left: max(16px, env(safe-area-inset-left)); top: 6px; flex-direction: row; }
+}

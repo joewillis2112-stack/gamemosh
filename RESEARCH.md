@@ -28,6 +28,8 @@ A working log for this repo. It records common themes, what has been learned, mi
 | 5 | Round 1 research agent: listed Iron Doom as a full port and DukeNukemRust as complete, and missed skate-3-rust-engine | Agents over-trust READMEs | Always run a second filter/verify pass, and spot-check surprising claims myself (commit counts, dates, co-author trailers) |
 | 6 | Round 2 agent marked vange-rs "AI-written: yes" from 133 Claude-authored commits, but the project is from 2016 | "Has AI commits" is not "AI-written" | Report the AI share and the project start date. Count commits, not trailers (one commit can carry several) |
 | 7 | Rounds 1 and 2 said open-pokered had "assets in repo" and chipdx was "phone-ready". Building them showed open-pokered fetches its graphics at build time, and chipdx needs rustc 1.95 and ships a 16 MB wasm | Desk research can't see build-time gotchas | "Runs on mobile" is only claimed after a real wasm build and a headless mobile run. Desk research ranks; builds decide |
+| 8 | Game Corner v1: GO TO THE GAME CORNER wiped an existing save with no confirmation, and the portrait layout was 410 px wide on a 390 px phone | Guarded only one of two destructive buttons. Tested only with the fallback font (the real pixel font is wider and Google Fonts is unreachable in this sandbox) | Guard every action that replaces a save. Test layout with the real web font served locally (route fonts.googleapis.com in Playwright) at 390, 360 and 320 px |
+| 9 | The playtest agent was cut off by a usage limit and could not write its report file | Long sub-agent runs can die partway, and sub-agents may be refused file writes | Tell sub-agents to report incrementally, and to put the full report in their final message. Resume a stopped agent with SendMessage instead of respawning it |
 
 ## 3. Domain knowledge: game mashups
 
@@ -90,6 +92,22 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Headless Chromium (swiftshader) runs at ~4 fps.** Wait on game time (`state.stats.playTime`), not wall time. Write background test runs to log files, because output is lost on timeout.
 - **Shell:** `pkill -f <pattern>` can kill its own shell.
 
+**Game Corner Arcade (`gamecorner/`), mosh lessons**
+- **Drive guests from the host loop.** Both wasm modules are stepped from one `requestAnimationFrame` loop with accumulators (Pokémon 59.73 Hz, PICO-8 at the cart's rate). Neither owns a loop.
+- **One page-owned audio output.** Patch guests so they render samples on request (`render_audio(frames, rate)`) instead of opening their own Web Audio device. Tearing down a device output in open-pokered (`set_muted`) left orphaned callbacks throwing "closure invoked after being dropped". When the loop stops, output silence (a heartbeat check), or the sound chips drone their last note.
+- **Read guest state without editing the guest.** pico-r got a `web_get_global("room.x")` export that reads Lua globals, which beats patching carts. Check the cart's draw code for the real display value: Bubblegum prints `score.."0"`, and Ghost Wave stores 16.16 fixed point.
+- **Intercept, don't replace.** Poll the host's screen name (`Slots`), close it before it draws (`leave_slots`), and show your own overlay. The original scripts (slot signs, the attendant's PLAY) keep working untouched.
+- **Touch input:** latch presses (a tap can start and end between two polls). Carry tap bits until a tick actually runs (30 fps carts, 120 Hz screens). After a screen change, swallow only buttons still physically held.
+- **open-pokered gotchas:**
+  - `PokemonGame::new` on wasm silently loads `localStorage['pokered.save']`.
+  - `export_save` is the last in-game save, not the live state, so the patch adds `export_live_save`.
+  - Script `npc = N` is 1-based into `map.json` npcs.
+  - The editor-save `currentHp` defaults to 0, which means a fainted mon.
+- **claude.ai artifacts:**
+  - Publish a fragment (no html/head/body); the host adds viewport and safe-area padding.
+  - `confirm()` returns false, so build confirmations into the page (two-tap).
+  - 16 MB page limit: the bundle is 12.3 MB with both wasm modules base64-inlined.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -116,7 +134,9 @@ A working log for this repo. It records common themes, what has been learned, mi
 
 - Does Gloamreach run at a playable frame rate on the user's actual phone, and does Rapier's WASM load inside the claude.ai artifact on mobile?
 - MinecraftOSS has no public repo. Where does it come from (mashup issue #21)?
-- Build Game Corner Arcade (open-pokered + pico-r) first, per `mashup-research/MOBILE_PICKS.md`. Is the user's phone fast enough? Nothing has been run on a real device yet.
+- Game Corner Arcade is published at https://claude.ai/artifact/4hEicr7gfozQmgeqPj8Jjx.
+  - Does WebAssembly run inside the artifact sandbox? Its CSP isn't documented, and the page shows "Couldn't start: …" if it doesn't.
+  - What frame rate does it get on the user's phone? Not yet run on a real device.
 - pico-r and Iron Wolf have no touch input, so a phone build needs an on-screen overlay.
 
 ## 7. Session log
@@ -128,3 +148,7 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Wrote `INSTRUCTIONS.md`, a guide to rewriting and moshing games. Sources: the mashup's code and agent docs (`CONTEXT.md` journal and suffixes, the skate adapter, collision, rails, rig), Legaia's `CLAUDE.md`, re-skill, and the Bun port write-up.
   - A sub-agent built 8 pieces for wasm and ran them in a headless mobile browser. The ranked picks are in `mashup-research/MOBILE_PICKS.md`: (1) Game Corner Arcade, (2) Wolf Arcade, (3) Wolfenstein of Persia. Three games ran together on one page (the screenshot is checked in).
   - Added `CLAUDE.md`.
+- **2026-10-03 (Game Corner Arcade):**
+  - Built the first mosh: Pokémon Red (open-pokered runner) hosting PICO-8 cabinets (pico-r) in the Celadon Game Corner, with coin payouts, touch pad, autosave and one audio output.
+  - Testing: three headless phone suites, plus one playtest sub-agent, which found 7 issues, all fixed.
+  - Published as an artifact and merged to `main` under `gamecorner/`.
