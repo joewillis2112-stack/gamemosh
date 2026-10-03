@@ -1,0 +1,57 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index c153717..67d9851 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -331,6 +331,23 @@ pub extern "C" fn web_generate_audio(sample_count: u32) -> *mut f32 {
+     engine.audio_buf.as_mut_ptr()
+ }
+ 
++/// Read a numeric Lua global (dotted path, UTF-8 at `name_ptr`) so the host
++/// page can follow a cart's score or progress. NaN when unset or not a number.
++///
++/// # Safety
++///
++/// `name_ptr` must point to `name_len` readable bytes.
++#[no_mangle]
++pub unsafe extern "C" fn web_get_global(name_ptr: *const u8, name_len: u32) -> f64 {
++    let name = match unsafe { wasm_bytes(name_ptr, name_len) } {
++        Some(n) => n,
++        None => return f64::NAN,
++    };
++    engine_mut()
++        .and_then(|e| e.lua.global_number(name))
++        .unwrap_or(f64::NAN)
++}
++
+ #[no_mangle]
+ pub extern "C" fn web_get_fps() -> u32 {
+     engine_mut()
+diff --git a/src/pico_lua/mod.rs b/src/pico_lua/mod.rs
+index 88f32d5..3227765 100644
+--- a/src/pico_lua/mod.rs
++++ b/src/pico_lua/mod.rs
+@@ -49,6 +49,24 @@ impl Default for LuaImpl {
+ }
+ 
+ impl LuaImpl {
++    /// Read a numeric Lua global for the host, following a dotted path
++    /// (`"room.x"`) through nested tables. Booleans read as 0/1.
++    pub fn global_number(&self, path: &[u8]) -> Option<f64> {
++        let mut cur = value::Value::Table(std::rc::Rc::clone(&self.interp.globals));
++        for part in path.split(|b| *b == b'.') {
++            let next = match &cur {
++                value::Value::Table(t) => t.borrow().get(&value::Value::Str(std::rc::Rc::from(part))),
++                _ => return None,
++            };
++            cur = next;
++        }
++        match cur {
++            value::Value::Number(n) => Some(n),
++            value::Value::Bool(b) => Some(if b { 1.0 } else { 0.0 }),
++            _ => None,
++        }
++    }
++
+     pub fn new() -> Self {
+         let globals = Rc::new(RefCell::new(TableInner::new()));
+         api::register_all(&globals);
