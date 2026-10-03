@@ -42,5 +42,13 @@ const html = readFileSync(join(root, 'web/index.html'), 'utf8')
 
 mkdirSync(join(root, 'dist'), { recursive: true });
 writeFileSync(join(root, 'dist/index.html'), html);
+
+// claude.ai artifact version: a fragment (the host adds the document, the
+// viewport meta and safe-area padding on :root), so the app fills 100% height.
+const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'))
+  .replace(/<meta[^>]*>\s*/g, '');
+const body = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+const fit = '<style>html,body{height:100%}#app{height:100%;padding-top:0;padding-bottom:0}</style>';
+writeFileSync(join(root, 'dist/artifact.html'), head.trim() + '\n' + fit + '\n' + body.trim() + '\n');
 const mb = (n) => (n / 1048576).toFixed(2) + ' MB';
 console.log(`dist/index.html ${mb(html.length)} (pokered ${mb(assets.pk.length)}, pico ${mb(assets.pico.length)}, ${Object.keys(carts).length} carts: ${Object.keys(carts).join(', ')})`);
