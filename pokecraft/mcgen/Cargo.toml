@@ -1,0 +1,20 @@
+[package]
+name = "mcgen"
+version = "0.1.0"
+edition = "2021"
+description = "Minecraft 26.3 world generation (MinecraftOSS) for the browser: chunk surfaces by seed"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+minecraftoss-core = { path = "../.work/minecraftoss/core" }
+minecraftoss-generator = { path = "../.work/minecraftoss/generator" }
+minecraftoss-world = { path = "../.work/minecraftoss/world" }
+flate2 = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

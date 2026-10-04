@@ -30,8 +30,14 @@ A working log for this repo. It records common themes, what has been learned, mi
 | 7 | Rounds 1 and 2 said open-pokered had "assets in repo" and chipdx was "phone-ready". Building them showed open-pokered fetches its graphics at build time, and chipdx needs rustc 1.95 and ships a 16 MB wasm | Desk research can't see build-time gotchas | "Runs on mobile" is only claimed after a real wasm build and a headless mobile run. Desk research ranks; builds decide |
 | 8 | Game Corner v1: GO TO THE GAME CORNER wiped an existing save with no confirmation, and the portrait layout was 410 px wide on a 390 px phone | Guarded only one of two destructive buttons. Tested only with the fallback font (the real pixel font is wider and Google Fonts is unreachable in this sandbox) | Guard every action that replaces a save. Test layout with the real web font served locally (route fonts.googleapis.com in Playwright) at 390, 360 and 320 px |
 | 9 | The playtest agent was cut off by a usage limit and could not write its report file | Long sub-agent runs can die partway, and sub-agents may be refused file writes | Tell sub-agents to report incrementally, and to put the full report in their final message. Resume a stopped agent with SendMessage instead of respawning it |
+| 10 | Game Corner Arcade was a menu between two games (walk up to a slot, pick a PICO-8 cabinet, coins carry back). The user: "it feels like an arcade menu where I get to choose which game". Released moshes are two games as one | I designed from the word "mashup" and never looked at what released moshes look like | Before designing a mosh, look at real ones (images, video). Test the design against the definition: one world, both games running in it at once. See INSTRUCTIONS.md §0 |
 
 ## 3. Domain knowledge: game mashups
+
+**What a mosh is (corrected 2026-10-04)**
+- One game. You play one world in which both games run at once. It is not a hub where you pick which game to play. Game Corner Arcade got this wrong (mistake 10).
+- One game owns the world and draws it; the other owns the player or the rules and can run hidden. SkyCraft: Skyrim draws, Minecraft is the player. Pokécraft: Minecraft makes the world, Pokémon runs the player's party, battles and menus.
+- The candidate list never settles. New AI rewrites appear every few days (the user, 2026-10-04), so redo a research round before a new mosh rather than trusting an old shortlist.
 
 **What a mashup actually is**
 - The reference project (chasmlol/2010-rust-rewrite-mashup) joins three independent Rust rewrites: IW4L (MW2), skate-3-rust-engine and MinecraftOSS.
@@ -108,6 +114,32 @@ A working log for this repo. It records common themes, what has been learned, mi
   - `confirm()` returns false, so build confirmations into the page (two-tap).
   - 16 MB page limit: the bundle is 12.3 MB with both wasm modules base64-inlined.
 
+## 4b. Technical lessons from Pokécraft (`pokecraft/`)
+
+**MinecraftOSS in a browser**
+- The 3 world crates (core, generator, world) build for `wasm32-unknown-unknown` with 4 changes:
+  - File reads go through an in-memory VFS (`vfs.rs`). No `std::fs`.
+  - ChunkMap runs with 0 workers, so there are no threads.
+  - An `Instant` shim, because `std::time::Instant::now` panics on wasm32.
+  - A `#[cfg]` around `SystemTime`.
+- Its data is the client jar's `data/minecraft/{worldgen,tags,structure,dimension_type,*_variant}` plus the block-state catalog: 3645 files, 3.34 MB gzipped.
+- `mcgen.wasm` is 2.6 MB with no imports. Startup takes 0.5–1.1 s.
+- A chunk takes 40–65 ms in a Worker on desktop Chromium; the first chunk takes about 500 ms, because it also needs its neighbours.
+- `MOTION_BLOCKING_NO_LEAVES` gives walkable ground with trees as walls; `WORLD_SURFACE` above it gives the canopy. Together they make a top-down map with no 3D scanning.
+- Without storage, ChunkMap keeps evicted chunks in memory forever. Use `trim()`: a seed regenerates a dropped chunk identically.
+- Its `spawn_origin()` (vanilla's climate search) and `biome_at_quart()` are cheap, with no chunk needed.
+
+**Drawing one game on top of another**
+- To use a game's UI over a different world, render its frame twice with the world layer cleared to two different colours. Pixels that differ are the world; make them transparent. No knowledge of the game's UI layout is needed.
+- Fades come out right for free: a full fade maps both clear colours to the same shade, so the screen goes opaque.
+- Only screens that draw over the overworld (overworld, START menu, shop) need the double draw. Full-screen ones (battle, party) are opaque and drawn once, so animations with side effects don't run twice.
+- Handing control back and forth: the page owns input while the game's layer is fully transparent and its screen is the overworld. Otherwise the game gets every button. No list of menus is needed.
+- Pokémon's player stays parked on Route 1. Any map change (blackout, FLY, DIG, ESCAPE ROPE) is read as "go back to your bed".
+
+**Build gotchas**
+- `git apply` run inside a folder that is under another git repo resolves paths against the outer repo and skips the patch without error. Run `git init` in the target folder first.
+- In Gen 1 a fast wild Pokémon (Voltorb) can block RUN for many turns. Test flows that run away should use a slow species, or end the battle another way.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -138,6 +170,10 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Does WebAssembly run inside the artifact sandbox? Its CSP isn't documented, and the page shows "Couldn't start: …" if it doesn't.
   - What frame rate does it get on the user's phone? Not yet run on a real device.
 - pico-r and Iron Wolf have no touch input, so a phone build needs an on-screen overlay.
+- Pokécraft (https://claude.ai/artifact/QrvL2FGDYSDADfnMwZaY3K):
+  - Does the artifact sandbox allow a Worker from a `blob:` URL? If not, world generation falls back to the page, with a 40–90 ms stall per new chunk.
+  - How fast is chunk generation on the user's phone? Headless with a 4× CPU throttle held 60 fps and about 43 ms per chunk, but it has not been tested on a real device.
+  - Villages: the generator builds them, but houses are roofed, so only the bell is reachable from above. Showing interiors would need per-column floor scanning.
 
 ## 7. Session log
 
@@ -152,3 +188,10 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Built the first mosh: Pokémon Red (open-pokered runner) hosting PICO-8 cabinets (pico-r) in the Celadon Game Corner, with coin payouts, touch pad, autosave and one audio output.
   - Testing: three headless phone suites, plus one playtest sub-agent, which found 7 issues, all fixed.
   - Published as an artifact and merged to `main` under `gamecorner/`.
+- **2026-10-04 (Pokécraft):**
+  - The user said Game Corner was a menu between two games, not a mosh (mistake 10). Of 3 true-merge options, they picked Pokémon in an endless Minecraft world.
+  - Got MinecraftOSS world generation running in wasm (in-memory files, no threads, no clock), in a Web Worker.
+  - Patched open-pokered to draw in layers (two clear colours), so its menus, text and shop sit on top of the Minecraft world.
+  - Built `pokecraft/`: top-down Minecraft textures; biome encounters; mobs as Pokémon; distance-based levels; day and night with sleep; bells and a Wandering Trader that run a Poké Mart; SURF; B to sprint.
+  - `build.sh` reproduces it from scratch, downloading Mojang's client jar. Two headless phone suites pass.
+  - Published at https://claude.ai/artifact/QrvL2FGDYSDADfnMwZaY3K and merged to `main`.

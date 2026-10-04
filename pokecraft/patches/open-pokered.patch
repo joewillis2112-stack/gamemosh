@@ -1,0 +1,346 @@
+diff --git a/crates/pokered-app/src/game.rs b/crates/pokered-app/src/game.rs
+index d73681f..3f8bb48 100644
+--- a/crates/pokered-app/src/game.rs
++++ b/crates/pokered-app/src/game.rs
+@@ -1503,6 +1503,14 @@ impl PokemonGame {
+         Self::new_portable(version, save_data, save_summary, AudioOutput::new())
+     }
+ 
++    /// Like [`new`](Self::new) but without opening a Web Audio device; the
++    /// embedding page pulls samples through `AudioOutput::render_pcm_at`.
++    #[cfg(target_arch = "wasm32")]
++    pub fn new_without_audio_device(version: GameVersion) -> Self {
++        let (save_data, save_summary) = try_load_save_from_local_storage();
++        Self::new_portable(version, save_data, save_summary, Some(AudioOutput::new_pcm()))
++    }
++
+     #[cfg(not(target_os = "none"))]
+     fn new_portable(
+         version: GameVersion,
+@@ -1927,7 +1935,7 @@ impl PokemonGame {
+ 
+     }
+ 
+-    fn build_save_data(&self) -> SaveData {
++    pub fn build_save_data(&self) -> SaveData {
+         let mut save = self.save_data.clone();
+         Self::apply_live_state_to_save(&mut save, &self.overworld, &self.player_name, &self.rival_name);
+         save
+@@ -2492,6 +2500,16 @@ impl PokemonGame {
+                                     &mut self.overworld,
+                                 );
+                             let battle_outcome = writeback.outcome;
++                            LAST_BATTLE_OUTCOME.store(
++                                match battle_outcome {
++                                    Some("win") => 1,
++                                    Some("lose") => 2,
++                                    Some("fled") | Some("ran") => 4,
++                                    Some("caught") => 5,
++                                    _ => 6,
++                                },
++                                core::sync::atomic::Ordering::Relaxed,
++                            );
+                             // EvolutionAfterBattle (engine/pokemon/evos_moves.asm):
+                             // level-up evolutions detected at battle end play as the
+                             // cutscene in the overworld, BEFORE the map music restarts
+@@ -7548,6 +7566,10 @@ impl PokemonGame {
+     }
+ }
+ 
++/// Pokécraft: how the last battle ended (0 none yet, 1 win, 2 loss, 3 draw,
++/// 4 escaped, 5 caught, 6 unknown); the web runner reads and clears it.
++pub static LAST_BATTLE_OUTCOME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
++
+ const BLACK_SCREEN_DURATION: u32 = 30;
+ 
+ /// Frames A+B+Start+Select must be held to trigger a soft reset
+diff --git a/crates/pokered-app/src/render/mod.rs b/crates/pokered-app/src/render/mod.rs
+index e69eabf..f12af85 100644
+--- a/crates/pokered-app/src/render/mod.rs
++++ b/crates/pokered-app/src/render/mod.rs
+@@ -49,7 +49,7 @@ pub use menu::{
+     draw_start_menu, draw_stats_screen,
+ };
+ pub use oak::{draw_naming_screen, draw_oak_speech};
+-pub use overworld::draw_overworld;
++pub use overworld::{draw_overworld, set_hidden_world};
+ pub use overworld::{FrameDamageRect, OverworldBackgroundCache};
+ pub mod session;
+ pub use menu::{
+diff --git a/crates/pokered-app/src/render/overworld.rs b/crates/pokered-app/src/render/overworld.rs
+index 869dc97..98ba7b8 100644
+--- a/crates/pokered-app/src/render/overworld.rs
++++ b/crates/pokered-app/src/render/overworld.rs
+@@ -882,6 +882,23 @@ fn background_map_hash(screen: &OverworldScreen) -> u32 {
+     hash
+ }
+ 
++/// Pokécraft: when set, the overworld draws no map and no sprites; it clears
++/// to this shade (0 white, 3 black) instead, so a page can paint its own world
++/// underneath and key out the pixels that differ between two clear shades.
++static HIDDEN_WORLD: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0xff);
++
++pub fn set_hidden_world(shade: Option<u8>) {
++    HIDDEN_WORLD.store(shade.unwrap_or(0xff), core::sync::atomic::Ordering::Relaxed);
++}
++
++fn hidden_world() -> Option<Rgba> {
++    match HIDDEN_WORLD.load(core::sync::atomic::Ordering::Relaxed) {
++        0 => Some(Rgba::WHITE),
++        3 => Some(Rgba::BLACK),
++        _ => None,
++    }
++}
++
+ pub fn draw_overworld(
+     screen: &mut OverworldScreen,
+     res: &mut Option<ResourceManager>,
+@@ -1000,7 +1017,10 @@ fn draw_overworld_impl(
+         (0, 0)
+     };
+ 
+-    if let Some(ref mut rm) = res {
++    let hidden = hidden_world();
++    if let Some(shade) = hidden {
++        fb.clear(shade);
++    } else if let Some(ref mut rm) = res {
+         let current_map: MapId = screen.state.current_map;
+         let map_handle = get_map_json(current_map);
+         let map_json = map_handle.as_deref();
+diff --git a/crates/pokered-audio/src/output.rs b/crates/pokered-audio/src/output.rs
+index 65802e5..4c2b13f 100644
+--- a/crates/pokered-audio/src/output.rs
++++ b/crates/pokered-audio/src/output.rs
+@@ -192,6 +192,13 @@ impl AudioOutput {
+         }
+     }
+ 
++    /// Render interleaved stereo samples at `sample_rate` for an audio graph
++    /// the embedder owns (no device output attached).
++    pub fn render_pcm_at(&self, output: &mut [f32], sample_rate: u32) {
++        let mut manager = self.manager.lock().unwrap();
++        dotzuki_audio::output::render_apu_stereo(&mut manager.apu, output, sample_rate);
++    }
++
+     pub fn update_frame(&self) {
+         if let Ok(mut mgr) = self.manager.lock() {
+             mgr.update_frame();
+diff --git a/crates/pokered-runner-web/src/lib.rs b/crates/pokered-runner-web/src/lib.rs
+index fa5bec4..442a4a1 100644
+--- a/crates/pokered-runner-web/src/lib.rs
++++ b/crates/pokered-runner-web/src/lib.rs
+@@ -394,6 +394,70 @@ impl PokeredRunner {
+         pokered_data::runtime_overrides::set_base_stats_override(species_name, json)
+     }
+ 
++    // ── Game Corner Arcade bridge ────────────────────────────────────────
++
++    /// The player's Game Corner coin balance.
++    pub fn coins(&self) -> u32 {
++        self.game.save_data.game_data.player_coins as u32
++    }
++
++    /// Credit `amount` coins, capped at the COIN CASE's 9999, and return the
++    /// new balance.
++    pub fn add_coins(&mut self, amount: u32) -> u32 {
++        let gd = &mut self.game.save_data.game_data;
++        gd.player_coins = (gd.player_coins as u32).saturating_add(amount).min(9999) as u16;
++        gd.player_coins as u32
++    }
++
++    /// Whether the bag holds `item_const` (e.g. `"COIN_CASE"`).
++    pub fn has_item(&self, item_const: &str) -> bool {
++        self.game.save_data.game_data.bag.has_item_const(item_const)
++    }
++
++    /// Put `quantity` of `item_const` in the bag. `false` when the name is
++    /// unknown or the bag is full.
++    pub fn give_item(&mut self, item_const: &str, quantity: u8) -> bool {
++        match ItemId::from_const_name(item_const) {
++            Some(item) => self
++                .game
++                .save_data
++                .game_data
++                .bag
++                .add_item(item, quantity.max(1))
++                .is_ok(),
++            None => false,
++        }
++    }
++
++    /// Close the slot-machine screen unplayed and return to the overworld,
++    /// so the host page can run its own game in its place. `false` when the
++    /// slots aren't open.
++    pub fn leave_slots(&mut self) -> bool {
++        if self.game.state.screen != GameScreen::Slots {
++            return false;
++        }
++        self.game.slots_screen = None;
++        self.game.handle_transition(GameScreen::Overworld);
++        true
++    }
++
++    /// Render `frames` stereo frames (interleaved L/R) of game audio at
++    /// `sample_rate`, for the page's own audio graph. Silence when muted.
++    pub fn render_audio(&self, frames: u32, sample_rate: u32) -> Vec<f32> {
++        let mut out = vec![0.0f32; frames as usize * 2];
++        if let Some(audio) = self.game.audio.as_ref() {
++            audio.render_pcm_at(&mut out, sample_rate);
++        }
++        out
++    }
++
++    /// The live game as save JSON, including the current map and position
++    /// (unlike [`export_save`](Self::export_save), which is the last in-game
++    /// save). Pair with [`export_flags`](Self::export_flags) to resume.
++    pub fn export_live_save(&self) -> Option<String> {
++        serde_json::to_string(&self.game.build_save_data()).ok()
++    }
++
+     /// The current game screen as a short name (`"Overworld"`, `"Battle"`, …)
+     /// for the editor's HUD.
+     pub fn screen_name(&self) -> String {
+@@ -464,6 +528,133 @@ impl PokeredRunner {
+         self.game.debug_full_heal();
+     }
+ 
++    // ── Pokécraft: the page draws the world, the game runs hidden ────────
++
++    /// Like [`tick`](Self::tick), but the overworld's map and sprites come out
++    /// transparent (alpha 0), so the page can paint its own world underneath
++    /// the game's text boxes, START menu and shop. Screens that own the whole
++    /// display (battle, party, bag…) come out opaque, except the battle's
++    /// opening flash and wipe, whose overworld backdrop is transparent too.
++    pub fn tick_layers(&mut self, input_bitmask: u8) -> Vec<u8> {
++        use pokered_app::render::set_hidden_world;
++        use pokered_core::battle::{BattlePhase, IntroPhase};
++        self.input.set_from_bitmask(input_bitmask);
++        self.game.update(&self.input);
++        self.input.begin_frame();
++        let n = SCREEN_W as usize * SCREEN_H as usize * 4;
++        let mut out = vec![0u8; n];
++        let over_world = matches!(
++            self.game.state.screen,
++            GameScreen::Overworld | GameScreen::StartMenu | GameScreen::Shop(_)
++        ) && self.game.overworld.pending_pokedex_entry.is_none()
++            && !self.game.overworld.is_party_select_active()
++            && !self.game.overworld.is_naming_screen_active();
++        if over_world {
++            // Draw twice, clearing to white then black where the map would
++            // be: whatever differs is the map.
++            set_hidden_world(Some(0));
++            self.game.draw(&mut self.fb);
++            self.fb.to_rgba(&mut out);
++            set_hidden_world(Some(3));
++            self.game.draw(&mut self.fb);
++            set_hidden_world(None);
++            let mut dark = vec![0u8; n];
++            self.fb.to_rgba(&mut dark);
++            for (a, b) in out.chunks_exact_mut(4).zip(dark.chunks_exact(4)) {
++                if a[..3] != b[..3] {
++                    a[3] = 0;
++                }
++            }
++            return out;
++        }
++        let intro = matches!(self.game.state.screen, GameScreen::Battle)
++            && matches!(
++                &self.game.battle.phase,
++                BattlePhase::Intro {
++                    phase: IntroPhase::TransitionFlash | IntroPhase::BattleTransitionWipe(_),
++                    ..
++                }
++            );
++        if intro {
++            // The opening snapshot of the overworld is taken now: blank white.
++            set_hidden_world(Some(0));
++        }
++        self.game.draw(&mut self.fb);
++        set_hidden_world(None);
++        self.fb.to_rgba(&mut out);
++        if intro {
++            for px in out.chunks_exact_mut(4) {
++                if px[0] == 0xff && px[1] == 0xff && px[2] == 0xff {
++                    px[3] = 0;
++                }
++            }
++        }
++        out
++    }
++
++    /// Give the player `species_name` at `level` the way an in-game gift does:
++    /// into the party, or the current PC box when the party is full, and into
++    /// the Pokédex as owned. Applied on the next overworld frame.
++    pub fn give_pokemon(&mut self, species_name: &str, level: u32) -> Result<(), JsValue> {
++        let species = resolve_species(species_name)
++            .ok_or_else(|| JsValue::from_str(&format!("unknown species '{species_name}'")))?;
++        self.game.overworld.pending_give_pokemon =
++            Some(pokered_core::overworld::screen::PendingGivePokemon {
++                species,
++                level: level.clamp(1, 100) as u8,
++                nickname: None,
++            });
++        Ok(())
++    }
++
++    /// Heal the party with the Pokémon Center jingle, on the next overworld frame.
++    pub fn heal_party(&mut self) {
++        self.game.overworld.heal_requested = true;
++    }
++
++    /// Open a Poké Mart selling `items` (comma-separated item constants, e.g.
++    /// `"POKE_BALL,POTION"`), on the next overworld frame.
++    pub fn open_shop(&mut self, items: &str) {
++        self.game.overworld.pending_shop =
++            Some(items.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
++    }
++
++    /// How the last battle ended, once: `""` if none since the last call,
++    /// else `"Win"`, `"Loss"`, `"Draw"`, `"Escaped"`, `"Captured"` or `"Unknown"`.
++    pub fn take_battle_outcome(&mut self) -> String {
++        let v = pokered_app::game::LAST_BATTLE_OUTCOME.swap(0, core::sync::atomic::Ordering::Relaxed);
++        ["", "Win", "Loss", "Draw", "Escaped", "Captured", "Unknown"][v.min(6) as usize].to_string()
++    }
++
++    /// How the player gets around: `"Walking"`, `"Biking"` or `"Surfing"`.
++    pub fn transport(&self) -> String {
++        format!("{:?}", self.game.overworld.state.player.transport)
++    }
++
++    /// Add `amount` to the player's money (capped at ¥999999); returns the new total.
++    pub fn add_money(&mut self, amount: u32) -> u32 {
++        let money = &mut self.game.save_data.game_data.player_money;
++        *money = (*money + amount).min(999_999);
++        *money
++    }
++
++    /// The party as JSON: `[{species, level, hp, max_hp, types: [..], moves: [..]}]`.
++    pub fn party_summary(&self) -> String {
++        let mut out = String::from("[");
++        for (i, mon) in self.game.save_data.party.to_vec().iter().enumerate() {
++            if i > 0 {
++                out.push(',');
++            }
++            let moves: Vec<String> = mon.moves.iter().map(|m| format!("{m:?}")).filter(|m| m != "None" && m != "NoMove").map(|m| format!("\"{m}\"")).collect();
++            out.push_str(&format!(
++                "{{\"species\":\"{:?}\",\"level\":{},\"hp\":{},\"max_hp\":{},\"types\":[\"{:?}\",\"{:?}\"],\"moves\":[{}]}}",
++                mon.species, mon.level, mon.hp, mon.max_hp, mon.type1, mon.type2, moves.join(",")
++            ));
++        }
++        out.push(']');
++        out
++    }
++
+     /// Push the configured text speed (frames between revealed characters) —
+     /// 1/3/5, matching the in-game text speed option.
+     pub fn set_text_delay_frames(&mut self, frames: u16) {
+@@ -494,6 +685,9 @@ impl PokeredRunner {
+     /// Native/testable boot path (no `JsValue`): every failure is a plain
+     /// `String`.
+     fn boot(save_json: Option<&str>) -> Result<Self, String> {
++        #[cfg(target_arch = "wasm32")]
++        let mut game = PokemonGame::new_without_audio_device(GameVersion::Red);
++        #[cfg(not(target_arch = "wasm32"))]
+         let mut game = PokemonGame::new(GameVersion::Red);
+         apply_editor_save(&mut game, save_json);
+         let fb = FrameBuffer::new(RenderConfig::new(SCREEN_W, SCREEN_H), Rgba::BLACK);
