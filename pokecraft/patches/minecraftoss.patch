@@ -1,0 +1,566 @@
+diff --git a/core/src/block.rs b/core/src/block.rs
+index f431e92..ecd93e2 100644
+--- a/core/src/block.rs
++++ b/core/src/block.rs
+@@ -342,7 +342,7 @@ fn parse_shape(value: &Value) -> Result<FaceShape, String> {
+ impl BlockRegistry {
+     /// Loads the pinned catalog, e.g. `artifacts/block-state-catalog/26.3.json`.
+     pub fn load(path: &Path) -> Result<Self, String> {
+-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
++        let text = crate::vfs::read_to_string(path)?;
+         let file: CatalogFile =
+             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+         if !matches!(file.schema_version, 2..=4) || file.minecraft_version != "26.3" {
+diff --git a/core/src/block_entity.rs b/core/src/block_entity.rs
+index de50e54..ae3074d 100644
+--- a/core/src/block_entity.rs
++++ b/core/src/block_entity.rs
+@@ -25,7 +25,7 @@ pub struct BlockEntities {
+ impl BlockEntities {
+     /// Loads `artifacts/block-entity-catalog/26.3.json`.
+     pub fn load(path: &Path) -> Result<Self, String> {
+-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
++        let text = crate::vfs::read_to_string(path)?;
+         let json: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+         if json["schema_version"] != 1 || json["minecraft_version"] != "26.3" {
+             return Err(format!("{}: unsupported block entity catalog", path.display()));
+diff --git a/core/src/datapack.rs b/core/src/datapack.rs
+index a5002d6..baa8c54 100644
+--- a/core/src/datapack.rs
++++ b/core/src/datapack.rs
+@@ -14,7 +14,7 @@ pub struct DataPack {
+ impl DataPack {
+     pub fn open(root: impl Into<PathBuf>) -> Result<Self, String> {
+         let root = root.into();
+-        if !root.join("data").is_dir() {
++        if !crate::vfs::is_dir(&root.join("data")) {
+             return Err(format!(
+                 "not a data pack (no data/ directory): {}",
+                 root.display()
+@@ -38,26 +38,27 @@ impl DataPack {
+     /// Reads `data/<namespace>/<kind>/<path>.json`.
+     pub fn read_json(&self, kind: &str, id: &Identifier) -> Result<Value, String> {
+         let path = self.path(kind, id);
+-        let text =
+-            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
++        let text = crate::vfs::read_to_string(&path)?;
+         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+     }
+ 
+     pub fn contains(&self, kind: &str, id: &Identifier) -> bool {
+-        self.path(kind, id).is_file()
++        crate::vfs::is_file(&self.path(kind, id))
+     }
+ 
+     /// Every JSON entry of one registry directory across namespaces, sorted by identifier.
+     pub fn list(&self, kind: &str) -> Result<Vec<Identifier>, String> {
+         let mut ids = Vec::new();
+         let data = self.root.join("data");
+-        for namespace in std::fs::read_dir(&data).map_err(|e| format!("{}: {e}", data.display()))? {
+-            let namespace = namespace.map_err(|e| e.to_string())?;
+-            let base = namespace.path().join(kind);
+-            if !base.is_dir() {
++        for (namespace, is_dir) in crate::vfs::list_dir(&data)? {
++            if !is_dir {
+                 continue;
+             }
+-            let ns = namespace.file_name().to_string_lossy().into_owned();
++            let base = namespace.join(kind);
++            if !crate::vfs::is_dir(&base) {
++                continue;
++            }
++            let ns = namespace.file_name().unwrap_or_default().to_string_lossy().into_owned();
+             collect(&base, &base, &ns, &mut ids)?;
+         }
+         ids.sort();
+@@ -71,9 +72,8 @@ fn collect(
+     namespace: &str,
+     out: &mut Vec<Identifier>,
+ ) -> Result<(), String> {
+-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+-        let path = entry.map_err(|e| e.to_string())?.path();
+-        if path.is_dir() {
++    for (path, is_dir) in crate::vfs::list_dir(dir)? {
++        if is_dir {
+             collect(base, &path, namespace, out)?;
+         } else if path.extension().is_some_and(|e| e == "json") {
+             let relative = path
+diff --git a/core/src/entity_data.rs b/core/src/entity_data.rs
+index a8858ad..26ac8aa 100644
+--- a/core/src/entity_data.rs
++++ b/core/src/entity_data.rs
+@@ -20,7 +20,7 @@ pub struct EntityCatalog {
+ impl EntityCatalog {
+     /// Loads `artifacts/entity-catalog/26.3.json`.
+     pub fn load(path: &Path) -> Result<Self, String> {
+-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
++        let text = crate::vfs::read_to_string(path)?;
+         let json: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+         if json["schema_version"] != 1 || json["minecraft_version"] != "26.3" {
+             return Err(format!("{}: unsupported entity catalog", path.display()));
+diff --git a/core/src/item.rs b/core/src/item.rs
+index 48425ec..faf9303 100644
+--- a/core/src/item.rs
++++ b/core/src/item.rs
+@@ -16,7 +16,7 @@ pub struct ItemCatalog {
+ 
+ impl ItemCatalog {
+     pub fn load(path: &Path) -> Result<Self, String> {
+-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
++        let text = crate::vfs::read_to_string(path)?;
+         let root: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+         if root["minecraft_version"] != "26.3" {
+             return Err(format!("{}: not a 26.3 item catalog", path.display()));
+diff --git a/core/src/lib.rs b/core/src/lib.rs
+index 3b3509b..be85d31 100644
+--- a/core/src/lib.rs
++++ b/core/src/lib.rs
+@@ -28,6 +28,8 @@ pub mod registries;
+ pub mod seed;
+ pub mod snbt;
+ pub mod tags;
++pub mod vfs;
++pub mod time;
+ 
+ pub use biome::{BiomeId, BiomeRegistry};
+ pub use block::{BlockId, BlockRegistry, BlockStateId, FaceShape, SupportType};
+diff --git a/core/src/light.rs b/core/src/light.rs
+index 6588fcb..4e70cd2 100644
+--- a/core/src/light.rs
++++ b/core/src/light.rs
+@@ -181,7 +181,7 @@ const CENTER_DISTANCE: [usize; SIZE] = {
+ /// Profiling: summed time per light solve phase over the whole process.
+ pub mod profile {
+     use std::sync::atomic::{AtomicU64, Ordering};
+-    use std::time::Instant;
++    use crate::time::Instant;
+     pub const STATES: usize = 0;
+     pub const BLOCK: usize = 1;
+     pub const SKY_SEED: usize = 2;
+@@ -215,7 +215,7 @@ pub mod profile {
+ /// decide which sections store light; for chunks in the 3x3 it should
+ /// agree with their sections.
+ pub fn light_chunk(blocks: &BlockRegistry, table: &LightTable, chunks: [&Chunk; 9], non_empty: impl Fn(i32, i32, i32) -> bool, sky_light: bool) -> ChunkLight {
+-    let started = std::time::Instant::now();
++    let started = crate::time::Instant::now();
+     let center = chunks[4];
+     let build_sections = center.sections().len();
+     // Only sections next to a non-empty one (in chunks up to two away)
+@@ -285,7 +285,7 @@ pub fn light_chunk(blocks: &BlockRegistry, table: &LightTable, chunks: [&Chunk;
+     emitters.sort_unstable();
+     profile::add(profile::STATES, started);
+     let region = light_region_with(blocks, table, center.min_section_y(), build_sections, crop, states, Some(emitters), true, non_empty, sky_light);
+-    let started = std::time::Instant::now();
++    let started = crate::time::Instant::now();
+     let light = region.center();
+     profile::add(profile::LAYERS, started);
+     light
+@@ -493,7 +493,7 @@ fn light_region_with(
+     };
+ 
+     // Block light from emitting blocks.
+-    let started = std::time::Instant::now();
++    let started = crate::time::Instant::now();
+     let mut block = vec![0u8; SIZE * SIZE * height];
+     let mut queue: Vec<Vec<u32>> = vec![Vec::new(); 16];
+     let emitters = emitters.unwrap_or_else(|| (0..states.len() as u32).filter(|&node| table.emission[usize::from(states[node as usize].0)] != 0).collect());
+@@ -510,7 +510,7 @@ fn light_region_with(
+     profile::add(profile::BLOCK, started);
+ 
+     // Sky light: 15 at and above each column's lowest source.
+-    let started = std::time::Instant::now();
++    let started = crate::time::Instant::now();
+     let mut sky = vec![0u8; SIZE * SIZE * height];
+     if sky_light {
+         // Each column's lowest source (region Y); every stored cell from
+@@ -583,7 +583,7 @@ fn light_region_with(
+             }
+         }
+         profile::add(profile::SKY_SEED, started);
+-        let started = std::time::Instant::now();
++        let started = crate::time::Instant::now();
+         if std::env::var_os("MINECRAFTOSS_LIGHT_CHECK").is_some() {
+             // Every source queued, as before: the result must not change.
+             let mut all: Vec<Vec<u32>> = vec![Vec::new(); 16];
+diff --git a/core/src/registries.rs b/core/src/registries.rs
+index d453329..9881520 100644
+--- a/core/src/registries.rs
++++ b/core/src/registries.rs
+@@ -120,14 +120,12 @@ impl Registries {
+             datapack,
+             plain_air,
+             heightmap_masks,
+-            block_entities: paths
+-                .block_entity_catalog
+-                .is_file()
++            block_entities: crate::vfs::is_file(&paths.block_entity_catalog)
+                 .then(|| crate::block_entity::BlockEntities::load(&paths.block_entity_catalog))
+                 .transpose()?,
+-            entities: paths.entity_catalog.is_file().then(|| crate::entity_data::EntityCatalog::load(&paths.entity_catalog)).transpose()?,
++            entities: crate::vfs::is_file(&paths.entity_catalog).then(|| crate::entity_data::EntityCatalog::load(&paths.entity_catalog)).transpose()?,
+             loot: crate::loot::LootTables::default(),
+-            items: if paths.item_catalog.is_file() { crate::item::ItemCatalog::load(&paths.item_catalog)? } else { crate::item::ItemCatalog::default() },
++            items: if crate::vfs::is_file(&paths.item_catalog) { crate::item::ItemCatalog::load(&paths.item_catalog)? } else { crate::item::ItemCatalog::default() },
+         })
+     }
+ 
+diff --git a/core/src/time.rs b/core/src/time.rs
+new file mode 100644
+index 0000000..9e35496
+--- /dev/null
++++ b/core/src/time.rs
+@@ -0,0 +1,62 @@
++//! `Instant` for timings and metrics. `std::time::Instant::now` panics in the
++//! browser build (wasm32-unknown-unknown has no clock), so there it reads zero.
++
++#[cfg(not(target_arch = "wasm32"))]
++pub use std::time::Instant;
++
++#[cfg(target_arch = "wasm32")]
++pub use browser::Instant;
++
++#[cfg(target_arch = "wasm32")]
++mod browser {
++    use std::ops::{Add, AddAssign, Sub};
++    use std::time::Duration;
++
++    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
++    pub struct Instant;
++
++    impl Instant {
++        pub fn now() -> Self {
++            Instant
++        }
++        pub fn elapsed(&self) -> Duration {
++            Duration::ZERO
++        }
++        pub fn duration_since(&self, _: Instant) -> Duration {
++            Duration::ZERO
++        }
++        pub fn saturating_duration_since(&self, _: Instant) -> Duration {
++            Duration::ZERO
++        }
++        pub fn checked_duration_since(&self, _: Instant) -> Option<Duration> {
++            Some(Duration::ZERO)
++        }
++        pub fn checked_add(&self, _: Duration) -> Option<Instant> {
++            Some(Instant)
++        }
++        pub fn checked_sub(&self, _: Duration) -> Option<Instant> {
++            Some(Instant)
++        }
++    }
++    impl Add<Duration> for Instant {
++        type Output = Instant;
++        fn add(self, _: Duration) -> Instant {
++            Instant
++        }
++    }
++    impl AddAssign<Duration> for Instant {
++        fn add_assign(&mut self, _: Duration) {}
++    }
++    impl Sub<Instant> for Instant {
++        type Output = Duration;
++        fn sub(self, _: Instant) -> Duration {
++            Duration::ZERO
++        }
++    }
++    impl Sub<Duration> for Instant {
++        type Output = Instant;
++        fn sub(self, _: Duration) -> Instant {
++            Instant
++        }
++    }
++}
+diff --git a/core/src/vfs.rs b/core/src/vfs.rs
+new file mode 100644
+index 0000000..5da260f
+--- /dev/null
++++ b/core/src/vfs.rs
+@@ -0,0 +1,93 @@
++//! File access for data loading. Natively this is `std::fs`. Once a bundle is
++//! mounted (the browser build, which has no file system), reads come from it.
++//! Natively, `record` lists every file a run touched, to build that bundle.
++
++use std::collections::{BTreeMap, BTreeSet};
++use std::path::{Path, PathBuf};
++use std::sync::{Mutex, OnceLock};
++
++static MOUNT: OnceLock<BTreeMap<String, Vec<u8>>> = OnceLock::new();
++static RECORD: Mutex<Option<BTreeSet<String>>> = Mutex::new(None);
++
++fn key(path: &Path) -> String {
++    path.to_string_lossy().replace('\\', "/")
++}
++
++fn note(path: &Path) {
++    if let Ok(mut guard) = RECORD.lock() {
++        if let Some(set) = guard.as_mut() {
++            set.insert(key(path));
++        }
++    }
++}
++
++/// Serve every later read from `files` (keys are full paths with `/`).
++pub fn mount(files: BTreeMap<String, Vec<u8>>) {
++    let _ = MOUNT.set(files);
++}
++
++/// Start listing every file read from disk.
++pub fn record() {
++    *RECORD.lock().expect("vfs record") = Some(BTreeSet::new());
++}
++
++/// The files read from disk since `record`.
++pub fn recorded() -> Vec<String> {
++    RECORD.lock().expect("vfs record").as_ref().map(|s| s.iter().cloned().collect()).unwrap_or_default()
++}
++
++pub fn read(path: &Path) -> Result<Vec<u8>, String> {
++    if let Some(files) = MOUNT.get() {
++        return files.get(&key(path)).cloned().ok_or_else(|| format!("{}: not in the data bundle", path.display()));
++    }
++    note(path);
++    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
++}
++
++pub fn read_to_string(path: &Path) -> Result<String, String> {
++    String::from_utf8(read(path)?).map_err(|e| format!("{}: {e}", path.display()))
++}
++
++pub fn is_file(path: &Path) -> bool {
++    match MOUNT.get() {
++        Some(files) => files.contains_key(&key(path)),
++        None => path.is_file(),
++    }
++}
++
++pub fn is_dir(path: &Path) -> bool {
++    match MOUNT.get() {
++        Some(files) => {
++            let prefix = format!("{}/", key(path).trim_end_matches('/'));
++            files.range(prefix.clone()..).next().is_some_and(|(k, _)| k.starts_with(&prefix))
++        }
++        None => path.is_dir(),
++    }
++}
++
++/// Direct children of `dir` as (path, is_dir), in name order.
++pub fn list_dir(dir: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
++    if let Some(files) = MOUNT.get() {
++        let prefix = format!("{}/", key(dir).trim_end_matches('/'));
++        let mut out: BTreeMap<String, bool> = BTreeMap::new();
++        for (k, _) in files.range(prefix.clone()..).take_while(|(k, _)| k.starts_with(&prefix)) {
++            let rest = &k[prefix.len()..];
++            match rest.split_once('/') {
++                Some((first, _)) => { out.insert(first.to_owned(), true); }
++                None => { out.entry(rest.to_owned()).or_insert(false); }
++            }
++        }
++        return Ok(out.into_iter().map(|(name, d)| (dir.join(name), d)).collect());
++    }
++    let mut out = Vec::new();
++    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
++        let path = entry.map_err(|e| e.to_string())?.path();
++        let is_dir = path.is_dir();
++        if !is_dir {
++            note(&path);
++        }
++        out.push((path, is_dir));
++    }
++    out.sort();
++    Ok(out)
++}
+diff --git a/generator/src/feature/template/mod.rs b/generator/src/feature/template/mod.rs
+index c28fb7c..02a9d6f 100644
+--- a/generator/src/feature/template/mod.rs
++++ b/generator/src/feature/template/mod.rs
+@@ -592,7 +592,7 @@ impl TemplateManager {
+     fn read(registries: &Registries, name: &str) -> Option<Template> {
+         let id = Identifier::parse(name).ok()?;
+         let path = registries.datapack.root().join("data").join(id.namespace()).join("structure").join(format!("{}.nbt", id.path()));
+-        let bytes = std::fs::read(path).ok()?;
++        let bytes = minecraftoss_core::vfs::read(&path).ok()?;
+         let tag = nbt::read(&bytes).ok()?;
+         Some(Template::load(registries, &tag))
+     }
+diff --git a/generator/src/profile.rs b/generator/src/profile.rs
+index 797d14f..05270fb 100644
+--- a/generator/src/profile.rs
++++ b/generator/src/profile.rs
+@@ -2,7 +2,7 @@
+ //! (read by the chunk map's load reports and `gen_bench`).
+ 
+ use std::sync::atomic::{AtomicU64, Ordering};
+-use std::time::Instant;
++use minecraftoss_core::time::Instant;
+ 
+ pub const DENSITY: usize = 0;
+ pub const FILL_BLOCKS: usize = 1;
+diff --git a/generator/src/terrain.rs b/generator/src/terrain.rs
+index a7172ea..16d6976 100644
+--- a/generator/src/terrain.rs
++++ b/generator/src/terrain.rs
+@@ -450,17 +450,17 @@ impl TerrainGenerator {
+         let volume = Volume::blocks([16, self.height, 16], [chunk.pos.min_block_x(), self.min_y, chunk.pos.min_block_z()]);
+         let mut ctx = Context::cached(&self.program);
+         ctx.beardifier = beardifier;
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let mut aquifer = self.new_aquifer(&mut ctx, &volume);
+         crate::profile::add(crate::profile::AQUIFER_NEW, started);
+         self.fill(chunk, &mut ctx, &mut aquifer, &volume);
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         self.build_surface(chunk, &mut ctx, neighbors, possible_biomes, &volume);
+         crate::profile::add(crate::profile::SURFACE, started);
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         self.carve(chunk, &mut ctx, &mut aquifer);
+         crate::profile::add(crate::profile::CARVERS, started);
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         chunk.prime_heightmaps(&HeightmapKind::FINAL, registries);
+         crate::profile::add(crate::profile::HEIGHTMAPS, started);
+         chunk.status = ChunkStatus::Terrain;
+@@ -527,10 +527,10 @@ impl TerrainGenerator {
+     #[inline(never)]
+     fn fill(&self, chunk: &mut Chunk, ctx: &mut Context, aquifer: &mut Aquifer, volume: &Volume) {
+         let registries = &*self.registries;
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let density = ctx.sample_columns(self.router.final_density, volume);
+         crate::profile::add(crate::profile::DENSITY, started);
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let air = registries.plain_air;
+         for z in 0..16 {
+             let bz = volume.block_z(z);
+@@ -575,7 +575,7 @@ impl TerrainGenerator {
+         let max_block_y = (chunk.min_section_y() + highest) * 16 + 15;
+         let narrowed = Volume::blocks([16, (max_block_y - full.min[1] + 1).max(1), 16], full.min);
+         let mut factories = |name: &Identifier| self.random_factory(name);
+-        let compiling = std::time::Instant::now();
++        let compiling = minecraftoss_core::time::Instant::now();
+         let mut rules = ChunkRules::compile(&self.material, &self.material_rule, ctx, narrowed, self.gen_context(), self.zoom_seed, &mut factories, Some(possible));
+         crate::profile::add(crate::profile::SURFACE_RULES, compiling);
+         let (min_y, max_y) = (chunk.min_y(), chunk.min_y() + chunk.height() - 1);
+diff --git a/world/src/chunk_map.rs b/world/src/chunk_map.rs
+index ce3aae5..855793c 100644
+--- a/world/src/chunk_map.rs
++++ b/world/src/chunk_map.rs
+@@ -39,13 +39,13 @@ use std::collections::{HashMap, HashSet};
+ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
+ use std::thread::JoinHandle;
+-use std::time::Instant;
++use minecraftoss_core::time::Instant;
+ 
+ /// Where the generation workers spend their time (profiling): summed
+ /// microseconds and counts per stage, over the whole process.
+ pub mod stage_times {
+     use std::sync::atomic::{AtomicU64, Ordering};
+-    use std::time::Instant;
++    use minecraftoss_core::time::Instant;
+     pub const TERRAIN_LOAD: usize = 0;
+     pub const TERRAIN_BIOMES: usize = 1;
+     pub const TERRAIN_REFERENCES: usize = 2;
+@@ -519,7 +519,12 @@ impl ChunkMap {
+                 .expect("spawn chunk saver")
+         });
+         let (sender, finished) = mpsc::channel();
+-        let workers = (0..workers.max(1))
++        // The browser build has no threads: `load_now` runs every job itself.
++        #[cfg(target_arch = "wasm32")]
++        let workers = { let _ = workers; 0 };
++        #[cfg(not(target_arch = "wasm32"))]
++        let workers = workers.max(1);
++        let workers = (0..workers)
+             .map(|index| {
+                 let (shared, worldgen, sender) = (shared.clone(), worldgen.clone(), sender.clone());
+                 std::thread::Builder::new()
+@@ -586,6 +591,23 @@ impl ChunkMap {
+         }
+     }
+ 
++    /// Drops every chunk farther than `keep` from `center`, without saving:
++    /// a browser world with no storage regenerates the same chunk from the
++    /// seed. Only for maps driven by `load_now` with no workers.
++    pub fn trim(&mut self, center: ChunkPos, keep: i32) {
++        let near = |p: &ChunkPos| center.chebyshev(*p) <= keep;
++        self.chunks.retain(|p, _| near(p));
++        self.pending_send.retain(|p| near(p));
++        self.edits.retain(|p, _| near(p));
++        self.shared.biomes.lock().expect("biome cache").retain(|p, _| center.chebyshev(*p) <= keep + 1);
++        self.shared.evicted.lock().expect("evicted chunks").retain(|p, _| near(p));
++        let mut world = self.shared.world.lock().expect("chunk world");
++        let World { slots, ticking, terrain_in_flight, .. } = &mut *world;
++        slots.retain(|p, _| near(p));
++        ticking.retain(|p| slots.contains_key(p));
++        terrain_in_flight.retain(|p| near(p));
++    }
++
+     pub fn view_distance(&self) -> i32 {
+         self.view_distance
+     }
+diff --git a/world/src/level/mod.rs b/world/src/level/mod.rs
+index 3f7be4c..cda2156 100644
+--- a/world/src/level/mod.rs
++++ b/world/src/level/mod.rs
+@@ -709,9 +709,9 @@ impl<'a> Level<'a> {
+     /// One server tick of the world simulation: `tickTime`, then block and
+     /// fluid ticks (`ServerLevel.tick`).
+     pub fn tick(&mut self) {
+-        let mut phase = std::time::Instant::now();
++        let mut phase = minecraftoss_core::time::Instant::now();
+         let mut lap = |i: usize, phases: &mut [f64; 6]| {
+-            let now = std::time::Instant::now();
++            let now = minecraftoss_core::time::Instant::now();
+             phases[i] = (now - phase).as_secs_f64() * 1000.0;
+             phase = now;
+         };
+diff --git a/world/src/level/spawning.rs b/world/src/level/spawning.rs
+index 5e500eb..dc81720 100644
+--- a/world/src/level/spawning.rs
++++ b/world/src/level/spawning.rs
+@@ -85,7 +85,10 @@ impl NaturalSpawning {
+ 
+ /// `SpecialDates.isHalloween`: October 31 (in UTC).
+ fn is_halloween() -> bool {
++    #[cfg(not(target_arch = "wasm32"))]
+     let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() / 86_400) as i64;
++    #[cfg(target_arch = "wasm32")]
++    let days = 0i64;
+     // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+     let z = days + 719_468;
+     let era = z.div_euclid(146_097);
+diff --git a/world/src/level/time.rs b/world/src/level/time.rs
+index 5bd886a..2fb1e20 100644
+--- a/world/src/level/time.rs
++++ b/world/src/level/time.rs
+@@ -243,7 +243,7 @@ impl Level<'_> {
+ 
+     /// A chunk's light from it and its eight neighbours, when all are loaded.
+     fn compute_light(&self, pos: ChunkPos) -> Option<Arc<minecraftoss_core::light::ChunkLight>> {
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let out = self.compute_light_inner(pos);
+         let (count, ms) = self.light_solves.get();
+         self.light_solves.set((count + 1, ms + started.elapsed().as_secs_f64() * 1000.0));
+diff --git a/world/src/storage.rs b/world/src/storage.rs
+index 16c42eb..bb48275 100644
+--- a/world/src/storage.rs
++++ b/world/src/storage.rs
+@@ -82,10 +82,10 @@ impl ChunkStorage {
+     /// Queues a chunk for the next `flush`, compressed before the region
+     /// cache is taken.
+     pub fn save(&self, chunk: &Chunk) -> Result<(), String> {
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let tag = write_chunk(chunk, &self.registries, 0);
+         crate::chunk_map::stage_times::add(crate::chunk_map::stage_times::SAVE_NBT, started);
+-        let started = std::time::Instant::now();
++        let started = minecraftoss_core::time::Instant::now();
+         let stored = StoredChunk::encode(&tag);
+         crate::chunk_map::stage_times::add(crate::chunk_map::stage_times::SAVE_COMPRESS, started);
+         let (region, index) = region_of(chunk.pos);

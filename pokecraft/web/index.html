@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#1b1d24">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Pokécraft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>/*STYLE*/</style>
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <span id="brand">POKéCRAFT</span>
+    <span id="hud-world" hidden><span id="clock">DAY 07:00</span> <span id="zone">WILD LV~3</span></span>
+    <button id="mute" type="button">SOUND ON</button>
+  </header>
+
+  <main id="stage">
+    <div id="bezel">
+      <div id="glass">
+        <canvas id="screen" width="160" height="144"></canvas>
+        <div id="sign" hidden></div>
+        <div id="toast" hidden></div>
+
+        <section id="title" class="overlay">
+          <h1>POKé<span>CRAFT</span></h1>
+          <p class="sub">POKéMON RED × MINECRAFT</p>
+          <p id="loading">LOADING…</p>
+          <div class="menu" hidden>
+            <button id="btn-continue" type="button" hidden>CONTINUE</button>
+            <button id="btn-new" type="button">NEW WORLD</button>
+          </div>
+          <p id="nosave" hidden>SAVING IS OFF IN THIS BROWSER. PROGRESS ENDS WHEN YOU CLOSE THE PAGE.</p>
+          <p class="hint">Minecraft makes an endless world from a seed. You walk it as RED. Wild POKéMON hide in its grass, and its mobs are POKéMON in disguise.</p>
+        </section>
+
+        <section id="newworld" class="overlay box" hidden>
+          <h2>NEW WORLD</h2>
+          <label for="seed">SEED</label>
+          <input id="seed" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="random" maxlength="32">
+          <p class="pick">CHOOSE YOUR FIRST POKéMON</p>
+          <div id="starters">
+            <button type="button" data-starter="bulbasaur">BULBASAUR</button>
+            <button type="button" data-starter="charmander">CHARMANDER</button>
+            <button type="button" data-starter="squirtle">SQUIRTLE</button>
+          </div>
+          <p class="hint">SQUIRTLE can SURF from the start.<br>B: BACK</p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div id="pad">
+    <div id="dpad" aria-label="direction pad">
+      <span class="arm up"></span><span class="arm down"></span>
+      <span class="arm left"></span><span class="arm right"></span>
+      <span class="hub"></span>
+    </div>
+    <div id="mid">
+      <button type="button" data-btn="select" class="pill">SELECT</button>
+      <button type="button" data-btn="start" class="pill">START</button>
+    </div>
+    <div id="face">
+      <button type="button" data-btn="b" class="round b">B</button>
+      <button type="button" data-btn="a" class="round a">A</button>
+    </div>
+  </div>
+</div>
+<script>/*ASSETS*/</script>
+<script>/*SCRIPT*/</script>
+</body>
+</html>
