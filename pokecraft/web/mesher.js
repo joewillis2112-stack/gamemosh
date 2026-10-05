@@ -1,11 +1,12 @@
 // Turns a chunk of Minecraft blocks into triangles: only faces that can be
 // seen, shaded the way Minecraft does it (darker sides and undersides,
-// ambient occlusion in corners, shadow wherever the sky is blocked: under
-// trees, overhangs, caves). Runs in the worldgen worker.
+// ambient occlusion in corners). Each vertex carries two light values, as in
+// Minecraft: sky light (open to the sky or not) and block light (from
+// torches, lanterns, lava…, spread out block by block). The shader mixes
+// them with the time of day, so torches light the night. Runs in the world
+// worker.
 
-// Per-block render info, packed by mkassets.py's world.json into an Int32Array
-// of INFO fields per block id.
-export const INFO = 8;
+export const INFO = 9;
 export const SHAPE = { AIR: 0, CUBE: 1, CROSS: 2, SLAB: 3, FLAT: 4, LIQUID: 5, POST: 6, SMALL: 7 };
 export const LAYER = { OPAQUE: 0, CUTOUT: 1, WATER: 2 };
 export const TINT = { NONE: 0, GRASS: 1, FOLIAGE: 2, WATER: 3, FIXED: 4 };
@@ -13,8 +14,8 @@ const SHAPE_CODE = { cube: 1, cross: 2, slab: 3, flat: 4, liquid: 5, post: 6, sm
 const LAYER_CODE = { opaque: 0, cutout: 1, water: 2 };
 
 /// world.json blocks + the generator's block names -> packed info.
-/// Fields: shape, top tile, side tile, bottom tile, flags (1 solid, 2 glows,
-/// 4 leaves, 8 snow layer), layer, tint kind, fixed tint rgb.
+/// Fields: shape, top tile, side tile, bottom tile, flags (1 solid, 4 leaves,
+/// 8 snow layer), layer, tint kind, fixed tint rgb, light emitted (0-15).
 export function packBlocks(names, blocks) {
   const info = new Int32Array(names.length * INFO);
   names.forEach((name, id) => {
@@ -23,11 +24,12 @@ export function packBlocks(names, blocks) {
     if (!b) return; // air
     info[o] = SHAPE_CODE[b.s];
     info[o + 1] = b.f[0]; info[o + 2] = b.f[1]; info[o + 3] = b.f[2];
-    info[o + 4] = (b.c ? 1 : 0) | (b.e ? 2 : 0) | (/_leaves$/.test(name) ? 4 : 0) | (name === 'snow' ? 8 : 0);
+    info[o + 4] = (b.c ? 1 : 0) | (/_leaves$/.test(name) ? 4 : 0) | (name === 'snow' ? 8 : 0);
     info[o + 5] = LAYER_CODE[b.l];
     const t = b.t || '';
     info[o + 6] = t === 'g' ? TINT.GRASS : t === 'f' ? TINT.FOLIAGE : t === 'w' ? TINT.WATER : t ? TINT.FIXED : TINT.NONE;
     info[o + 7] = t.startsWith('#') ? parseInt(t.slice(1), 16) : 0xffffff;
+    info[o + 8] = b.e || 0;
   });
   return info;
 }
@@ -42,13 +44,15 @@ export function packBiomes(names, biomes) {
 }
 
 class Buf {
-  constructor() { this.pos = []; this.uv = []; this.col = []; this.idx = []; this.n = 0; }
-  quad(p, uv, c, flip) {
+  constructor() { this.pos = []; this.uv = []; this.col = []; this.lit = []; this.idx = []; this.n = 0; }
+  /// p: 4 corners, uv: 4 pairs, c: 4 rgb, l: 4 (sky, block) pairs in 0..255.
+  quad(p, uv, c, l, flip) {
     const n = this.n;
     for (let i = 0; i < 4; i++) {
       this.pos.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
       this.uv.push(uv[i * 2], uv[i * 2 + 1]);
       this.col.push(c[i * 3], c[i * 3 + 1], c[i * 3 + 2]);
+      this.lit.push(l[i * 2], l[i * 2 + 1]);
     }
     if (flip) this.idx.push(n + 1, n + 2, n + 3, n + 1, n + 3, n);
     else this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
@@ -57,7 +61,7 @@ class Buf {
   done() {
     return {
       pos: new Float32Array(this.pos), uv: new Float32Array(this.uv),
-      col: new Uint8Array(this.col), idx: new Uint32Array(this.idx),
+      col: new Uint8Array(this.col), lit: new Uint8Array(this.lit), idx: new Uint32Array(this.idx),
     };
   }
 }
@@ -73,10 +77,10 @@ const FACES = [
   { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], shade: 0.5, tile: 3 },
 ];
 const AO_LIGHT = [0.45, 0.62, 0.8, 1];
-const SKY_SHADOW = 0.58;
+const SKY_COVERED = 0.42; // sky light under a roof, a canopy or in a cave mouth
 
 /// Mesh chunk (cx, cz). `get(x, y, z)` returns the block id at chunk-local
-/// x, z in [-1, 16] and world y; `biomeAt(x, z)` the biome id for x, z in
+/// x, z in [-16, 31] and world y; `biomeAt(x, z)` the biome id for x, z in
 /// [0, 15]. Returns { opaque, cutout, water } buffers, positions relative
 /// to the chunk's corner.
 export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlasW, atlasH }) {
@@ -89,16 +93,47 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
   const top = new Int32Array(18 * 18);
   for (let z = -1; z <= 16; z++) {
     for (let x = -1; x <= 16; x++) {
-      let y = hi + 1;
+      let y = lo - 1;
       for (let yy = hi; yy >= lo; yy--) {
         const id = get(x, yy, z);
         if (occludes(id) || at(id, 0) === SHAPE.SLAB) { y = yy; break; }
-        if (yy === lo) y = lo - 1;
       }
       top[(z + 1) * 18 + x + 1] = y;
     }
   }
-  const skyAt = (x, y, z) => (y > top[(z + 1) * 18 + x + 1] ? 1 : SKY_SHADOW);
+  const skyAt = (x, y, z) => (y > top[(Math.max(-1, Math.min(16, z)) + 1) * 18 + Math.max(-1, Math.min(16, x)) + 1] ? 255 : Math.round(255 * SKY_COVERED));
+
+  // Block light: flood out from every light source within reach of this
+  // chunk (its neighbours' too), losing one level per block, through
+  // anything that isn't a solid opaque cube.
+  const M = 14; // margin around the chunk the flood covers
+  const W = 16 + 2 * M, H = hi - lo + 3;
+  const light = new Uint8Array(W * W * H);
+  const li = (x, y, z) => ((y - lo + 1) * W + (z + M)) * W + (x + M);
+  const queue = [];
+  for (let y = lo; y <= hi; y++) {
+    for (let z = -M; z < 16 + M; z++) {
+      for (let x = -M; x < 16 + M; x++) {
+        const e = at(get(x, y, z), 8);
+        if (e) { light[li(x, y, z)] = e; queue.push(x, y, z); }
+      }
+    }
+  }
+  for (let q = 0; q < queue.length; q += 3) {
+    const x = queue[q], y = queue[q + 1], z = queue[q + 2];
+    const v = light[li(x, y, z)];
+    if (v <= 1) continue;
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const nx = x + dx, ny = y + dy, nz = z + dz;
+      if (nx < -M || nx >= 16 + M || nz < -M || nz >= 16 + M || ny < lo - 1 || ny > hi + 1) continue;
+      if (ny >= lo && ny <= hi && isOpaqueCube(get(nx, ny, nz))) continue;
+      const k = li(nx, ny, nz);
+      if (light[k] >= v - 1) continue;
+      light[k] = v - 1;
+      queue.push(nx, ny, nz);
+    }
+  }
+  const blockAt = (x, y, z) => (y < lo - 1 || y > hi + 1 ? 0 : light[li(x, y, z)] * 17);
 
   const uvOf = (tile, u0, v0, u1, v1) => {
     const col = tile % cols, row = Math.floor(tile / cols);
@@ -116,10 +151,13 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
     return b[kind - 1];
   };
   const colour = (rgb, k) => [((rgb >> 16) & 255) * k, ((rgb >> 8) & 255) * k, (rgb & 255) * k];
+  const flat4 = (c) => [...c, ...c, ...c, ...c];
+  const lit4 = (x, y, z) => { const s = skyAt(x, y, z), b = blockAt(x, y, z); return [s, b, s, b, s, b, s, b]; };
 
   const cubeFaces = (id, x, y, z, buf) => {
     const leaves = at(id, 4) & 4;
     const cutout = at(id, 5) !== LAYER.OPAQUE;
+    const glow = at(id, 8);
     for (const f of FACES) {
       const [nx, ny, nz] = f.n;
       const nb = get(x + nx, y + ny, z + nz);
@@ -129,47 +167,43 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
       const tile = at(id, f.tile);
       const tint = f.tile === 1 || at(id, 6) !== TINT.GRASS ? tintOf(id, x, z) : 0xffffff;
       const sky = skyAt(x + nx, y + ny, z + nz);
-      const p = [], c = [], ao = [];
+      const bl = glow ? 255 : blockAt(x + nx, y + ny, z + nz);
+      const p = [], c = [], ao = [], l = [];
+      const ax = [];
+      for (let a = 0; a < 3; a++) if (f.n[a] === 0) ax.push(a);
+      const cell = (dx, dy, dz) => occludes(get(x + nx + dx, y + ny + dy, z + nz + dz));
       for (const corner of f.c) {
         p.push(x + corner[0], y + corner[1], z + corner[2]);
         // Ambient occlusion: the 3 blocks around this corner, in front of the face.
-        let s = 0, side = 0;
-        const ax = [];
-        for (let a = 0; a < 3; a++) if (f.n[a] === 0) ax.push(a);
-        const d = [0, 0, 0];
-        const off = (a) => (corner[a] ? 1 : -1);
-        const cell = (dx, dy, dz) => occludes(get(x + nx + dx, y + ny + dy, z + nz + dz));
         const v1 = [0, 0, 0], v2 = [0, 0, 0];
-        v1[ax[0]] = off(ax[0]); v2[ax[1]] = off(ax[1]);
+        v1[ax[0]] = corner[ax[0]] ? 1 : -1;
+        v2[ax[1]] = corner[ax[1]] ? 1 : -1;
         const s1 = cell(v1[0], v1[1], v1[2]), s2 = cell(v2[0], v2[1], v2[2]);
-        d[0] = v1[0] + v2[0]; d[1] = v1[1] + v2[1]; d[2] = v1[2] + v2[2];
-        const cr = cell(d[0], d[1], d[2]);
-        side = s1 && s2 ? 0 : 3 - (s1 + s2 + cr);
-        s = AO_LIGHT[side];
+        const cr = cell(v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]);
+        const side = s1 && s2 ? 0 : 3 - (s1 + s2 + cr);
         ao.push(side);
-        c.push(...colour(tint, f.shade * s * sky));
+        c.push(...colour(tint, f.shade * AO_LIGHT[side]));
+        l.push(sky, bl);
       }
-      buf.quad(p, uvOf(tile, 0, 0, 1, 1), c, ao[0] + ao[2] < ao[1] + ao[3]);
+      buf.quad(p, uvOf(tile, 0, 0, 1, 1), c, l, ao[0] + ao[2] < ao[1] + ao[3]);
     }
   };
 
-  // Any axis-aligned box, every face (used by slabs, posts, small blocks).
+  // Any axis-aligned box, every face (slabs, posts, small blocks).
   const box = (id, x, y, z, x0, y0, z0, x1, y1, z1, buf) => {
     const tint = tintOf(id, x, z);
-    const sky = skyAt(x, y, z);
+    const l = lit4(x, y, z);
+    if (at(id, 8)) for (let i = 1; i < 8; i += 2) l[i] = 255;
     const span = [[x0, x1], [y0, y1], [z0, z1]];
     for (const f of FACES) {
-      const [nx, ny, nz] = f.n;
+      const [nx, ny] = f.n;
       if (ny === -1 && y0 === 0 && isOpaqueCube(get(x, y - 1, z))) continue;
       const p = [];
       for (const corner of f.c) p.push(x + span[0][corner[0]], y + span[1][corner[1]], z + span[2][corner[2]]);
-      // Texture the part of the face this box covers.
       let uv;
       if (ny !== 0) uv = uvOf(at(id, f.tile), x0, z0, x1, z1);
       else uv = uvOf(at(id, f.tile), nx !== 0 ? z0 : x0, 1 - y1, nx !== 0 ? z1 : x1, 1 - y0);
-      const k = f.shade * sky;
-      const c = colour(tint, k);
-      buf.quad(p, uv, [...c, ...c, ...c, ...c], false);
+      buf.quad(p, uv, flat4(colour(tint, f.shade)), l, false);
     }
   };
 
@@ -187,18 +221,20 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
           case SHAPE.SMALL: box(id, x, y, z, 0.2, 0, 0.2, 0.8, 0.7, 0.8, buf); break;
           case SHAPE.FLAT: {
             const h = at(id, 4) & 8 ? 0.125 : 0.0625;
-            const tint = tintOf(id, x, z), c = colour(tint, skyAt(x, y, z));
-            buf.quad([x, y + h, z + 1, x + 1, y + h, z + 1, x + 1, y + h, z, x, y + h, z], uvOf(at(id, 1), 0, 0, 1, 1), [...c, ...c, ...c, ...c], false);
+            buf.quad([x, y + h, z + 1, x + 1, y + h, z + 1, x + 1, y + h, z, x, y + h, z], uvOf(at(id, 1), 0, 0, 1, 1), flat4(colour(tintOf(id, x, z), 1)), lit4(x, y, z), false);
             break;
           }
           case SHAPE.CROSS: {
             const upper = get(x, y - 1, z) === id;
             const tile = at(id, upper ? 2 : 1);
-            const tint = tintOf(id, x, z), c = colour(tint, skyAt(x, y, z));
-            const cc = [...c, ...c, ...c, ...c];
+            const cc = flat4(colour(tintOf(id, x, z), 1));
+            const l = lit4(x, y, z);
+            if (at(id, 8)) for (let i = 1; i < 8; i += 2) l[i] = 255;
             const uv = uvOf(tile, 0, 0, 1, 1);
-            buf.quad([x + 0.15, y, z + 0.15, x + 0.85, y, z + 0.85, x + 0.85, y + 1, z + 0.85, x + 0.15, y + 1, z + 0.15], uv, cc, false);
-            buf.quad([x + 0.15, y, z + 0.85, x + 0.85, y, z + 0.15, x + 0.85, y + 1, z + 0.15, x + 0.15, y + 1, z + 0.85], uv, cc, false);
+            // A torch is a thin stick, not two crossed pictures.
+            const w = at(id, 8) >= 7 ? 0.42 : 0.15;
+            buf.quad([x + w, y, z + w, x + 1 - w, y, z + 1 - w, x + 1 - w, y + 1, z + 1 - w, x + w, y + 1, z + w], uv, cc, l, false);
+            buf.quad([x + w, y, z + 1 - w, x + 1 - w, y, z + w, x + 1 - w, y + 1, z + w, x + w, y + 1, z + 1 - w], uv, cc, l, false);
             break;
           }
           case SHAPE.LIQUID: {
@@ -206,9 +242,10 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
             const h = at(above, 0) === SHAPE.LIQUID ? 1 : 0.875;
             const tint = tintOf(id, x, z);
             const tile = at(id, 1);
+            const l = lit4(x, y + 1, z);
+            if (at(id, 8)) for (let i = 1; i < 8; i += 2) l[i] = 255;
             if (at(above, 0) !== SHAPE.LIQUID && !isOpaqueCube(above)) {
-              const c = colour(tint, skyAt(x, y, z));
-              buf.quad([x, y + h, z + 1, x + 1, y + h, z + 1, x + 1, y + h, z, x, y + h, z], uvOf(tile, 0, 0, 1, 1), [...c, ...c, ...c, ...c], false);
+              buf.quad([x, y + h, z + 1, x + 1, y + h, z + 1, x + 1, y + h, z, x, y + h, z], uvOf(tile, 0, 0, 1, 1), flat4(colour(tint, 1)), l, false);
             }
             for (const f of FACES) {
               if (f.n[1] !== 0) continue;
@@ -216,8 +253,7 @@ export function meshChunk({ get, biomeAt, info, biomeColors, lo, hi, cols, atlas
               if (at(nb, 0) === SHAPE.LIQUID || isOpaqueCube(nb)) continue;
               const p = [];
               for (const corner of f.c) p.push(x + corner[0], y + corner[1] * h, z + corner[2]);
-              const c = colour(tint, f.shade * skyAt(x, y, z));
-              buf.quad(p, uvOf(tile, 0, 1 - h, 1, 1), [...c, ...c, ...c, ...c], false);
+              buf.quad(p, uvOf(tile, 0, 1 - h, 1, 1), flat4(colour(tint, f.shade)), l, false);
             }
             break;
           }

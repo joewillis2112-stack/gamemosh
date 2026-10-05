@@ -1,14 +1,16 @@
 // The world worker: runs Minecraft's world generator (mcgen.wasm) and turns
 // what it makes into meshes, off the page's thread. Bundled on its own and
 // started from a blob URL (see gen.js); gen.js can also run it in the page.
-import { meshChunk, packBlocks, packBiomes } from './mesher.js';
+import { meshChunk, packBlocks, packBiomes, INFO } from './mesher.js';
 
 export function createWorld(post) {
   let ex = null, info = null, biomeColors = null, names = null, atlas = null;
   let air = 0, stone = 1;
   let viewRadius = 4;
   const vols = new Map(); // "cx,cz" -> { lo, hi, data: Uint16Array, biome: Uint8Array }
-  const edits = new Map(); // "cx,cz" -> Map("x,y,z" -> id)
+  const edits = new Map();
+  const dirty = new Set(); // "cx,cz" to remesh after edits
+  let seq = 0; // the last edit applied: meshes carry it so the page knows which of its edits they include // "cx,cz" -> Map("x,y,z" -> id)
   let queue = [];
   let center = [0, 0];
   let scheduled = false;
@@ -57,6 +59,12 @@ export function createWorld(post) {
     return v;
   }
 
+  function getBlock(v, x, y, z) {
+    if (y > v.hi) return air;
+    if (y < v.lo) return stone;
+    return v.data[(y - v.lo) * 256 + z * 16 + x];
+  }
+
   function setBlock(v, x, y, z, id) {
     if (y > v.hi) grow(v, v.lo, y);
     if (y < v.lo) grow(v, y, v.hi);
@@ -96,7 +104,7 @@ export function createWorld(post) {
     const vol = me.data.slice();
     const transfer = [vol.buffer];
     for (const layer of ['opaque', 'cutout', 'water']) for (const a of Object.values(m[layer])) transfer.push(a.buffer);
-    post({ t: 'mesh', cx, cz, lo: me.lo, hi: me.hi, vol, biome: me.biome.slice(), mesh: m, bells, ms: Date.now() - t0 }, transfer);
+    post({ t: 'mesh', cx, cz, seq, lo: me.lo, hi: me.hi, vol, biome: me.biome.slice(), mesh: m, bells, ms: Date.now() - t0 }, transfer);
   }
 
   function forget() {
@@ -110,6 +118,16 @@ export function createWorld(post) {
 
   function work() {
     scheduled = false;
+    // Chunks changed by edits first, once each however many edits came in.
+    if (dirty.size) {
+      const list = [...dirty];
+      dirty.clear();
+      for (const k of list) {
+        try { mesh(...k.split(',').map(Number)); } catch (err) { post({ t: 'error', msg: String(err && err.message || err) }); }
+      }
+      if (queue.length) schedule();
+      return;
+    }
     const next = queue.shift();
     if (!next) return;
     try {
@@ -136,19 +154,28 @@ export function createWorld(post) {
         schedule();
       } else if (m.t === 'edit') {
         const [x, y, z, id] = m.at;
+        seq = m.seq ?? seq;
         const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
         const lx = x - cx * 16, lz = z - cz * 16;
         const k = key(cx, cz);
         if (!edits.has(k)) edits.set(k, new Map());
         edits.get(k).set(`${lx},${y},${lz}`, id);
-        setBlock(volume(cx, cz), lx, y, lz, id);
-        // Remesh now, and the neighbours that share the edited face.
+        const v = volume(cx, cz);
+        const old = getBlock(v, lx, y, lz);
+        setBlock(v, lx, y, lz, id);
+        // Remesh now, and the neighbours that share the edited face; a torch
+        // placed or taken lights (or darkens) blocks in the chunks around it.
+        const glows = info[old * INFO + 8] > 0 || info[id * INFO + 8] > 0;
         const again = [[cx, cz]];
-        if (lx === 0) again.push([cx - 1, cz]);
-        if (lx === 15) again.push([cx + 1, cz]);
-        if (lz === 0) again.push([cx, cz - 1]);
-        if (lz === 15) again.push([cx, cz + 1]);
-        for (const [ax, az] of again) mesh(ax, az);
+        if (glows) { for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (dx || dz) again.push([cx + dx, cz + dz]); }
+        else {
+          if (lx === 0) again.push([cx - 1, cz]);
+          if (lx === 15) again.push([cx + 1, cz]);
+          if (lz === 0) again.push([cx, cz - 1]);
+          if (lz === 15) again.push([cx, cz + 1]);
+        }
+        for (const [ax, az] of again) dirty.add(ax + ',' + az);
+        schedule();
       } else if (m.t === 'biomes') {
         post({ t: 'biomes', out: m.points.map(([x, z]) => ex.mc_biome_at(x, 64, z)) });
       }

@@ -32,6 +32,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 | 9 | The playtest agent was cut off by a usage limit and could not write its report file | Long sub-agent runs can die partway, and sub-agents may be refused file writes | Tell sub-agents to report incrementally, and to put the full report in their final message. Resume a stopped agent with SendMessage instead of respawning it |
 | 10 | Game Corner Arcade was a menu between two games (walk up to a slot, pick a PICO-8 cabinet, coins carry back). The user: "it feels like an arcade menu where I get to choose which game". Released moshes are two games as one | I designed from the word "mashup" and never looked at what released moshes look like | Before designing a mosh, look at real ones (images, video). Test the design against the definition: one world, both games running in it at once. See INSTRUCTIONS.md §0 |
 | 11 | Pokécraft v1 was top-down 2D. The user: "a dumbed down version of the old Pokémon games inside a world with Minecraft textures… in a 2D game you can't see what's a hill, you can't tell if you can walk under something". They wanted the Pixelmon approach, in first person | I picked the cheapest view (reusing the Game Boy look) over the experience the user already knows from the reference mod | When a mosh has a famous reference (Pixelmon, SkyCraft), match its viewpoint and core loop first, and ask what it looks like before choosing a renderer. Minecraft without 3D isn't Minecraft |
+| 12 | Pokécraft v2 (first person) looked right, but the user: "much is lacking on the Minecraft side and Pokémon side". There was no inventory, just a hotbar with no item names, and the 3D rewrite had dropped tall-grass encounters, Pokémon's core loop | When I rebuilt the view I rebuilt only what I was focused on (rendering, battles) and let each game's basic loop fall out without noticing | Before shipping a mosh, list each source game's core loops (Pokémon: grass encounters, catching, healing, items; Minecraft: inventory, crafting, tools, survival, night mobs) and check every one still works. A rewrite must not silently drop one |
 
 ## 3. Domain knowledge: game mashups
 
@@ -154,6 +155,15 @@ A working log for this repo. It records common themes, what has been learned, mi
 - When picking along a pitched view ray, normalise the horizontal direction first, or the hit point falls short by cos²(pitch).
 - Headless Chromium renders WebGL in software (SwiftShader). There the game logic held 56–58 ticks/s even at a 4× CPU throttle, but the frame rate was 27–37 fps, limited by the software renderer. Real-device fps is still unmeasured.
 
+**Pokécraft gameplay pass (2026-10-05)**
+- Read a game's data straight from its client jar: `assets/minecraft/lang/en_us.json` for item names, `data/minecraft/recipe/*.json` for every recipe (1268 kept: shaped, shapeless, smelting), `textures/item/*` for icons, `textures/entity/*` for mob skins, `textures/block/destroy_stage_*` for cracks, and each biome's `natural_mob_spawns` for which mobs spawn where.
+- Mob skins in 26.x: zombie is 64×64; skeleton, creeper, spider, sheep and chicken keep the classic 64×32 layout; cow and pig moved to `temperate_*` 64×64 skins but use the classic UV layout. Box models built from MC's UV rules work.
+- Minecraft's break time is hardness × 1.5 / tool speed with the right tool, × 5 without the needed tier (stone by hand is 7.5 s and drops nothing). Players notice when it's wrong.
+- Block light without a lighting engine: in the mesher, flood-fill emitter levels (torch 14, lantern and lava 15) a block at a time across a 14-block margin around the chunk, and pass sky and block light as a per-vertex attribute. A one-line `onBeforeCompile` mixes them with the day level. Remesh the 3×3 chunks around an edit only when the old or new block emits light.
+- **A worker's chunk snapshot can overwrite newer edits.** The page edits its copy of a chunk and tells the worker; the worker sends back a full snapshot later. Snapshots that were made before the latest edits replaced them, so a block placed quickly after another vanished, and a test pad of 600 edits reverted in patches for seconds. Fix: every edit carries a sequence number, each snapshot says the last one it includes, and the page re-applies its still-pending edits on top. Coalesce the worker's remeshes (a dirty set, flushed once) instead of remeshing per edit.
+- A Pokémon that pops out at your feet (grass) or runs into you fills the screen in a first-person battle. Move any opponent under 3.5 blocks back to about 5 blocks along a clear line of sight.
+- Step encounters: count distance walked, roll once per block, and give a few grace steps after each battle. Pokémon Red's tall-grass rate is about 1 in 10 steps, which feels right in 3D too.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -187,7 +197,8 @@ A working log for this repo. It records common themes, what has been learned, mi
 - Pokécraft (https://claude.ai/artifact/QrvL2FGDYSDADfnMwZaY3K):
   - The artifact page's rules say Workers from `blob:` URLs work, but it's unconfirmed on a phone. If the worker fails, the world runs on the page and stutters on each new chunk.
   - What is the frame rate on the user's phone in first person? Untested on a real GPU.
-  - Next ideas: badges and gyms, a PC outside the START menu, riding and surfing on Pokémon, torches lighting the night, villagers in the houses.
+  - Next ideas: badges and gyms, a PC outside the START menu, riding and surfing on Pokémon, villagers in the houses, farming and chests, sounds for mobs and footsteps.
+  - Are the survival numbers right on a phone (hunger rate, night length, mob counts)? Tuned only in headless tests.
 
 ## 7. Session log
 
@@ -220,3 +231,8 @@ A working log for this repo. It records common themes, what has been learned, mi
     - A Nurse and a Clerk at village bells, and a travelling merchant.
     - Mining, placing and a hotbar; beds and sleep; swimming; touch, keyboard and gamepad controls.
   - Two headless suites pass. Updated the artifact in place and merged to `main`.
+- **2026-10-05 (Pokécraft gameplay pass):**
+  - The user: style is down, gameplay is lacking on both sides; no inventory and no item names; no forced Pokémon encounters; cute Pokémon by day; scary, aggressive Pokémon and Minecraft mobs at night (mistake 12).
+  - Minecraft side: a 36-slot inventory with names; recipe-book crafting from the jar's recipes; smelting; tool tiers, break times and drops; crack overlay and particles; hearts, hunger, air, fall, lava and drowning; death and respawn; 3D mobs from MC skins (zombie, skeleton, spider, creeper, animals), melee and arrows; block light from torches; sun and moon.
+  - Pokémon side: step encounters in grass, snow, water and caves; gentle day roamers and aggressive night ones; fishing; a POKé crafting tab; evolution stones in ores; your Pokémon fights monsters beside you.
+  - Fixed a worker race that undid fresh block edits. Four headless suites pass (a new `survive.mjs`). Design notes in `pokecraft/GAMEPLAY.md`. Republished the artifact in place and merged to `main`.

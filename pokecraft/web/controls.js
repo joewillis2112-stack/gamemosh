@@ -14,7 +14,7 @@ const KEYS = {
   ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
   KeyW: 'fwd', KeyS: 'back', KeyA: 'strafeL', KeyD: 'strafeR',
   Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'select',
-  KeyZ: 'a', KeyX: 'b', KeyE: 'a', KeyQ: 'ball', KeyR: 'ball', KeyF: 'a',
+  KeyZ: 'a', KeyX: 'b', KeyE: 'inv', KeyI: 'inv', KeyQ: 'ball', KeyR: 'ball', KeyF: 'a',
   Enter: 'start', Escape: 'start', Tab: 'start', Backspace: 'select', KeyM: 'start',
 };
 
@@ -254,7 +254,7 @@ export class Controls {
     $('gb-pad').hidden = !gb;
     this.stick = [0, 0];
     $('stick').hidden = true;
-    for (const b of [...this.held]) if (b.startsWith('gb-') || ['jump', 'mine', 'a', 'b', 'ball', 'start', 'sprint'].includes(b)) this.held.delete(b);
+    for (const b of [...this.held]) if (b.startsWith('gb-') || ['jump', 'mine', 'a', 'b', 'ball', 'start', 'sprint', 'inv'].includes(b)) this.held.delete(b);
     if (gb && document.pointerLockElement) document.exitPointerLock?.();
   }
 }

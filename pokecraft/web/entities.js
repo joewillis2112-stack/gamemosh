@@ -2,7 +2,7 @@
 // that live in the world (by biome, by time of day), your lead Pokémon
 // following you, a Nurse and a Clerk at every village bell, a merchant who
 // wanders by in daylight, and trainers who walk up and challenge you.
-import { wildFor, levelAt } from './encounters.js';
+import { roamer, levelAt } from './encounters.js';
 
 const rand = Math.random;
 const TAU = Math.PI * 2;
@@ -95,21 +95,23 @@ export class Entities {
   }
 
   // ---------------------------------------------------------------- spawning
+  /// Pokémon roaming in plain sight. By day: gentle ones that leave you be.
+  /// At night: scary ones, anywhere, that come for you.
   spawnWild() {
-    const { player, isNight, zoneLevel, biomeName } = this.ctx;
-    const wild = this.list.filter((e) => e.kind === 'wild');
-    if (wild.length >= 12) return;
+    const { player, isNight, biomeName } = this.ctx;
+    const night = isNight();
+    const wild = this.list.filter((e) => e.kind === 'wild' && !!e.night === night);
+    if (wild.length >= (night ? 7 : 9)) return;
     for (let tries = 0; tries < 4; tries++) {
-      const a = rand() * TAU, r = 14 + rand() * 22;
+      const a = rand() * TAU, r = (night ? 18 : 14) + rand() * 20;
       const x = Math.floor(player.pos[0] + Math.cos(a) * r) + 0.5, z = Math.floor(player.pos[2] + Math.sin(a) * r) + 0.5;
       const g = this.surface(x, z);
-      if (!g) continue;
+      if (!g || (g.water && night)) continue;
       const biome = biomeName(x, z);
       if (!biome) continue;
-      const level = levelAt(Math.hypot(x - this.ctx.origin()[0], z - this.ctx.origin()[1]), rand);
-      const species = wildFor(biome, g.water, level, rand, isNight());
-      const aggressive = rand() < (isNight() ? 0.3 : 0.12) + Math.min(0.25, level / 200);
-      this.makeMon(species, level, x, g.y, z, { water: g.water, aggressive });
+      const level = levelAt(Math.hypot(x - this.ctx.origin()[0], z - this.ctx.origin()[1]), rand, night);
+      const species = roamer(biome, level, rand, night);
+      this.makeMon(species, level, x, g.y, z, { water: g.water, aggressive: night, night });
       return;
     }
   }
@@ -193,6 +195,8 @@ export class Entities {
       const dx = px - e.pos[0], dz = pz - e.pos[2];
       const dist = Math.hypot(dx, dz);
       if (dist > 64 && !e.bell) { this.remove(e); continue; }
+      // Night ones fade away by morning, day ones by nightfall, out of your sight.
+      if (e.kind === 'wild' && !e.inBattle && !!e.night !== isNight() && dist > 10 && rand() < 0.01) { this.remove(e); continue; }
       if (e.life !== undefined && --e.life <= 0 && dist > 8) { this.remove(e); continue; }
       if (!frozen && !e.inBattle) this.think(e, dx, dz, dist, dt);
       // Idle hop and facing.
@@ -218,9 +222,9 @@ export class Entities {
     e.moving = false;
     if (e.cooldown > 0) e.cooldown -= dt;
     if (e.kind === 'wild') {
-      if (e.aggressive && dist < 10 && e.cooldown <= 0) {
+      if (e.aggressive && dist < 16 && e.cooldown <= 0 && this.ctx.canBattle()) {
         e.heading = Math.atan2(dx, dz);
-        e.moving = this.walk(e, 3.2, dt);
+        e.moving = this.walk(e, 3.6, dt);
         e.chase = (e.chase || 0) + 1;
         // It reaches you, or gets as close as the ground lets it and jumps in.
         if ((dist < 1.4 && Math.abs(player.pos[1] - e.pos[1]) < 2) || (dist < 5 && e.chase > 150)) { e.chase = 0; this.ctx.onTouch(e); }

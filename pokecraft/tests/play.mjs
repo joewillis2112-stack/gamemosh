@@ -79,20 +79,20 @@ else {
   await page.waitForFunction((t) => __pcTest.blockAt(t.x, t.y, t.z) === 'air', target, { timeout: 20000 }).catch(() => {});
   await page.keyboard.up('KeyX');
   await frames(10);
-  const mined = await g((t) => ({ now: __pcTest.blockAt(t.x, t.y, t.z), inv: __pc.g.inv.filter(Boolean).map((s) => s.name + ':' + s.n) }), target);
+  const mined = await g((t) => ({ now: __pcTest.blockAt(t.x, t.y, t.z), inv: __pc.inv.slots.filter(Boolean).map((s) => s.id + ':' + s.n) }), target);
   console.log('mined', JSON.stringify(mined));
   if (mined.now !== 'air') fail(`block not mined (${mined.now})`);
   await shot('p3-mined');
-  const slot = await g(() => __pc.g.inv.findIndex((s, i) => s && i > 0));
-  if (slot < 0) fail('mined block not in the hotbar');
+  // Same aim: the ray now passes through the gap to the block behind it,
+  // and USE places the held block into the gap.
+  const slot = await g(() => { __pc.inv.add('dirt', 4); return __pc.inv.slots.findIndex((s) => s && s.id === 'dirt'); });
+  if (slot < 0 || slot > 8) fail('dirt not in the hotbar');
   else {
-    // Same aim: the ray now passes through the gap to the block behind it,
-    // and A places into the gap.
     await press(`Digit${slot + 1}`, 4);
-    await press('KeyE', 20);
+    await press('KeyF', 20);
     const placed = await g((t) => __pcTest.blockAt(t.x, t.y, t.z), target);
     console.log('placed back', placed);
-    if (placed === 'air') fail('could not place the block back');
+    if (placed !== 'dirt') fail('could not place the block back');
   }
 }
 
@@ -156,23 +156,23 @@ const nurse = await g(() => {
 });
 await frames(4);
 console.log('nurse at', JSON.stringify(nurse), await g(() => { const p = __pc.player; const e = __pc.ents.pick(p.eye(), p.look(), 4.5); return JSON.stringify({ me: p.pos, pick: e && e.kind, mode: __pc.mode }); }));
-await press('KeyE', 20);
+await press('KeyF', 20);
 const healed = await g(() => ({ spawn: __pc.g.spawn, toast: document.getElementById('toast').textContent }));
 console.log('nurse', JSON.stringify(healed));
 if (!/NURSE/.test(healed.toast)) fail('the Nurse did not talk');
 await shot('p6-nurse');
 
 // 8. Save, reload, continue.
-const before = await g(() => { __pcTest.saveAll('test'); return { pos: __pc.player.pos, inv: JSON.stringify(__pc.g.inv) }; });
+const before = await g(() => { __pcTest.saveAll('test'); return { pos: __pc.player.pos, inv: JSON.stringify(__pc.inv.save()) }; });
 await page.reload();
 await page.waitForSelector('#title .menu:not([hidden])', { timeout: 60000 });
 await page.click('#btn-continue');
 await page.waitForFunction(() => __pc.mode === 'world', null, { timeout: 180000 });
 await frames(60);
-const back = await g(() => ({ pos: __pc.player.pos, inv: JSON.stringify(__pc.g.inv), party: __pc.party.map((p) => p.species) }));
+const back = await g(() => ({ pos: __pc.player.pos, inv: JSON.stringify(__pc.inv.save()), party: __pc.party.map((p) => p.species) }));
 console.log('continued', JSON.stringify({ pos: back.pos.map((v) => +v.toFixed(2)), party: back.party }));
 if (Math.hypot(back.pos[0] - before.pos[0], back.pos[2] - before.pos[2]) > 0.5) fail('continue lost the position');
-if (back.inv !== before.inv) fail('continue lost the hotbar');
+if (back.inv !== before.inv) fail('continue lost the inventory');
 await shot('p7-continue');
 
 console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'PLAY OK');

@@ -17,6 +17,27 @@ function texture(img) {
 
 const NIGHT_SKY = new THREE.Color(0x0b1026);
 
+/// Minecraft-style light in the block shaders: each vertex brings its sky
+/// light and block light; the sky part follows the time of day, the block
+/// part (torches, lava) stays, a little warm.
+const LIGHT = { uDay: { value: 1 }, uMoon: { value: new THREE.Color(1, 1, 1) } };
+function lit(material) {
+  material.onBeforeCompile = (sh) => {
+    sh.uniforms.uDay = LIGHT.uDay;
+    sh.uniforms.uMoon = LIGHT.uMoon;
+    sh.vertexShader = sh.vertexShader
+      .replace('void main() {', 'attribute vec2 lit;\nvarying vec2 vLit;\nvoid main() {\n  vLit = lit;')
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', 'uniform float uDay;\nuniform vec3 uMoon;\nvarying vec2 vLit;\nvoid main() {')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float pcSky = vLit.x * uDay;
+        float pcBlock = vLit.y * vLit.y;
+        vec3 pcLight = max(vec3(pcSky) * uMoon, vec3(pcBlock) * vec3(1.0, 0.88, 0.66));
+        diffuseColor.rgb *= max(pcLight, vec3(0.035));`);
+  };
+  return material;
+}
+
 export class View {
   constructor(canvas, atlasImg, monsImg, world) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -31,10 +52,11 @@ export class View {
     this.scene.background = this.sky;
 
     const atlas = texture(atlasImg);
+    this.atlas = atlas;
     this.mats = {
-      opaque: new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true }),
-      cutout: new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
-      water: new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide }),
+      opaque: lit(new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true })),
+      cutout: lit(new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide })),
+      water: lit(new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide })),
     };
     this.monsTex = texture(monsImg);
     this.spriteMat = new THREE.MeshBasicMaterial({ map: this.monsTex, alphaTest: 0.5, side: THREE.DoubleSide });
@@ -48,7 +70,94 @@ export class View {
     this.outline = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 }));
     this.outline.visible = false;
     this.scene.add(this.outline);
+
+    // Minecraft's crack overlay on the block being mined.
+    const crackGeo = new THREE.BoxGeometry(1.006, 1.006, 1.006);
+    this.crack = new THREE.Mesh(crackGeo, new THREE.MeshBasicMaterial({ map: atlas, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    this.crack.visible = false;
+    this.crackStage = -1;
+    this.scene.add(this.crack);
+
+    // Particles: block bits, grass, smoke, sparks.
+    const MAX = 400;
+    this.parts = { n: MAX, pos: new Float32Array(MAX * 3), col: new Float32Array(MAX * 3), vel: new Float32Array(MAX * 3), life: new Float32Array(MAX), next: 0 };
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(this.parts.pos, 3));
+    pg.setAttribute('color', new THREE.BufferAttribute(this.parts.col, 3));
+    this.points = new THREE.Points(pg, new THREE.PointsMaterial({ size: 0.13, vertexColors: true, sizeAttenuation: true }));
+    this.points.frustumCulled = false;
+    this.scene.add(this.points);
     this.resize();
+  }
+
+  /// Sun and moon pictures from the client jar.
+  setSky(sunImg, moonImg) {
+    const mk = (img, size) => {
+      const t = texture(img);
+      const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending }));
+      m.scale.setScalar(size);
+      m.renderOrder = -1;
+      this.scene.add(m);
+      return m;
+    };
+    this.sun = mk(sunImg, 42);
+    this.moon = mk(moonImg, 34);
+  }
+
+  /// Place sun and moon for Minecraft time `t` (0 = morning).
+  skyTime(t) {
+    if (!this.sun) return;
+    const a = ((t / 24000) * Math.PI * 2) + Math.PI * 0.02;
+    const c = this.camera.position;
+    const r = 260;
+    this.sun.position.set(c.x + Math.cos(a) * r, c.y + Math.sin(a) * r, c.z + 40);
+    this.moon.position.set(c.x - Math.cos(a) * r, c.y - Math.sin(a) * r, c.z + 40);
+    this.sun.visible = Math.sin(a) > -0.15;
+    this.moon.visible = Math.sin(a) < 0.15;
+  }
+
+  /// Show crack `stage` (0-9) on block (x, y, z), or hide with -1.
+  setCrack(x, y, z, stage, tiles, cols) {
+    if (stage < 0) { this.crack.visible = false; this.crackStage = -1; return; }
+    this.crack.visible = true;
+    this.crack.position.set(x + 0.5, y + 0.5, z + 0.5);
+    if (stage === this.crackStage) return;
+    this.crackStage = stage;
+    const tile = tiles[stage];
+    const W = this.atlas.image.width, H = this.atlas.image.height;
+    const u0 = ((tile % cols) * 16) / W, u1 = ((tile % cols) * 16 + 16) / W;
+    const v0 = (Math.floor(tile / cols) * 16) / H, v1 = (Math.floor(tile / cols) * 16 + 16) / H;
+    const uv = this.crack.geometry.attributes.uv;
+    for (let f = 0; f < 6; f++) {
+      uv.setXY(f * 4 + 0, u0, v0); uv.setXY(f * 4 + 1, u1, v0);
+      uv.setXY(f * 4 + 2, u0, v1); uv.setXY(f * 4 + 3, u1, v1);
+    }
+    uv.needsUpdate = true;
+  }
+
+  /// Spray `n` particles of colour `rgb` (0..1 each) from (x, y, z).
+  burst(x, y, z, rgb, n = 12, speed = 2.5, up = 2) {
+    const P = this.parts;
+    for (let i = 0; i < n; i++) {
+      const k = P.next; P.next = (P.next + 1) % P.n;
+      P.pos[k * 3] = x + (Math.random() - 0.5) * 0.6; P.pos[k * 3 + 1] = y + (Math.random() - 0.5) * 0.6; P.pos[k * 3 + 2] = z + (Math.random() - 0.5) * 0.6;
+      P.vel[k * 3] = (Math.random() - 0.5) * speed; P.vel[k * 3 + 1] = Math.random() * up + 0.5; P.vel[k * 3 + 2] = (Math.random() - 0.5) * speed;
+      const v = 0.8 + Math.random() * 0.3;
+      P.col[k * 3] = rgb[0] * v; P.col[k * 3 + 1] = rgb[1] * v; P.col[k * 3 + 2] = rgb[2] * v;
+      P.life[k] = 0.6 + Math.random() * 0.5;
+    }
+  }
+
+  stepParticles(dt) {
+    const P = this.parts;
+    for (let k = 0; k < P.n; k++) {
+      if (P.life[k] <= 0) { P.pos[k * 3 + 1] = -1e4; continue; }
+      P.life[k] -= dt;
+      P.vel[k * 3 + 1] -= 12 * dt;
+      P.pos[k * 3] += P.vel[k * 3] * dt; P.pos[k * 3 + 1] += P.vel[k * 3 + 1] * dt; P.pos[k * 3 + 2] += P.vel[k * 3 + 2] * dt;
+    }
+    this.points.geometry.attributes.position.needsUpdate = true;
+    this.points.geometry.attributes.color.needsUpdate = true;
   }
 
   resize() {
@@ -77,6 +186,7 @@ export class View {
       geo.setAttribute('position', new THREE.BufferAttribute(b.pos, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(b.uv, 2));
       geo.setAttribute('color', new THREE.BufferAttribute(b.col, 3, true));
+      geo.setAttribute('lit', new THREE.BufferAttribute(b.lit, 2, true));
       geo.setIndex(new THREE.BufferAttribute(b.idx, 1));
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, this.mats[layer]);
@@ -108,9 +218,13 @@ export class View {
 
   /// `light` 0..1; `skyHex` the biome's daytime sky.
   setDaylight(light, skyHex) {
-    const l = 0.25 + 0.75 * light;
-    for (const m of Object.values(this.mats)) m.color.setRGB(l, l, l * (0.85 + 0.15 * light) + (1 - light) * 0.08);
-    this.spriteMat.color.setRGB(l + 0.1 * (1 - light), l + 0.1 * (1 - light), l + 0.15 * (1 - light));
+    LIGHT.uDay.value = light;
+    // Moonlight is a little blue.
+    LIGHT.uMoon.value.setRGB(0.85 + 0.15 * light, 0.9 + 0.1 * light, 1);
+    // Sprites and mobs have no light of their own: a softer day/night.
+    const l = 0.3 + 0.7 * light;
+    this.spriteMat.color.setRGB(l + 0.1 * (1 - light), l + 0.1 * (1 - light), l + 0.2 * (1 - light));
+    this.mobLight = l;
     this.sky.set(skyHex).lerp(NIGHT_SKY, 1 - light);
     this.fog.color.copy(this.sky);
   }

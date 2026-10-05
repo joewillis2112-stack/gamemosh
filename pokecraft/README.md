@@ -2,13 +2,25 @@
 
 Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixelmon. Minecraft's own world generator builds the land from a seed: plains, forests, deserts, mountains, oceans, villages. You walk it in first person, the blocks drawn with Minecraft's textures. Pokémon Red runs underneath.
 
-- **Wild Pokémon live in the world.** You can see them wander and hop about. Which ones you meet depends on the biome and the time of day: Caterpie and Pikachu in forests, Sandshrew in deserts, Geodude on mountains, Tentacool at sea, Gastly at night. Each is the Game Boy picture coloured with its Super Game Boy palette, and sized from its Pokédex height. Some are aggressive and come at you.
+- **Pokémon hide where Pokémon always hide.** Walk through tall grass, ferns or bushes, wade through snow, swim, or go down into a dark cave, and every step can make a wild Pokémon jump out at you, as in the Game Boy games. Off those, by day, nothing jumps you.
+- **By day the world is gentle.** Cute Pokémon roam in plain sight and leave you alone: Caterpie, Pidgey, Jigglypuff, Clefairy, Tauros, Ponyta, Eevee, Pikachu, Nidoran, depending on the biome. Throw your ball at one if you want it.
+- **At night the scary ones come out.** Gastly and Haunter, Zubat, Drowzee, Ekans, Mankey, Grimer, Koffing, Cubone roam anywhere, grass or not, and they come for you. Each Pokémon is the Game Boy picture coloured with its Super Game Boy palette, and sized from its Pokédex height.
 - **Battles happen where you meet.** Aim at a wild Pokémon and press BALL to throw your Pokémon's ball (or walk into it, or press USE on it). The opponent steps up a few blocks away, your Pokémon comes out in front of you, and Pokémon Red's own battle plays out: HUD, menus, text, moves, catching, evolving, all drawn over the world.
 - **Trainers roam.** Every couple of minutes one walks into view: a Youngster, a Hiker, a Lass, a Cooltrainer. If it spots you, it walks up and challenges you with its real Gen 1 party, picked to match how far out you are.
 - **Your lead Pokémon follows you.** Turn around and it's there.
 - **Distance is difficulty.** Wild levels rise about one every 40 blocks from where the world began. The top bar shows the level around you.
 - **Villages.** Every village bell has a NURSE, who heals your party and sets where you wake up, and a CLERK, who runs a Poké Mart. A travelling MERCHANT also wanders by in daylight. Better stock appears the farther out you are.
-- **It's Minecraft.** Hold MINE to break blocks; they go into your hotbar. USE places them. You start with a bed: put it down and sleep in it at night to heal and skip to morning. Swim and sprint (push the stick all the way, or hold Shift).
+- **It's Minecraft survival.**
+  - A real inventory (36 slots, the bottom row is the hotbar) with item names, and Minecraft's own recipes in a recipe-book CRAFT tab: small recipes anywhere, tools and the rest at a crafting table, smelting at a furnace with fuel.
+  - Tools matter, with Minecraft's break times and drops: stone by hand breaks slowly and gives nothing; ores need the right pickaxe.
+  - Ten hearts and ten drumsticks. Falling, drowning, lava, starving and monsters hurt; a full belly heals. Hold USE with food to eat. If you die you wake at your bed and keep your things.
+  - Minecraft's night monsters, as 3D models in Minecraft's skins: zombies, husks, drowned, skeletons that shoot, spiders, and creepers that blow holes in the ground. Undead burn at sunrise. Cows, pigs, sheep and chickens graze by day for food and wool. Hit things with MINE (swords hit harder); your lead Pokémon joins in against monsters, and monsters drop Pokémon money.
+  - Torches, lanterns, glowstone and lava light the dark around them.
+- **Both at once.**
+  - A POKé crafting tab turns Minecraft materials into Pokémon items: iron, red dye and a button make POKé BALLs; a bottle and berries make a POTION; spider eye an ANTIDOTE, golden apple a REVIVE, diamond and sugar a RARE CANDY, and more.
+  - Ores sometimes hold evolution stones: Thunder Stone in copper, Moon Stone in diamond, Leaf Stone in emerald, Water Stone in lapis, Fire Stone in redstone.
+  - Craft a fishing rod and cast at water. When the bobber dips, press USE: mostly Pokémon, otherwise cod, salmon or junk.
+  - A bed: put it down and sleep in it at night (not with monsters near) to heal you and your party and skip to morning. Swim and sprint (push the stick all the way, or hold Shift).
 - **Day and night** follow Minecraft's 20-minute day.
 - **START (MENU)** opens Pokémon's own menu over the world: Pokédex, party, bag, save.
 
@@ -20,8 +32,9 @@ It runs in a phone browser, portrait or landscape. `dist/index.html` is the whol
 |---|---|---|
 | Walk | left thumb, anywhere on the left | WASD (Shift sprints) |
 | Look | drag on the right | mouse (click to capture it) |
-| Use / talk / place | USE, or tap the right side | right-click, E or F |
-| Mine | hold MINE | hold left-click (or X) |
+| Use / talk / place / eat (hold) | USE, or tap the right side | right-click or F |
+| Mine / attack | hold MINE | hold left-click (or X) |
+| Inventory and crafting | BAG | E or I |
 | Throw your Pokémon's ball | BALL | Q or R |
 | Jump / swim up | JUMP | Space |
 | Menu | MENU | Enter or Esc |
@@ -29,7 +42,7 @@ It runs in a phone browser, portrait or landscape. `dist/index.html` is the whol
 
 In Pokémon's screens (battles, menus, text), the pad turns into a Game Boy pad: d-pad, A, B, START, SELECT. On a keyboard use the arrows, Z = A, X = B, Enter = START. A gamepad works too.
 
-The game autosaves every 30 s, after battles and sleeping, and when you leave the tab: position, party, bag, hotbar and every block you changed. The same seed always makes the same world.
+The game autosaves every 30 s, after battles and sleeping, and when you leave the tab: position, party, both bags, hearts and hunger, and every block you changed. The same seed always makes the same world.
 
 ## How it's moshed
 
@@ -59,12 +72,16 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 
 | File | What it does |
 |---|---|
-| `main.js` | The 59.73 Hz loop, input modes, battles staged in the world, mining and placing, sleep, HUD and saves |
+| `main.js` | The 59.73 Hz loop, input modes, battles staged in the world, mining, placing, eating, fishing, step encounters, sleep, death, HUD and saves |
+| `items.js` | Item names, stack sizes, tools, break times, drops, food, fuel; the POKé recipes |
+| `inventory.js` | The 36-slot inventory and its screen: bag, crafting, furnace, POKé tabs |
+| `survival.js` | Hearts, hunger, breath, fall damage |
+| `mobs.js` | Minecraft's mobs as box models in their own skins: spawning from the biome's lists, AI, arrows, creepers, the follower fighting |
 | `view.js` | three.js scene, materials, sky and day/night, sprites |
 | `player.js` | Walking physics: collision, auto-step, swimming, the block ray |
 | `controls.js` | Touch thumbstick and look, Game Boy pad, keyboard, mouse, gamepad |
 | `entities.js` | Wild Pokémon, the follower, Nurse, Clerk, merchant and trainers |
-| `encounters.js` | Biome → Pokémon tables |
+| `encounters.js` | Pokémon tables: day (gentle) and night (scary) roamers per biome group; grass, snow, water and cave hiders; fishing |
 | `gen.js`, `worker.js`, `mesher.js` | The world worker and its page side |
 
 `tools/mkassets.py` builds the art:
@@ -73,6 +90,7 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 - Every Pokémon's front and back picture, coloured with the SGB palettes from open-pokered's transcription of the ROM.
 - The NPCs.
 - The trainer parties.
+- Item icons, English names, every crafting and smelting recipe, the mob skins, the break-crack stages, the sun and the moon, and each biome's mob spawn lists, all from the client jar.
 
 ## Rebuild
 
@@ -83,6 +101,8 @@ pokecraft/build.sh                # clones both sources at the pinned commits, p
                                   # builds both wasm modules, bundles dist/index.html
 node pokecraft/tests/play.mjs     # headless phone: walk, START menu, mine and place, wild + trainer battles, Nurse, save/continue
 node pokecraft/tests/more.mjs     # steps and walls, swimming, bed and sleep, merchant shop, waking at your bed, landscape
+node pokecraft/tests/survive.mjs  # inventory and crafting, tool tiers, POKé crafting, grass encounters, day/night roamers,
+                                  # a zombie fight, eating, fishing, falling, death and respawn, torches, save/continue
 ```
 
 You need Rust 1.94+ with the `wasm32-unknown-unknown` target, git, curl, Node 20+ and Python 3 with Pillow. The build also fetches Pokémon's graphics from pret/pokered and installs `wasm-bindgen-cli 0.2.128` into `.work/`.
@@ -92,5 +112,6 @@ You need Rust 1.94+ with the `wasm32-unknown-unknown` target, git, curl, Node 20
 - Badges and gyms.
 - A PC you can reach outside the START menu. Pokémon caught with a full party go to the box, as in the original.
 - Riding or surfing on your Pokémon.
-- Torches lighting the night.
+- Farming, chests, armour, beds you can craft from wool you shear (beds craft; sheep only drop wool when killed).
+- Mob sounds and footsteps.
 - Village houses get NPCs only at the bell; the generator places no villagers.
