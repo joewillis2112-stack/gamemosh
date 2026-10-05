@@ -246,3 +246,15 @@ body.gb-on #stats, body.gb-on #itemname, body.gb-on #feed, body.gb-on #eatbar { 
 #dead p { font-size: 9px; margin: 0; line-height: 1.7; }
 #dead .keep { color: #ffd0d0; }
 #respawn { font-size: 10px; padding: 12px 22px; background: #8b8b8b; color: #fff; border: 2px solid; border-color: #aaa #373737 #373737 #aaa; }
+
+/* ---------- the lead Pokémon's type perks */
+#lefthud { position: absolute; left: 8px; top: calc(env(safe-area-inset-top, 0px) + 34px); display: flex; flex-direction: column; gap: 4px; }
+#lefthud #party { position: static; }
+#perk { display: flex; gap: 3px; }
+#perk b { font-weight: normal; font-size: 7px; padding: 3px 5px; color: #fff; text-shadow: 1px 1px 0 rgba(0,0,0,.6); background: #a8a878; border: 1px solid rgba(0,0,0,.4); }
+#perk .t-fire { background: #f08030; } #perk .t-water { background: #6890f0; } #perk .t-grass { background: #78c850; }
+#perk .t-electric { background: #d8b820; } #perk .t-ice { background: #78c8c8; } #perk .t-fighting { background: #c03028; }
+#perk .t-poison { background: #a040a0; } #perk .t-ground { background: #c8a050; } #perk .t-flying { background: #a890f0; }
+#perk .t-psychic { background: #f85888; } #perk .t-bug { background: #a8b820; } #perk .t-rock { background: #b8a038; }
+#perk .t-ghost { background: #705898; } #perk .t-dragon { background: #7038f8; }
+body.in-battle #perk, body.gb-on #perk { display: none; }

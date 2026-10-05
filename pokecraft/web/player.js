@@ -17,6 +17,7 @@ export class Player {
     this.pitch = 0;
     this.onGround = false;
     this.inWater = false;
+    this.mods = { swim: 1, jump: 1, glide: false }; // your lead Pokémon's perks
     this.stepAgo = 0;
   }
 
@@ -27,7 +28,7 @@ export class Player {
     const [mx, mz] = move;
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     // Forward is -Z when yaw is 0 (three.js camera convention).
-    const speed = this.inWater ? SWIM : sprint ? SPRINT : WALK;
+    const speed = this.inWater ? SWIM * this.mods.swim : sprint ? SPRINT : WALK;
     let wx = (mx * c - mz * s) * speed, wz = (-mx * s - mz * c) * speed;
     const len = Math.hypot(mx, mz);
     if (len > 1) { wx /= len; wz /= len; }
@@ -43,7 +44,9 @@ export class Player {
       if (jump) this.vel[1] = Math.min(this.vel[1] + 20 * dt, 3.2);
     } else {
       this.vel[1] -= GRAVITY * dt;
-      if (jump && this.onGround) this.vel[1] = JUMP;
+      if (jump && this.onGround) this.vel[1] = JUMP * this.mods.jump;
+      // A Flying-type lead: hold JUMP in the air to glide down.
+      if (jump && !this.onGround && this.mods.glide && this.vel[1] < -2.2) this.vel[1] = -2.2;
     }
     this.vel[1] = Math.max(this.vel[1], -40);
 

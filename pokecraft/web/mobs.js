@@ -266,7 +266,8 @@ export class Mobs {
     let move = [0, 0], jump = false, sprint = false;
     const toPlayer = Math.atan2(-dx, -dz); // yaw that faces the player (forward is -Z at yaw 0)
     // Monsters hunt at night; by day only if you've hit them (spiders, creepers).
-    const chase = k.hostile && (!day || m.angry) && dist < 28 && !c.survival.dead;
+    // Your lead Pokémon's type can make some of them leave you be (until you hit them).
+    const chase = k.hostile && (!day || m.angry) && dist < 28 && !c.survival.dead && (m.angry || !(c.calm && c.calm(m.type)));
     if (k.burns && day && c.skyOpen(m.body.pos)) {
       // Caught in the sun.
       m.burnT = (m.burnT || 0) + dt;
@@ -419,6 +420,13 @@ export class Mobs {
       const l = Math.hypot(p[0] - x, p[2] - z) || 1;
       c.player.vel[0] += ((p[0] - x) / l) * 10; c.player.vel[2] += ((p[2] - z) / l) * 10; c.player.vel[1] = 7;
     }
+    // The blast reaches Pokémon too: your follower (real HP), and wild ones (c.blast).
+    const f = c.follower && c.follower();
+    if (f && c.followerHurt) {
+      const fd = Math.hypot(f.pos[0] - x, f.pos[2] - z);
+      if (fd < 5) c.followerHurt('creeper', Math.round(10 * (1 - fd / 5)));
+    }
+    if (c.blast) c.blast(x, y, z, 5);
     for (const o of [...this.list]) {
       const od = Math.hypot(o.body.pos[0] - x, o.body.pos[2] - z);
       if (od < 5) this.damage(o, Math.round(14 * (1 - od / 5)), [x, y, z]);
@@ -435,7 +443,8 @@ export class Mobs {
     const p = c.player.pos;
     let target = null, best = 8;
     for (const m of this.list) {
-      if (!m.k.hostile) continue;
+      // Not the ones your lead's type keeps calm, unless they've turned on you.
+      if (!m.k.hostile || (c.calm && c.calm(m.type) && !m.angry)) continue;
       const d = Math.hypot(m.body.pos[0] - p[0], m.body.pos[2] - p[2]);
       if (d < best) { best = d; target = m; }
     }
@@ -444,6 +453,8 @@ export class Mobs {
     const dmg = 2 + Math.floor(f.level / 6);
     c.view.burst(target.body.pos[0], target.body.pos[1] + 1, target.body.pos[2], f.colour, 10, 3, 2);
     this.damage(target, dmg, f.pos);
+    // It hits back: real HP off your Pokémon (Pokémon's own party, not a copy).
+    if (target.hp > 0 && c.followerHurt && Math.random() < 0.5) c.followerHurt(target.type, target.k.dmg || 2);
     if (!this.cheered || performance.now() - this.cheered > 60000) {
       this.cheered = performance.now();
       c.say(`${f.species.toUpperCase()} is fighting the ${target.type.toUpperCase()}!`);

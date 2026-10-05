@@ -20,20 +20,25 @@ const NIGHT_SKY = new THREE.Color(0x0b1026);
 /// Minecraft-style light in the block shaders: each vertex brings its sky
 /// light and block light; the sky part follows the time of day, the block
 /// part (torches, lava) stays, a little warm.
-const LIGHT = { uDay: { value: 1 }, uMoon: { value: new THREE.Color(1, 1, 1) } };
+/// `uHand` is a light you carry (a Fire-type lead): xyz and strength 0..1.
+/// `uFloor` is the darkest anything gets (an Electric-type lead's FLASH).
+const LIGHT = { uDay: { value: 1 }, uMoon: { value: new THREE.Color(1, 1, 1) }, uHand: { value: new THREE.Vector4(0, -999, 0, 0) }, uFloor: { value: 0.035 } };
 function lit(material) {
   material.onBeforeCompile = (sh) => {
     sh.uniforms.uDay = LIGHT.uDay;
     sh.uniforms.uMoon = LIGHT.uMoon;
+    sh.uniforms.uHand = LIGHT.uHand;
+    sh.uniforms.uFloor = LIGHT.uFloor;
     sh.vertexShader = sh.vertexShader
-      .replace('void main() {', 'attribute vec2 lit;\nvarying vec2 vLit;\nvoid main() {\n  vLit = lit;')
+      .replace('void main() {', 'attribute vec2 lit;\nvarying vec2 vLit;\nvarying vec3 vPcWorld;\nvoid main() {\n  vLit = lit;\n  vPcWorld = (modelMatrix * vec4(position, 1.0)).xyz;')
     sh.fragmentShader = sh.fragmentShader
-      .replace('void main() {', 'uniform float uDay;\nuniform vec3 uMoon;\nvarying vec2 vLit;\nvoid main() {')
+      .replace('void main() {', 'uniform float uDay;\nuniform vec3 uMoon;\nuniform vec4 uHand;\nuniform float uFloor;\nvarying vec2 vLit;\nvarying vec3 vPcWorld;\nvoid main() {')
       .replace('#include <color_fragment>', `#include <color_fragment>
         float pcSky = vLit.x * uDay;
-        float pcBlock = vLit.y * vLit.y;
+        float pcHand = uHand.w * clamp(1.0 - distance(vPcWorld, uHand.xyz) / 10.0, 0.0, 1.0);
+        float pcBlock = max(vLit.y * vLit.y, pcHand * pcHand);
         vec3 pcLight = max(vec3(pcSky) * uMoon, vec3(pcBlock) * vec3(1.0, 0.88, 0.66));
-        diffuseColor.rgb *= max(pcLight, vec3(0.035));`);
+        diffuseColor.rgb *= max(pcLight, vec3(uFloor));`);
   };
   return material;
 }
@@ -215,6 +220,11 @@ export class View {
     m.depthWrite = !on;
     m.needsUpdate = true;
   }
+
+  /// A light carried at (x, y, z), strength 0..1 (0: none); and the darkest
+  /// the world may get.
+  setHandLight(x, y, z, k) { LIGHT.uHand.value.set(x, y, z, k); }
+  setLightFloor(f) { LIGHT.uFloor.value = f; }
 
   /// `light` 0..1; `skyHex` the biome's daytime sky.
   setDaylight(light, skyHex) {
