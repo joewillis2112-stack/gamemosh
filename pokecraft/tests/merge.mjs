@@ -200,6 +200,37 @@ const scattered = await g(() => !__pc.ents.list.includes(window.__wild));
 console.log('wild Pokémon after the blast: gone =', scattered, '|', await feed());
 if (!scattered) fail('the creeper blast did not reach the wild Pokémon');
 
+// 11. Minecraft items in a Pokémon battle: SHEARS show up in Pokémon's own
+// ITEM list against a fluffy Pokémon, shear it (wool, DEFENSE falls), and
+// stay in your inventory (a tool).
+await calm();
+await g(() => { __pcTest.forceLead(null); __pc.runner.full_heal(); __pcTest.updateParty(); __pc.inv.add('shears', 1); __pc.inv.add('wheat', 3); });
+await g(() => { const p = __pc.player; const e = __pc.ents.makeMon('Jigglypuff', 3, p.pos[0] - Math.sin(p.yaw) * 5, p.pos[1], p.pos[2] - Math.cos(p.yaw) * 5); __pcTest.startBattle('wild', e); });
+await page.waitForFunction(() => __pc.runner.screen_name() === 'Battle', null, { timeout: 15000 });
+const lent = await g(() => ({ shears: __pc.runner.item_count('SHEARS'), wheat: __pc.runner.item_count('WHEAT'), toast: document.getElementById('toast').textContent }));
+console.log('in the battle bag', JSON.stringify(lent));
+if (lent.shears !== 1) fail('SHEARS are not in the battle ITEM list');
+if (lent.wheat !== 0) fail('WHEAT is in the list against a Pokémon it does nothing for');
+// Through the intro text to the menu, then ITEM, down to SHEARS, use.
+for (let i = 0; i < 15 && !(await g(() => __pcTest.findCursors(__pc.lastPx).length)); i++) await press('KeyZ', 40);
+await press('ArrowDown', 12); await press('KeyZ', 30);
+const idx = await g(() => JSON.parse(__pc.runner.export_live_save()).game_data.bag.items.findIndex(([n]) => n === 'Shears'));
+for (let i = 0; i < idx; i++) await press('ArrowDown', 10);
+await shot('g5-shears-in-bag');
+await press('KeyZ', 60);
+await shot('g6-sheared');
+// Then run.
+for (let i = 0; i < 30 && (await g(() => __pc.mode)) !== 'world'; i++) {
+  await press('KeyX', 25);
+  const cur = await g(() => __pcTest.findCursors(__pc.lastPx));
+  if (cur.length && cur[0].y > 100 && cur[0].x > 60) { await press('ArrowRight', 8); await press('ArrowDown', 8); await press('KeyZ', 40); }
+}
+const shorn = await g(() => ({ wool: __pc.inv.count('white_wool'), shears: __pc.inv.count('shears'), wheat: __pc.inv.count('wheat'), bag: __pc.runner.item_count('SHEARS') }));
+console.log('after the battle', JSON.stringify(shorn));
+if (!(shorn.wool > 0)) fail('shearing gave no wool');
+if (shorn.shears !== 1 || shorn.wheat !== 3) fail('the Minecraft items were lost');
+if (shorn.bag !== 0) fail('SHEARS were left in the Pokémon bag');
+
 console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'MERGE OK');
 await browser.close();
 process.exit(errors.length ? 1 : 0);

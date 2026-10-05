@@ -190,8 +190,288 @@ index 65802e5..4c2b13f 100644
      pub fn update_frame(&self) {
          if let Ok(mut mgr) = self.manager.lock() {
              mgr.update_frame();
+diff --git a/crates/pokered-core/src/battle/menu.rs b/crates/pokered-core/src/battle/menu.rs
+index fa70634..968c528 100644
+--- a/crates/pokered-core/src/battle/menu.rs
++++ b/crates/pokered-core/src/battle/menu.rs
+@@ -543,6 +543,8 @@ impl ItemCategory {
+             | ItemId::GuardSpec => ItemCategory::BattleStat,
+ 
+             ItemId::PokeDoll | ItemId::PokeFlute => ItemCategory::UsableInBattle,
++            // Pokécraft: Minecraft items lent to the battle (see use_pokecraft_item).
++            ItemId::Shears | ItemId::Wheat | ItemId::Bone | ItemId::RawCod => ItemCategory::UsableInBattle,
+ 
+             ItemId::Ether | ItemId::MaxEther | ItemId::Elixer | ItemId::MaxElixer => {
+                 ItemCategory::PpRestore
+diff --git a/crates/pokered-core/src/battle/mod.rs b/crates/pokered-core/src/battle/mod.rs
+index 6b4c46f..3f7279c 100644
+--- a/crates/pokered-core/src/battle/mod.rs
++++ b/crates/pokered-core/src/battle/mod.rs
+@@ -1037,6 +1037,9 @@ pub struct BattleScreen {
+     /// branch on `wBattleResult` (the Pokémon Tower ghost) treat a Doll skip
+     /// as a defeat but a menu run / capture as NOT defeating it.
+     pub escaped_via_poke_doll: bool,
++    /// Pokécraft: Minecraft items used this battle, as "Item:Species", for
++    /// the page to carry out (wool from SHEARS, and so on).
++    pub pokecraft_used: Vec<String>,
+     /// Current map ID (for dungeon transition detection)
+     pub map_id: u8,
+     /// Selected battle transition type
+@@ -1313,6 +1316,7 @@ impl BattleScreen {
+             end_battle_text: None,
+             captured_mon: None,
+             escaped_via_poke_doll: false,
++            pokecraft_used: Vec::new(),
+             pending_learn_moves: Vec::new(),
+             map_id: 0,
+             battle_transition: transition,
+@@ -1412,6 +1416,7 @@ impl BattleScreen {
+             end_battle_text: None,
+             captured_mon: None,
+             escaped_via_poke_doll: false,
++            pokecraft_used: Vec::new(),
+             pending_learn_moves: Vec::new(),
+             map_id: 0,
+             battle_transition: transition,
+@@ -2868,6 +2873,9 @@ learn {learn_name}!")];
+     }
+ 
+     fn handle_item_use(&mut self, item_id: ItemId) {
++        if self.use_pokecraft_item(item_id) {
++            return;
++        }
+         let category = ItemCategory::from_item(item_id);
+         match category {
+             ItemCategory::Ball => {
+@@ -3417,6 +3425,63 @@ learn {learn_name}!")];
+         }
+     }
+ 
++    /// Pokécraft: Minecraft items in a Pokémon battle. Each works on the
++    /// Pokémon it fits, the way it works on the Minecraft animal: SHEARS on
++    /// fluffy ones (wool comes off, and with it some DEFENSE), WHEAT on
++    /// cattle-like ones, a BONE on dog-like ones, a RAW COD on cat-like ones
++    /// (they calm down: ATTACK falls). On anything else it's not the time.
++    /// Returns false for every other item.
++    fn use_pokecraft_item(&mut self, item_id: ItemId) -> bool {
++        use crate::battle::stat_stages::StatIndex;
++        use pokered_data::species::Species as Sp;
++        if !matches!(item_id, ItemId::Shears | ItemId::Wheat | ItemId::Bone | ItemId::RawCod) {
++            return false;
++        }
++        let player = self.player_name.clone().unwrap_or_else(|| "RED".to_string());
++        let Some(species) = self.battle_state.as_ref().map(|bs| bs.enemy.active_mon().species) else {
++            return false;
++        };
++        let fits = match item_id {
++            ItemId::Shears => matches!(species, Sp::Jigglypuff | Sp::Wigglytuff | Sp::Clefairy | Sp::Clefable),
++            ItemId::Wheat => matches!(species, Sp::Tauros | Sp::Ponyta | Sp::Rapidash | Sp::Doduo | Sp::Dodrio | Sp::Kangaskhan | Sp::Rhyhorn),
++            ItemId::Bone => matches!(species, Sp::Growlithe | Sp::Arcanine | Sp::Vulpix | Sp::Ninetales),
++            _ => matches!(species, Sp::Meowth | Sp::Persian),
++        };
++        if !fits || !self.is_wild {
++            self.show_text_then(
++                vec![format!("OAK: {player}! This isn't\nthe time to use that!")],
++                BattlePhase::PlayerMenu,
++            );
++            return true;
++        }
++        let enemy = pokered_data::lang_data::species_name(species, false).to_uppercase();
++        let item = pokered_data::lang_data::item_name(item_id, false);
++        let (stat, drop, line) = match item_id {
++            ItemId::Shears => (StatIndex::Defense, 1, format!("Sheared {enemy}'s\nfluffy coat!")),
++            ItemId::Wheat => (StatIndex::Attack, 1, format!("{enemy} munched\nthe WHEAT!")),
++            ItemId::Bone => (StatIndex::Attack, 2, format!("{enemy} is wagging\nits tail!")),
++            _ => (StatIndex::Attack, 1, format!("{enemy} purrs\nhappily!")),
++        };
++        let mut messages = vec![format!("{player} used\n{item}!"), line];
++        if let Some(ref mut bs) = self.battle_state {
++            if bs.enemy.stat_stages.modify(stat, -drop) {
++                let name = if stat == StatIndex::Defense { "DEFENSE" } else { "ATTACK" };
++                messages.push(format!("Enemy {enemy}'s\n{name} {}fell!", if drop > 1 { "greatly " } else { "" }));
++            } else {
++                messages.push("Nothing happened!".to_string());
++            }
++        }
++        // Shears are a tool; the food is eaten.
++        if item_id != ItemId::Shears {
++            self.consume_selected_item();
++        }
++        self.pokecraft_used.push(format!("{:?}:{:?}", item_id, species));
++        self.bag_menu = None;
++        self.sync_display_from_state();
++        self.show_text_then(messages, BattlePhase::EnemyFreeTurnAfterItem);
++        true
++    }
++
+     fn use_battle_stat_item(&mut self, item_id: ItemId) {
+         use crate::items::battle_items::{use_battle_item, BattleItemResult};
+         let is_x_stat = matches!(
+diff --git a/crates/pokered-data/data/items/Bone.json b/crates/pokered-data/data/items/Bone.json
+new file mode 100644
+index 0000000..6dc012b
+--- /dev/null
++++ b/crates/pokered-data/data/items/Bone.json
+@@ -0,0 +1 @@
++{"id": "Bone", "name": "BONE", "price": 0, "category": "Key", "effect": {"type": "None", "params": {}}, "held_effect": null, "berry": null, "use_outside_battle": false, "use_in_battle": true, "consume": true, "key_item": true, "sellable": false, "description": "A bone. Dog-like POKéMON wag their tails.", "tags": ["pokecraft"]}
+\ No newline at end of file
+diff --git a/crates/pokered-data/data/items/RawCod.json b/crates/pokered-data/data/items/RawCod.json
+new file mode 100644
+index 0000000..f835c1d
+--- /dev/null
++++ b/crates/pokered-data/data/items/RawCod.json
+@@ -0,0 +1 @@
++{"id": "RawCod", "name": "RAW COD", "price": 0, "category": "Key", "effect": {"type": "None", "params": {}}, "held_effect": null, "berry": null, "use_outside_battle": false, "use_in_battle": true, "consume": true, "key_item": true, "sellable": false, "description": "A raw cod. Cat-like POKéMON love it.", "tags": ["pokecraft"]}
+\ No newline at end of file
+diff --git a/crates/pokered-data/data/items/Shears.json b/crates/pokered-data/data/items/Shears.json
+new file mode 100644
+index 0000000..56be651
+--- /dev/null
++++ b/crates/pokered-data/data/items/Shears.json
+@@ -0,0 +1 @@
++{"id": "Shears", "name": "SHEARS", "price": 0, "category": "Key", "effect": {"type": "None", "params": {}}, "held_effect": null, "berry": null, "use_outside_battle": false, "use_in_battle": true, "consume": false, "key_item": true, "sellable": false, "description": "Minecraft shears. Shear a fluffy POKéMON.", "tags": ["pokecraft"]}
+\ No newline at end of file
+diff --git a/crates/pokered-data/data/items/Wheat.json b/crates/pokered-data/data/items/Wheat.json
+new file mode 100644
+index 0000000..2a7ac30
+--- /dev/null
++++ b/crates/pokered-data/data/items/Wheat.json
+@@ -0,0 +1 @@
++{"id": "Wheat", "name": "WHEAT", "price": 0, "category": "Key", "effect": {"type": "None", "params": {}}, "held_effect": null, "berry": null, "use_outside_battle": false, "use_in_battle": true, "consume": true, "key_item": true, "sellable": false, "description": "Minecraft wheat. Cattle-like POKéMON love it.", "tags": ["pokecraft"]}
+\ No newline at end of file
+diff --git a/crates/pokered-data/data/items/item_list.json b/crates/pokered-data/data/items/item_list.json
+index 3b85041..deebf10 100644
+--- a/crates/pokered-data/data/items/item_list.json
++++ b/crates/pokered-data/data/items/item_list.json
+@@ -1,22 +1,92 @@
+ {
+   "items": [
+-    "MasterBall", "UltraBall", "GreatBall", "PokeBall", "TownMap",
+-    "Bicycle", "Surfboard", "SafariBall", "Pokedex", "MoonStone",
+-    "Antidote", "BurnHeal", "IceHeal", "Awakening", "ParlyzHeal",
+-    "FullRestore", "MaxPotion", "HyperPotion", "SuperPotion", "Potion",
+-    "BoulderBadge", "CascadeBadge", "ThunderBadge", "RainbowBadge", "SoulBadge",
+-    "MarshBadge", "VolcanoBadge", "EarthBadge", "EscapeRope", "Repel",
+-    "OldAmber", "FireStone", "ThunderStone", "WaterStone", "HpUp",
+-    "Protein", "Iron", "Carbos", "Calcium", "RareCandy",
+-    "DomeFossil", "HelixFossil", "SecretKey", "Unused2C", "BikeVoucher",
+-    "XAccuracy", "LeafStone", "CardKey", "Nugget", "Unused32",
+-    "PokeDoll", "FullHeal", "Revive", "MaxRevive", "GuardSpec",
+-    "SuperRepel", "MaxRepel", "DireHit", "Coin", "FreshWater",
+-    "SodaPop", "Lemonade", "SsTicket", "GoldTeeth", "XAttack",
+-    "XDefend", "XSpeed", "XSpecial", "CoinCase", "OaksParcel",
+-    "Itemfinder", "SilphScope", "PokeFlute", "LiftKey", "ExpAll",
+-    "OldRod", "GoodRod", "SuperRod", "PpUp", "Ether",
+-    "MaxEther", "Elixer", "MaxElixer"
++    "MasterBall",
++    "UltraBall",
++    "GreatBall",
++    "PokeBall",
++    "TownMap",
++    "Bicycle",
++    "Surfboard",
++    "SafariBall",
++    "Pokedex",
++    "MoonStone",
++    "Antidote",
++    "BurnHeal",
++    "IceHeal",
++    "Awakening",
++    "ParlyzHeal",
++    "FullRestore",
++    "MaxPotion",
++    "HyperPotion",
++    "SuperPotion",
++    "Potion",
++    "BoulderBadge",
++    "CascadeBadge",
++    "ThunderBadge",
++    "RainbowBadge",
++    "SoulBadge",
++    "MarshBadge",
++    "VolcanoBadge",
++    "EarthBadge",
++    "EscapeRope",
++    "Repel",
++    "OldAmber",
++    "FireStone",
++    "ThunderStone",
++    "WaterStone",
++    "HpUp",
++    "Protein",
++    "Iron",
++    "Carbos",
++    "Calcium",
++    "RareCandy",
++    "DomeFossil",
++    "HelixFossil",
++    "SecretKey",
++    "Unused2C",
++    "BikeVoucher",
++    "XAccuracy",
++    "LeafStone",
++    "CardKey",
++    "Nugget",
++    "Unused32",
++    "PokeDoll",
++    "FullHeal",
++    "Revive",
++    "MaxRevive",
++    "GuardSpec",
++    "SuperRepel",
++    "MaxRepel",
++    "DireHit",
++    "Coin",
++    "FreshWater",
++    "SodaPop",
++    "Lemonade",
++    "SsTicket",
++    "GoldTeeth",
++    "XAttack",
++    "XDefend",
++    "XSpeed",
++    "XSpecial",
++    "CoinCase",
++    "OaksParcel",
++    "Itemfinder",
++    "SilphScope",
++    "PokeFlute",
++    "LiftKey",
++    "ExpAll",
++    "OldRod",
++    "GoodRod",
++    "SuperRod",
++    "PpUp",
++    "Ether",
++    "MaxEther",
++    "Elixer",
++    "MaxElixer",
++    "Shears",
++    "Wheat",
++    "Bone",
++    "RawCod"
+   ],
+   "count": 83
+-}
++}
+\ No newline at end of file
+diff --git a/crates/pokered-data/src/lang_data.rs b/crates/pokered-data/src/lang_data.rs
+index aea89cd..4de158e 100644
+--- a/crates/pokered-data/src/lang_data.rs
++++ b/crates/pokered-data/src/lang_data.rs
+@@ -323,6 +323,10 @@ pub fn item_name(id: crate::items::ItemId, is_zh: bool) -> &'static str {
+             crate::items::ItemId::MaxEther => "元气药块",
+             crate::items::ItemId::Elixer => "招式补药",
+             crate::items::ItemId::MaxElixer => "招式全补药",
++            crate::items::ItemId::Shears => "剪刀",
++            crate::items::ItemId::Wheat => "小麦",
++            crate::items::ItemId::Bone => "骨头",
++            crate::items::ItemId::RawCod => "生鳕鱼",
+             _ => "(item)",
+         }
+     } else {
 diff --git a/crates/pokered-runner-web/src/lib.rs b/crates/pokered-runner-web/src/lib.rs
-index fa5bec4..6fc1e89 100644
+index fa5bec4..44fdba6 100644
 --- a/crates/pokered-runner-web/src/lib.rs
 +++ b/crates/pokered-runner-web/src/lib.rs
 @@ -394,6 +394,70 @@ impl PokeredRunner {
@@ -265,7 +545,7 @@ index fa5bec4..6fc1e89 100644
      /// The current game screen as a short name (`"Overworld"`, `"Battle"`, …)
      /// for the editor's HUD.
      pub fn screen_name(&self) -> String {
-@@ -464,6 +528,233 @@ impl PokeredRunner {
+@@ -464,6 +528,260 @@ impl PokeredRunner {
          self.game.debug_full_heal();
      }
  
@@ -441,6 +721,33 @@ index fa5bec4..6fc1e89 100644
 +        }
 +    }
 +
++    /// Pokécraft: set how many of `item_const` the bag holds (0 takes it out).
++    /// The page puts the Minecraft items that matter into the bag for a battle.
++    pub fn set_item_count(&mut self, item_const: &str, quantity: u32) -> bool {
++        let Some(item) = ItemId::from_const_name(item_const) else { return false };
++        let bag = &mut self.game.save_data.game_data.bag;
++        let have = bag.item_quantity(item) as u32;
++        if have > quantity {
++            bag.remove_item(item, (have - quantity).min(255) as u8).is_ok()
++        } else if have < quantity {
++            bag.add_item(item, (quantity - have).min(99) as u8).is_ok()
++        } else {
++            true
++        }
++    }
++
++    /// Pokécraft: how many of `item_const` the bag holds.
++    pub fn item_count(&self, item_const: &str) -> u32 {
++        ItemId::from_const_name(item_const).map(|i| self.game.save_data.game_data.bag.item_quantity(i) as u32).unwrap_or(0)
++    }
++
++    /// Pokécraft: the Minecraft items used in battle since the last call, as a
++    /// JSON list of "Item:Species" (e.g. "Shears:Jigglypuff").
++    pub fn take_pokecraft_uses(&mut self) -> String {
++        let used: Vec<String> = self.game.battle.pokecraft_used.drain(..).map(|u| format!("\"{u}\"")).collect();
++        format!("[{}]", used.join(","))
++    }
++
 +    /// Pokécraft: an evolution cutscene is playing (it owns the screen until
 +    /// it ends; the page keys its white out to show it over the world).
 +    pub fn evolving(&self) -> bool {
@@ -499,7 +806,7 @@ index fa5bec4..6fc1e89 100644
      /// Push the configured text speed (frames between revealed characters) —
      /// 1/3/5, matching the in-game text speed option.
      pub fn set_text_delay_frames(&mut self, frames: u16) {
-@@ -494,6 +785,9 @@ impl PokeredRunner {
+@@ -494,6 +812,9 @@ impl PokeredRunner {
      /// Native/testable boot path (no `JsValue`): every failure is a plain
      /// `String`.
      fn boot(save_json: Option<&str>) -> Result<Self, String> {

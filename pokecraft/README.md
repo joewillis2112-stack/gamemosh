@@ -49,6 +49,12 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
   - Your follower fights Minecraft monsters beside you, and their hits come off its real HP; it can faint.
   - Beating monsters with it out, and mining ore, gives it real EXP. Pokémon Red levels it up and teaches it moves, and when it's time it evolves out in the world with Pokémon Red's own cutscene.
   - A creeper's blast scatters wild Pokémon.
+- **Minecraft items in Pokémon battles.** Carry the right Minecraft item into a wild battle and it appears in Pokémon's own ITEM list, working the way it works on the Minecraft animal:
+  - SHEARS on a fluffy Pokémon (JIGGLYPUFF, CLEFAIRY): you get wool and its DEFENSE falls. Shears aren't used up.
+  - WHEAT on cattle-like ones (TAUROS, PONYTA, DODUO…): it calms down and its ATTACK falls.
+  - A BONE on dog-like ones (GROWLITHE, VULPIX): its ATTACK falls sharply.
+  - RAW COD on cats (MEOWTH, PERSIAN): it calms down and its ATTACK falls.
+  - Only items that fit the opponent show up. What you use comes out of your Minecraft inventory.
 - **Both at once.**
   - A POKé crafting tab turns Minecraft materials into Pokémon items: iron, red dye and a button make POKé BALLs; a bottle and berries make a POTION; spider eye an ANTIDOTE, golden apple a REVIVE, diamond and sugar a RARE CANDY, and more.
   - Ores sometimes hold evolution stones: Thunder Stone in copper, Moon Stone in diamond, Leaf Stone in emerald, Water Stone in lapis, Fire Stone in redstone.
@@ -108,6 +114,7 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 - In battles, the Pokémon pictures aren't drawn and the white background is see-through, so only the HUD, text and menus are left.
 - `battle_view` tells the page which Pokémon are out, whether each is showing (hits blink it, fainting hides it), and how far it's sliding or shaking. The page moves the 3D sprites to match.
 - `start_wild_battle`, `start_trainer_battle`, `take_battle_outcome`, `open_shop`, `heal_party` and `party_summary` cover battles, shops, healing and the party.
+- Four extra items in Pokémon's item table (SHEARS, WHEAT, BONE, RAW COD) with battle effects in its battle code. `set_item_count` / `item_count` lend them from the Minecraft inventory for one battle, and `take_pokecraft_uses` reports what was used.
 - `give_exp` levels a party Pokémon up outside battle with Pokémon's own code (stats, moves) and queues its real evolution cutscene; `evolving` tells the page to show that cutscene over the world. `hurt_party` takes HP off a party Pokémon that fought a Minecraft monster.
 - When Pokémon's player is moved off Route 1, by a blackout, FLY, DIG, TELEPORT or an ESCAPE ROPE, you wake at your bed.
 

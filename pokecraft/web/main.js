@@ -545,15 +545,60 @@ function drawLayer(px, screen) {
 }
 
 // ---------------------------------------------------------------- battles in the world
+// Minecraft items that work in a Pokémon battle on the Pokémon they fit. When
+// you carry one, it shows up in Pokémon's own ITEM list for that battle.
+const BATTLE_ITEMS = [
+  { mc: 'shears', id: 'SHEARS', fits: /^(Jigglypuff|Wigglytuff|Clefairy|Clefable)$/ },
+  { mc: 'wheat', id: 'WHEAT', fits: /^(Tauros|Ponyta|Rapidash|Doduo|Dodrio|Kangaskhan|Rhyhorn)$/ },
+  { mc: 'bone', id: 'BONE', fits: /^(Growlithe|Arcanine|Vulpix|Ninetales)$/ },
+  { mc: 'cod', id: 'RAW_COD', fits: /^(Meowth|Persian)$/ },
+];
+
+/// Put the Minecraft items that fit this wild Pokémon into Pokémon's bag.
+function lendBattleItems(species) {
+  const lent = [];
+  for (const it of BATTLE_ITEMS) {
+    const n = Math.min(99, S.inv.count(it.mc));
+    if (!n || !it.fits.test(species)) continue;
+    try { if (S.runner.set_item_count(it.id, n)) lent.push({ ...it, n }); } catch { /* bag full */ }
+  }
+  if (lent.length) {
+    const names = lent.map((it) => S.items.name(it.mc).toUpperCase());
+    toast(`Your ${names.join(' and ')} ${lent.length > 1 || /S$/.test(names[0]) ? 'are' : 'is'} in your ITEM list for this battle.`, 2600);
+  }
+  return lent;
+}
+
+/// After the battle: what was used comes out of your Minecraft inventory, and
+/// shearing gives wool.
+function settleBattleItems(lent) {
+  for (const it of lent) {
+    let left = it.n;
+    try { left = S.runner.item_count(it.id); S.runner.set_item_count(it.id, 0); } catch { /* keep */ }
+    if (left < it.n) S.inv.remove(it.mc, it.n - left);
+  }
+  let uses = [];
+  try { uses = JSON.parse(S.runner.take_pokecraft_uses()); } catch { uses = []; }
+  for (const u of uses) {
+    const [item, species] = u.split(':');
+    if (item === 'Shears') {
+      const wool = /Clef/.test(species) ? 'pink_wool' : 'white_wool';
+      gain(wool, 1 + Math.floor(Math.random() * 3));
+    }
+  }
+}
+
 function startBattle(kind, ent) {
   if (S.battle || S.mode !== 'world') return;
   const r = S.runner;
   if (S.riding && S.riding.kind !== 'fly') dismount(null);
   else if (S.riding) return; // nothing jumps a flier
+  // Before the battle starts: it copies the bag when it begins.
+  const lent = kind === 'wild' ? lendBattleItems(ent.species) : [];
   try {
     if (kind === 'trainer') r.start_trainer_battle(ent.trainer.cls, ent.trainer.index);
     else r.start_wild_battle(ent.species, ent.level);
-  } catch (e) { console.warn(e); return; }
+  } catch (e) { console.warn(e); settleBattleItems(lent); return; }
   ent.inBattle = true;
   const p = S.player;
   const ex = ent.pos[0], ez = ent.pos[2];
@@ -592,6 +637,7 @@ function startBattle(kind, ent) {
     enemyRoot: null, monRoot: null, enemySpecies: null, monSpecies: null,
   };
   if (kind === 'wild') { S.battle.enemyRoot = ent.root; S.battle.enemySpecies = ent.species; }
+  S.battle.lent = lent;
   if (S.ents.follower) S.ents.follower.root.visible = false;
   S.mode = 'poke';
   S.clearFor = 0;
@@ -666,6 +712,7 @@ function endBattle(outcome) {
   if (b.enemyRoot && b.enemyRoot !== b.ent.root) view.drop(b.enemyRoot);
   b.ent.inBattle = false;
   S.grace = 3; // a few steps of peace after a fight
+  settleBattleItems(b.lent || []);
   S.surv.exhaust += 1.5; // fighting makes you hungry
   if (b.kind === 'wild' && outcome === 'Win') {
     // It fainted: it leaves behind what fits it (fish, beef, chicken, wool…).

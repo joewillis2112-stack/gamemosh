@@ -121,3 +121,18 @@ The user gave examples to think from, not a checklist: swimming in deep water, c
 - Rain bringing water types onto land.
 - Crawling through one-block gaps.
 
+## Minecraft items in Pokémon battles (2026-10-05)
+
+The user asked: "When in battle with a sheep type Pokémon do the shears appear in your item list? This is some of the types of true mixing we should see."
+
+They didn't, until now.
+- **The items:** SHEARS, WHEAT, BONE and RAW COD are now real Pokémon items: they're in pokered's item list, have item data, and have effects in its battle code.
+- **Lending:** when a wild battle starts, the page lends the ones you carry that fit the opponent into Pokémon's bag. Afterwards it takes out what you used.
+- **Effects:**
+  - Each one does to the Pokémon what it does to the Minecraft animal.
+  - SHEARS shear the fluffy ones (Gen 1 has no sheep; JIGGLYPUFF and CLEFAIRY stand in): wool, and DEFENSE −1.
+  - WHEAT calms cattle-like ones, BONE dog-like ones, RAW COD cats: ATTACK falls.
+  - On anything else: "OAK: This isn't the time to use that!"
+
+Open: more items could follow the same pattern without new code paths. Examples: a BUCKET on water types, a LEAD to make a weakened Pokémon follow you home, a SADDLE on rideable ones.
+
