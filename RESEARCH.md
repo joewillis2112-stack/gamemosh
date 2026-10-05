@@ -180,6 +180,11 @@ A working log for this repo. It records common themes, what has been learned, mi
 - A Pokémon that pops out at your feet (grass) or runs into you fills the screen in a first-person battle. Move any opponent under 3.5 blocks back to about 5 blocks along a clear line of sight.
 - Step encounters: count distance walked, roll once per block, and give a few grace steps after each battle. Pokémon Red's tall-grass rate is about 1 in 10 steps, which feels right in 3D too.
 
+**Phones: never let the page zoom (2026-10-05)**
+- iOS Safari ignores `user-scalable=no`. Calling `preventDefault` on pointer events doesn't stop its double-tap zoom. Two quick taps on the Game Boy pad zoomed the game in, and `touch-action: none` then blocked pinching back out.
+- The fix: cancel `touchstart`/`touchend` themselves (`passive: false`) on the play areas only. Pointer events still fire, and buttons outside those areas still get their clicks. Also cancel `dblclick` and `gesturestart`. As a fallback, when `visualViewport.scale > 1`, rewrite the viewport meta tag, which drops Safari back to 1×.
+- Headless Chromium doesn't double-tap-zoom, so check the cancelling (`defaultPrevented` on a dispatched `TouchEvent`) and that pad taps still reach the game. The zoom itself only shows on a real iPhone.
+
 **Pokécraft merge pass (2026-10-05)**
 - A hidden game's party can be edited from outside its battles by calling its own functions: `process_level_up`, `check_level_evolution`, `finalize_evolution` (through the game's evolution cutscene state). Then levels, moves and evolutions behave exactly as in a battle. Don't reimplement EXP curves on the page.
 - A full-screen cutscene from the hidden game (evolution) can play over the 3D world: key its white backdrop out and put pale panels only behind its text, as with battles.
@@ -279,3 +284,4 @@ A working log for this repo. It records common themes, what has been learned, mi
   - The follower takes real party HP from monsters and can faint. Monsters and ore give real EXP through pokered's level-up code, and evolutions play Pokémon Red's own cutscene over the world.
   - New runner calls: `give_exp`, `hurt_party`, `evolving`.
   - New `tests/merge.mjs`. All five suites pass on a clean build. Republished the artifact and merged to `main`.
+- **2026-10-05 (pad zoom fix):** The user reported that double-tapping the on-screen pad zoomed the game in and it couldn't zoom back out (iOS Safari). Touches on the play areas are now cancelled, with a reset fallback. Smoke, play and more pass.

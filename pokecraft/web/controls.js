@@ -34,6 +34,30 @@ export class Controls {
     this.bindKeys();
     this.bindMouse();
     this.bindTouch();
+    this.noZoom();
+  }
+
+  /// Phones must never zoom the game. iOS Safari ignores `user-scalable=no`,
+  /// and cancelling pointer events doesn't stop its double-tap zoom (two quick
+  /// taps on the pad zoomed in, and touch-action: none then blocked pinching
+  /// back out). Cancel the touches themselves on the play areas, and if a zoom
+  /// happens anyway, reset it.
+  noZoom() {
+    const PLAY = '#gb-pad, #fps-pad, #gb, #view';
+    const guard = (e) => { if (e.target.closest && e.target.closest(PLAY)) e.preventDefault(); };
+    document.addEventListener('touchstart', guard, { passive: false });
+    document.addEventListener('touchend', guard, { passive: false });
+    document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+    for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+    // Rewriting the viewport tag makes Safari drop back to 1×.
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener('resize', () => {
+      if (vv.scale <= 1.01) return;
+      const meta = document.querySelector('meta[name=viewport]');
+      const c = meta.content;
+      meta.content = c + ',minimum-scale=1';
+      requestAnimationFrame(() => { meta.content = c; });
+    });
   }
 
   first() { if (this.onFirstInput) this.onFirstInput(); }
