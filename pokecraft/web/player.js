@@ -7,7 +7,7 @@ const HEIGHT = 1.8;
 export const EYE = 1.62;
 const GRAVITY = 30;
 const JUMP = 8.6;
-const WALK = 4.3, SPRINT = 6.2, SWIM = 2.6;
+const WALK = 4.3, SPRINT = 6.2, SWIM = 2.6, SNEAK = 1.3, SWIM_SPRINT = 5.6, CLIMB = 2.4, FLY = 10;
 
 export class Player {
   constructor(x, y, z) {
@@ -17,18 +17,31 @@ export class Player {
     this.pitch = 0;
     this.onGround = false;
     this.inWater = false;
-    this.mods = { swim: 1, jump: 1, glide: false }; // your lead Pokémon's perks
+    // Your partner Pokémon: perks (swim, jump, glide) and riding it (speed; fly; surf is handled by the page's collision).
+    this.mods = { swim: 1, jump: 1, glide: false, speed: 1, fly: false, ride: 0 };
+    this.sneaking = false;
+    this.swimming = false; // sprint-swimming underwater
+    this.climbing = false;
     this.stepAgo = 0;
   }
 
   /// `solid(x, y, z)` -> height of the solid part of that block (0 none,
   /// 0.5 slab, 1 full); `water(x, y, z)` -> bool. `move` is [right, forward]
-  /// in -1..1; `jump`, `sprint` held.
-  step(dt, move, jump, sprint, solid, water) {
+  /// in -1..1; `jump`, `sprint` held. `o.sneak` held; `o.climb(x, y, z)` says
+  /// whether a block is a ladder or vine.
+  step(dt, move, jump, sprint, solid, water, o = {}) {
     const [mx, mz] = move;
+    const m = this.mods;
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    const sneak = !!o.sneak && !m.fly;
+    this.sneaking = sneak && !this.inWater;
+    if (m.fly) return this.flyStep(dt, mx, mz, jump, !!o.sneak, sprint, solid);
     // Forward is -Z when yaw is 0 (three.js camera convention).
-    const speed = this.inWater ? SWIM * this.mods.swim : sprint ? SPRINT : WALK;
+    // Sprinting underwater (head under): Minecraft's swim, fast and along where you look.
+    const headUnder = this.inWater && water(Math.floor(this.pos[0]), Math.floor(this.pos[1] + 1.5), Math.floor(this.pos[2]));
+    this.swimming = headUnder && sprint && mz > 0.3;
+    let speed = this.swimming ? SWIM_SPRINT * m.swim : this.inWater ? SWIM * m.swim : this.sneaking ? SNEAK : sprint ? SPRINT : WALK;
+    if (m.ride && !this.inWater) speed *= m.speed;
     let wx = (mx * c - mz * s) * speed, wz = (-mx * s - mz * c) * speed;
     const len = Math.hypot(mx, mz);
     if (len > 1) { wx /= len; wz /= len; }
@@ -38,22 +51,39 @@ export class Player {
 
     const feet = [this.pos[0], this.pos[1] + 0.2, this.pos[2]];
     this.inWater = water(Math.floor(feet[0]), Math.floor(feet[1]), Math.floor(feet[2]));
-    if (this.inWater) {
+    if (this.swimming) {
+      // Up or down with your view while sprint-swimming.
+      this.vel[1] += (this.look()[1] * SWIM_SPRINT * m.swim - this.vel[1]) * Math.min(1, 6 * dt);
+    } else if (this.inWater) {
       this.vel[1] -= GRAVITY * 0.18 * dt;
       this.vel[1] *= 0.9;
       if (jump) this.vel[1] = Math.min(this.vel[1] + 20 * dt, 3.2);
+      if (o.sneak) this.vel[1] = Math.max(this.vel[1] - 14 * dt, -3); // sneak to dive
     } else {
       this.vel[1] -= GRAVITY * dt;
-      if (jump && this.onGround) this.vel[1] = JUMP * this.mods.jump;
+      if (jump && this.onGround) this.vel[1] = JUMP * m.jump * (m.ride ? m.rideJump || 1 : 1);
       // A Flying-type lead: hold JUMP in the air to glide down.
       if (jump && !this.onGround && this.mods.glide && this.vel[1] < -2.2) this.vel[1] = -2.2;
     }
     this.vel[1] = Math.max(this.vel[1], -40);
+    // Ladders and vines: walk into them or hold JUMP to climb, sneak to hold on, otherwise slide down slowly.
+    this.climbing = !!o.climb && !m.ride && this.onClimbable(o.climb);
+    if (this.climbing) {
+      if (jump || mz > 0.3) this.vel[1] = CLIMB;
+      else if (o.sneak) this.vel[1] = 0;
+      else this.vel[1] = Math.max(this.vel[1], -CLIMB);
+    }
 
     const before = [this.pos[0], this.pos[2]];
     const wasOnGround = this.onGround;
+    // Sneaking on the ground: you don't step off edges.
+    const guard = this.sneaking && wasOnGround;
+    const px = this.pos[0];
     this.moveAxis(0, this.vel[0] * dt, solid);
+    if (guard && !this.supported(solid)) { this.pos[0] = px; this.vel[0] = 0; }
+    const pz = this.pos[2];
     this.moveAxis(2, this.vel[2] * dt, solid);
+    if (guard && !this.supported(solid)) { this.pos[2] = pz; this.vel[2] = 0; }
     // Bumped into a one-block step while walking: hop it.
     const blocked = Math.hypot(this.pos[0] - before[0], this.pos[2] - before[1]) < Math.hypot(wx, wz) * dt * 0.3;
     if (blocked && wasOnGround && Math.hypot(wx, wz) > 0.5 && !this.inWater && this.canStepUp(wx, wz, solid)) this.vel[1] = JUMP;
@@ -63,6 +93,43 @@ export class Player {
     else if (blocked && Math.hypot(wx, wz) > 0.5 && this.wet(water) && this.canClimbOut(wx, wz, solid)) this.vel[1] = Math.max(this.vel[1], 6.5);
     this.onGround = false;
     this.moveAxis(1, this.vel[1] * dt, solid);
+  }
+
+  /// Flying on your partner: no gravity, JUMP climbs, sneak descends.
+  flyStep(dt, mx, mz, jump, down, sprint, solid) {
+    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    const speed = FLY * (sprint ? 1.5 : 1) * (this.mods.speed || 1);
+    let wx = (mx * c - mz * s) * speed, wz = (-mx * s - mz * c) * speed;
+    const len = Math.hypot(mx, mz);
+    if (len > 1) { wx /= len; wz /= len; }
+    const k = Math.min(1, 5 * dt);
+    this.vel[0] += (wx - this.vel[0]) * k;
+    this.vel[2] += (wz - this.vel[2]) * k;
+    this.vel[1] += ((jump ? 7 : 0) - (down ? 7 : 0) - this.vel[1]) * k;
+    this.inWater = false;
+    this.moveAxis(0, this.vel[0] * dt, solid);
+    this.moveAxis(2, this.vel[2] * dt, solid);
+    this.onGround = false;
+    this.moveAxis(1, this.vel[1] * dt, solid);
+  }
+
+  /// Something under your feet within half a block (for sneaking at edges).
+  supported(solid) {
+    const y = Math.floor(this.pos[1] - 0.5);
+    for (const dx of [-WIDTH, WIDTH]) for (const dz of [-WIDTH, WIDTH]) {
+      if (solid(Math.floor(this.pos[0] + dx), y, Math.floor(this.pos[2] + dz)) > 0) return true;
+    }
+    return false;
+  }
+
+  /// In or against a ladder or vine.
+  onClimbable(climb) {
+    const y0 = Math.floor(this.pos[1] + 0.1), y1 = Math.floor(this.pos[1] + 1.2);
+    for (const [dx, dz] of [[0, 0], [WIDTH + 0.1, 0], [-WIDTH - 0.1, 0], [0, WIDTH + 0.1], [0, -WIDTH - 0.1]]) {
+      const x = Math.floor(this.pos[0] + dx), z = Math.floor(this.pos[2] + dz);
+      if (climb(x, y0, z) || climb(x, y1, z)) return true;
+    }
+    return false;
   }
 
   /// In the water, or bobbing just above it.
@@ -115,7 +182,8 @@ export class Player {
     }
   }
 
-  eye() { return [this.pos[0], this.pos[1] + EYE, this.pos[2]]; }
+  /// Your eyes: lower when sneaking, higher when riding.
+  eye() { return [this.pos[0], this.pos[1] + EYE + (this.mods.ride || 0) - (this.sneaking ? 0.3 : 0), this.pos[2]]; }
 
   look() {
     const cp = Math.cos(this.pitch);

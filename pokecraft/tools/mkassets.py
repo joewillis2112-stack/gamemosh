@@ -232,6 +232,10 @@ for name in block_names:
     tint = 'g' if name in GRASS else 'f' if name in FOLIAGE else 'w' if name in WATER else FIXED.get(name, '')
     solid = shape in ('cube', 'slab', 'post', 'small') and not NONSOLID_CUBE_RE.search(name)
     layer = 'water' if name in WATER else 'cutout' if (shape in ('cross', 'flat', 'post', 'small') or CUTOUT_RE.search(name)) else 'opaque'
+    # Ladders: you stand in them and climb (the game has no block facing, so
+    # a ladder draws on every side of its block and doesn't collide).
+    if name == 'ladder':
+        solid, layer = False, 'cutout'
     entry = {'s': shape, 'f': faces, 'c': 1 if solid else 0, 'l': layer}
     if tint:
         entry['t'] = tint
