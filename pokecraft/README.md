@@ -57,7 +57,14 @@ It runs in a phone browser, portrait or landscape. `dist/index.html` is the whol
 | Menu | MENU | Enter or Esc |
 | Hotbar | tap a slot | 1–9, mouse wheel |
 
-In Pokémon's screens (battles, menus, text), the pad turns into a Game Boy pad: d-pad, A, B, START, SELECT. On a keyboard use the arrows, Z = A, X = B, Enter = START. A gamepad works too.
+In Pokémon's screens (battles, menus, text) there's no pad on a phone:
+- **Tap an option** to choose it. The page finds Pokémon's ▶ cursor and steers it there, then presses A.
+- **Tap anywhere** else to move the text on.
+- **Drag** to scroll a list.
+- **Long-press** for SELECT.
+- **BACK** is B.
+
+On a keyboard use the arrows, Z = A, X = B, Enter = START. A gamepad works too.
 
 The game autosaves every 30 s, after battles and sleeping, and when you leave the tab: position, party, both bags, hearts and hunger, and every block you changed. The same seed always makes the same world.
 
@@ -98,7 +105,8 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 | `mobs.js` | Minecraft's mobs as box models in their own skins: spawning from the biome's lists, AI, arrows, creepers, the follower fighting |
 | `view.js` | three.js scene, materials, sky and day/night, sprites |
 | `player.js` | Walking physics: collision, auto-step, swimming, the block ray |
-| `controls.js` | Touch thumbstick and look, Game Boy pad, keyboard, mouse, gamepad |
+| `controls.js` | Touch thumbstick and look, taps and swipes on Pokémon's screens, keyboard, mouse, gamepad |
+| `touchgb.js` | Finds Pokémon's ▶ cursor in its frame and steers it to a tapped option |
 | `entities.js` | Wild Pokémon, the follower, Nurse, Clerk, merchant and trainers |
 | `encounters.js` | Pokémon tables: day (gentle) and night (scary) roamers per biome group; grass, snow, water and cave hiders; fishing |
 | `gen.js`, `worker.js`, `mesher.js` | The world worker and its page side |
@@ -120,6 +128,7 @@ pokecraft/build.sh                # clones both sources at the pinned commits, p
                                   # builds both wasm modules, bundles dist/index.html
 node pokecraft/tests/play.mjs     # headless phone: walk, START menu, mine and place, wild + trainer battles, Nurse, save/continue
 node pokecraft/tests/more.mjs     # steps and walls, swimming, bed and sleep, merchant shop, waking at your bed, landscape
+node pokecraft/tests/touch.mjs    # Pokémon's menus and a whole battle by touchscreen taps, no pad
 node pokecraft/tests/merge.mjs    # the merge test: type perks, EXP from ore and monsters, evolving, follower fainting, creeper vs wild Pokémon
 node pokecraft/tests/survive.mjs  # inventory and crafting, tool tiers, POKé crafting, grass encounters, day/night roamers,
                                   # a zombie fight, eating, fishing, falling, death and respawn, torches, save/continue

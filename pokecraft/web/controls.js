@@ -161,56 +161,54 @@ export class Controls {
     fps.addEventListener('pointercancel', up);
     fps.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // --- Game Boy pad
+    // --- Pokémon's screens by touch (no pad): taps, swipes, a long press, BACK
     const pad = $('gb-pad');
-    const gbPointers = new Map();
-    const recompute = () => {
-      for (const b of ['up', 'down', 'left', 'right', 'a', 'b', 'start', 'select']) this.held.delete('gb-' + b);
-      for (const set of gbPointers.values()) for (const b of set) this.held.add('gb-' + b);
-      for (const el of pad.querySelectorAll('[data-btn]')) el.classList.toggle('down', this.held.has('gb-' + el.dataset.btn));
-      const dp = $('dpad');
-      for (const d of ['up', 'down', 'left', 'right']) dp.classList.toggle(d, this.held.has('gb-' + d));
-    };
-    const buttonsAt = (x, y) => {
-      const out = new Set();
-      const dp = $('dpad').getBoundingClientRect();
-      if (x >= dp.left && x <= dp.right && y >= dp.top && y <= dp.bottom) {
-        const dx = (x - (dp.left + dp.width / 2)) / (dp.width / 2), dy = (y - (dp.top + dp.height / 2)) / (dp.height / 2);
-        if (Math.hypot(dx, dy) > 0.18) {
-          if (Math.abs(dx) > Math.abs(dy)) out.add(dx > 0 ? 'right' : 'left');
-          else out.add(dy > 0 ? 'down' : 'up');
-        }
-        return out;
-      }
-      const el = document.elementFromPoint(x, y);
-      const btn = el && el.closest('#gb-pad [data-btn]');
-      if (btn) out.add(btn.dataset.btn);
-      return out;
-    };
+    const gest = new Map(); // id -> { x0, y0, x, y, t, swiped, held }
+    const STEP = 30; // px of drag per cursor move
     pad.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.first();
       pad.setPointerCapture?.(e.pointerId);
-      const set = buttonsAt(e.clientX, e.clientY);
-      if (set.size) buzz();
-      for (const b of set) this.latched.add('gb-' + b);
-      gbPointers.set(e.pointerId, set);
-      recompute();
+      const btn = e.target.closest('[data-btn]');
+      if (btn) {
+        this.latched.add('gb-' + btn.dataset.btn);
+        this.held.add('gb-' + btn.dataset.btn);
+        btn.classList.add('down');
+        buzz();
+        gest.set(e.pointerId, { btn });
+        return;
+      }
+      const g = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t: performance.now(), swiped: false, held: false };
+      // A long press is SELECT (swapping items or moves).
+      g.timer = setTimeout(() => { if (!g.swiped) { g.held = true; this.latched.add('gb-select'); buzz(20); } }, 550);
+      gest.set(e.pointerId, g);
     });
     pad.addEventListener('pointermove', (e) => {
-      if (!gbPointers.has(e.pointerId)) return;
+      const g = gest.get(e.pointerId);
+      if (!g || g.btn) return;
       e.preventDefault();
-      const before = gbPointers.get(e.pointerId);
-      const set = buttonsAt(e.clientX, e.clientY);
-      const isDir = (b) => ['up', 'down', 'left', 'right'].includes(b);
-      const next = new Set([...[...before].filter((b) => !isDir(b)), ...[...set].filter(isDir)]);
-      for (const b of next) if (!before.has(b)) { this.latched.add('gb-' + b); buzz(5); }
-      gbPointers.set(e.pointerId, next);
-      recompute();
+      // Dragging scrolls: one cursor move per STEP pixels.
+      const dx = e.clientX - g.x, dy = e.clientY - g.y;
+      if (Math.abs(dy) >= STEP && Math.abs(dy) >= Math.abs(dx)) {
+        this.latched.add(dy > 0 ? 'gb-down' : 'gb-up');
+        g.y = e.clientY; g.x = e.clientX; g.swiped = true; buzz(4);
+      } else if (Math.abs(dx) >= STEP * 1.5) {
+        this.latched.add(dx > 0 ? 'gb-right' : 'gb-left');
+        g.x = e.clientX; g.y = e.clientY; g.swiped = true; buzz(4);
+      }
+      if (g.swiped) clearTimeout(g.timer);
     });
-    const gbUp = (e) => { gbPointers.delete(e.pointerId); recompute(); };
-    pad.addEventListener('pointerup', gbUp);
-    pad.addEventListener('pointercancel', gbUp);
+    const end = (e, cancelled) => {
+      const g = gest.get(e.pointerId);
+      gest.delete(e.pointerId);
+      if (!g) return;
+      if (g.btn) { this.held.delete('gb-' + g.btn.dataset.btn); g.btn.classList.remove('down'); return; }
+      clearTimeout(g.timer);
+      if (cancelled || g.swiped || g.held) return;
+      if (Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 14 && this.onGbTap) { buzz(); this.onGbTap(e.clientX, e.clientY); }
+    };
+    pad.addEventListener('pointerup', (e) => end(e, false));
+    pad.addEventListener('pointercancel', (e) => end(e, true));
     pad.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -279,6 +277,7 @@ export class Controls {
     this.stick = [0, 0];
     $('stick').hidden = true;
     for (const b of [...this.held]) if (b.startsWith('gb-') || ['jump', 'mine', 'a', 'b', 'ball', 'start', 'sprint', 'inv'].includes(b)) this.held.delete(b);
+    for (const el of $('gb-pad').querySelectorAll('.down')) el.classList.remove('down');
     if (gb && document.pointerLockElement) document.exitPointerLock?.();
   }
 }
