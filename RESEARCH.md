@@ -15,6 +15,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **No legal caveats.** These are personal, never-distributed projects. Only mention licences where they change how files are obtained (for example, "needs your own copy").
 - **Sub-agents:** use them when asked, and match the shape asked for (for example, one to find and verify, one to filter). Don't spawn them otherwise.
 - **Phone matters.** The user plays on mobile. Prefer WebAssembly/browser builds and touch controls.
+- **The user's examples are ideas, not a spec.** When they list features ("swim in two-block water, crouch, ladders…"), pick the few that matter most and do them well. Don't implement the whole list, and don't present the rest as a to-do. The user said so outright, in capitals, after I built nearly everything from one list.
 - **Write-once, extend-forever.** Prefer structures that grow, such as numbered rounds and appendable files, over rebuilds.
 
 ## 2. Mistakes and corrections (don't repeat these)
@@ -309,3 +310,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-05 (touch instead of the pad):** At the user's suggestion I removed the Game Boy pad on phones. Taps choose options by steering Pokémon's ▶ cursor, tapping text moves it on, drags scroll, a long press is SELECT, and BACK is B. All six suites pass; the new touch suite passed three runs in a row.
 - **2026-10-05 (out of ponds):** The user couldn't get out of water. Swimming into a bank now climbs it, as in Minecraft. A new test in `more.mjs` failed on the old build and passes on the new one (4 runs). One run failed for no reason I found and didn't recur. All six suites pass.
 - **2026-10-05 (movement, food, riding):** Added sneak, ladders and vines, sprint-swimming, faint drops by species, feeding your partner, hunting and farming perks, Repel while sneaking, and riding on land, water and in the air (new `heal_mon` runner call). New `tests/move.mjs`. All seven suites pass on a clean build.
+- **2026-10-05 (ideas, not a spec):** The user: "YOU DONT HAVE TO INCLUDE ALL OF IT THEY ARE IDEAS". Added to the working agreement (§1).
