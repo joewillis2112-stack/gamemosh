@@ -48,3 +48,35 @@ The question I worked from: what does each game's core loop need that v2 dropped
 - Gyms built from village structures.
 - Riding and surfing on your Pokémon.
 - Tuning hunger rate, night length and mob caps on a real phone.
+
+## Pokécraft against the merge test (2026-10-05)
+
+Scored after the gameplay pass against `mashup-research/MERGE_EXAMPLES.md` §3. The recombination ideas are in `mashup-research/RECOMBINATION_2026-10-05.md`.
+
+| # | Question | Now | Gap, and the fix that would close it |
+|---|---|---|---|
+| 1 | Rules 1:1 | Battles, party, items and evolution are Pokémon Red itself. Worldgen is Minecraft's own | Player and mob movement only approximate Minecraft |
+| 2 | Host world feeds the guest's rules | Biome and grass/snow/water/cave blocks pick encounters; day and night pick the tables | **Battles ignore the terrain** |
+| 3 | Geometry translated | The opponent's battle spot uses a line-of-sight check | None needed |
+| 4 | A's AI notices B | No. Zombies ignore Pokémon and Pokémon ignore creepers | **Cross-game AI:** mobs hunt wild Pokémon, Pokémon flee creepers |
+| 5 | B's verb on A's actors | Partly: the follower hits Minecraft monsters | **Moves edit the world** (Ember burns grass, Dig and Rock Smash break blocks, Flash lights the dark). **HMs as Minecraft verbs** |
+| 6 | One owner per body | Yes: the page owns the world and bodies; Pokémon owns battle state | None needed |
+| 7 | Guest rule, host consequence | Pokémon decides battles and the world removes or keeps the Pokémon | Moves' effects carried out as block edits, fire and knockback |
+| 8 | Economies cross | Yes: POKé crafting, evolution stones from ores, mob money | **Minecraft XP becomes Pokémon EXP. Wild Pokémon drop Minecraft materials** |
+| 9 | Health bridged | No: hearts and party HP never touch | **Follower fights use real party HP and give real EXP** |
+| 10 | A's powers while using B | No | **Lead Pokémon's type as survival perks** (Water: breath; Flying: slow fall; Fire: light and cooking) |
+| 11 | Global rule | Yes: day and night decide which Pokémon roam and whether they attack | None needed |
+| 12 | Something neither game could do | Weak | Follows from 4, 5 and 9 (a creeper blast catching a wild Pokémon) |
+| 13 | Presentation reacts | The Pokémon HUD sits over the world | Music by biome and time (Pokémon tracks chosen by Minecraft biome) |
+| 14 | Real state | Yes: saves hold both games | None needed |
+| — | One inventory | No: two bags | **Poké Balls and Potions as Minecraft hotbar items** |
+
+**Next merge pass, in order:**
+1. Party abilities as survival perks.
+2. Shared health and EXP for the follower, with Minecraft XP feeding Pokémon EXP.
+3. Moves that edit the world, and the Poké Ball as a physics object.
+4. One inventory.
+5. HMs as Minecraft verbs.
+6. Cross-game AI.
+
+Then write the interaction-matrix test.

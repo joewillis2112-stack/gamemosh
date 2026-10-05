@@ -8,6 +8,7 @@ Sources, gathered 2026-10-03, are listed at the bottom. Each claim is tagged wit
 - **[re-skill]**: vgrichina/re-skill
 - **[bun]**: the Bun Zig→Rust port write-up
 - **[ours]**: what this repo learned
+- **[merges]**: the 2026-10-05 survey of true game merges
 
 For what to mosh, see `mashup-research/`. For working rules, see `RESEARCH.md`.
 
@@ -21,6 +22,7 @@ For what to mosh, see `mashup-research/`. For working rules, see `RESEARCH.md`.
 - **A mosh is one game, not two games behind a menu.** You play a single world in which both games are running at once: MW2's guns in Minecraft's world, Minecraft's player inside Skyrim's. Game Corner Arcade (`gamecorner/`) is a game-in-game, an arcade you walk up to, and the user rejected it as "an arcade menu where I get to choose which game". [ours]
 - **The pattern that makes "two games as one": one game draws, the other runs hidden.** In SkyCraft, Skyrim draws everything and Minecraft runs underneath as the player. In Pokécraft (`pokecraft/`), Minecraft's world generator makes the land and the page draws it in first person, while Pokémon Red runs hidden for battles, menus, party and shops. Its HUD, menus and text are drawn on top of the Minecraft world, and battles happen in that world. The question to ask is which game owns the world and which owns the player or the rules. [ours]
 - **Match the reference's viewpoint.** If players know a mosh from a famous mod (Pixelmon for Pokémon + Minecraft), build its view and core loop first. A 2D top-down Minecraft world was rejected as "a dumbed down version of the old Pokémon games". [ours]
+- **A merge means the systems touch, not the assets.** The user's gold example is the Rocket League car and ball in GTA V. RL's physics is rewritten and checked 1:1 against RocketSim. GTA's city becomes RL's collision, so the ball pinches against parked cars. RL's demolition maths decides a hit, and GTA's ragdolls and explosions carry it out. GTA's own weapons are mounted on the RL car. The control case: Rocket League's licensed Batmobile is a skin on a standard hitbox, an asset swap. Apply the merge test in §B8 before calling something a mosh. Examples are in `mashup-research/MERGE_EXAMPLES.md`. [merges]
 - **"Gamemosh" is a community nickname.** No guide uses it. The working phrases are "Rust rewrite mashup" and "games rebuilt inside other games". [ours: searches]
 
 There are two separate jobs: **A. rewrite** a game (or find an existing rewrite), and **B. mosh** rewrites together. Job A is almost always the expensive one.
@@ -151,6 +153,20 @@ Pick the host by:
 - **Different versions:** either upgrade the older piece (DukeNukemRust on Bevy 0.14 would need porting first), or render the guest on its own device and copy the texture across. Ruffle is on wgpu 30 against the cluster's 29.
 - **In the browser this matters less.** Separate wasm modules can share one page.
 
+### B8. Make the systems touch: the merge test
+
+Merging assets is easy and doesn't count. Before shipping, score the mosh against the 14 questions in `mashup-research/MERGE_EXAMPLES.md` §3. The ones that matter most:
+
+1. **Rules, not looks.** The guest's thing obeys the guest's original rules 1:1, and a test proves it. The RL core is checked tick by tick against RocketSim and `cargo test` enforces the tolerances. Pokécraft's battles are pokered itself. [merges]
+2. **One owner per body.** Every object is simulated by exactly one game; the other only draws it or reacts to it. GTA physics is switched off on the RL car and ball, and the Rust sim teleports them each frame. Two physics engines must never fight over one body. [merges]
+3. **The host world is the guest's level, translated into the guest's geometry.** Use GTA ray probes for RL contact planes, Minecraft blocks for SM64 triangles, and Skyrim Havok shapes copied out. Generate what the guest's moves need: quarter-pipes where floors meet walls let the RL car drive up buildings, and Minecraft stairs become 45° ramps for Mario. Map materials too: lava burns, water sets the water level. [merges]
+4. **Guest rule, host consequence.** The guest decides an outcome with its own maths, and the host carries it out with its own verbs, so the host's AI, police and factions react for free. RL demolition then becomes `EXPLODE_VEHICLE`; a Pokérim capture puts the NPC in a Skyrim faction. [merges]
+5. **Each game's verbs act on the other's actors.** Mario stomps Minecraft mobs; Cappy captures SM64 enemies; portals carry TNT; GTA's guns are mounted on the RL car. [merges]
+6. **Bridge economy, health and powers.** At least one resource crosses (XP orbs heal Retro64 Mario). Damage counts on both sides (the SM64 power meter mirrors hearts). The host's powers still work while you use the guest's thing (GTA story abilities in the RL car). [merges]
+7. **Fill an interaction matrix.** Put each game's systems on the rows and the other game's objects on the columns. Each cell is a test asserting that something happens. Empty cells are where it's still two games. [ours]
+
+**Architecture that scales:** an engine-agnostic guest core behind a C ABI, plus thin per-host adapters (collision, rendering, input, entity effects). One RL core runs in GTA, Minecraft, Skyrim and Bevy; libsm64 runs in GMod, Minecraft, Rocket League, GTA SA, GZDoom and more. Run the guest at its own fixed step and interpolate poses (RL at 120 Hz in GTA, SM64 at 30 Hz in Minecraft). Where the host streams the world around its player, keep the host's player hidden under the guest (Skyrim RL) or parked (Pokécraft). [merges]
+
 ---
 
 ## C. Getting a mosh running on a phone
@@ -170,7 +186,7 @@ Pick the host by:
 2. Pick the host and guests. Write down who owns render, input, state and tick.
 3. Clone each piece. Confirm it builds natively, then for `wasm32-unknown-unknown`. Note any C dependencies.
 4. Turn each guest into a library (B2). Build a minimal host that runs the guest alone in the browser.
-5. Add the connection pattern (B3), unit conversion, collision and rules mapping (B4), and the mode switch (B5).
+5. Add the connection pattern (B3), unit conversion, collision and rules mapping (B4), and the mode switch (B5). Then run the merge test (B8): write the interaction matrix and fill its cells.
 6. Bundle the data (B6, C3) and add touch controls (C4).
 7. Run headless mobile tests, then a gametest agent playthrough. Fix everything it finds.
 8. Strip the scaffolding (A7). Merge to `main`. Log the lessons in `RESEARCH.md`.
@@ -185,3 +201,4 @@ Pick the host by:
 - https://techscoop.substack.com/p/how-claude-rewrote-bun-in-rust-in
 - https://heldgames.com/guides/mw2-skate-minecraft-rust-rewrite
 - https://www.makeuseof.com/rust-game-mashup-brings-mw2-gunplay-into-minecraft-while-doing-skate-3-tricks/
+- **[merges]**: `mashup-research/MERGE_EXAMPLES.md` (2026-10-05). Key sources: https://github.com/lewistardif/RocketLeagueMinecraft (`gta/`, `crates/rl_car_core`, README validation tables), https://github.com/ZealanL/RocketSim, https://github.com/libsm64/libsm64, https://github.com/Zckyy/mario64-in-minecraft

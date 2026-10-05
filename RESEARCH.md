@@ -91,6 +91,22 @@ A working log for this repo. It records common themes, what has been learned, mi
 **Recompilation (N64Recomp, XenonRecomp)**
 - These turn console binaries into machine-generated C/C++. That's useful for running a game natively, but hard to read and port. All are C/C++; none are Rust or wasm so far.
 
+**What makes a true merge (survey of 2026-10-05; details in `mashup-research/MERGE_EXAMPLES.md`, rules in INSTRUCTIONS.md §B8)**
+- The user's gold example is the Rocket League car and ball in GTA V. The closest public code is lewistardif/RocketLeagueMinecraft `gta/`, built with Claude in days:
+  - RL's physics is a small Rust core, checked 1:1 against RocketSim in `cargo test`.
+  - GTA's own physics is switched off on the car and ball.
+  - GTA's world is probed into RL collision, with quarter-pipes generated at the foot of walls.
+  - RL's demolition maths decides a hit, and GTA's ragdolls and explosions carry it out.
+  - The same core plugs into Minecraft, Skyrim and Bevy.
+- Its sibling family is libsm64: decompiled SM64 movement as a library, embedded in GMod, Minecraft, Rocket League and GTA SA. Zckyy/mario64-in-minecraft (also built with Claude) is the closest model for Pokécraft:
+  - Blocks become SM64 triangles each tick.
+  - Stairs become ramps, and lava and water become SM64 surfaces.
+  - Mario stomps mobs.
+  - The power meter mirrors hearts.
+  - Music is chosen by biome.
+- Official merges add global rules (Cadence of Hyrule's beat, Don't Starve's hunger and darkness in Terraria), cross-game AI (FFXIV enmity in Monster Hunter) and an economy on foreign terrain (Steve mining the Smash stages).
+- The control case is Rocket League's licensed cars: a skin on a standard hitbox. That's an asset swap.
+
 ## 4. Technical lessons from building Gloamreach (`src/`)
 
 - **Three.js r186:** set `ColorManagement.enabled = false` first (`src/colorsetup.js`), use Linear output and no tone mapping, and multiply light intensities by π. Otherwise the scene renders far too dark.
@@ -173,6 +189,14 @@ A working log for this repo. It records common themes, what has been learned, mi
 4. Spot-check surprising claims myself.
 5. Write the results to the repo, then merge.
 
+**Recombination (from the user, 2026-10-05)**
+- Take random 3–5-word strings from the last 15–20 chat messages, pair strings from different messages, and force each pair into a one- or two-sentence question or statement about the work. Write down what each one raises.
+- Why it works: the user noticed a better answer came only after they said one specific, almost accidental phrase, after several research passes. Random seeds make that happen on purpose. They pull in context the careful passes had stopped looking at.
+- Run `tools/recombine.py <session.jsonl> --last 20 --seeds 30`. It samples evenly per message, so a long summary doesn't drown out the short ones.
+- Expect about a third to be duds. Mark them as duds and keep going; each costs seconds.
+- In its first use (`mashup-research/RECOMBINATION_2026-10-05.md`), most non-dud seeds gave ideas missing from a design file written an hour earlier.
+- Use it after a research or design pass, before building.
+
 **Verification tools**
 - `git ls-remote <url> HEAD` for existence.
 - `git clone --bare --filter=blob:none` then `git log` for dates, commit counts and `Co-Authored-By` trailers.
@@ -199,6 +223,8 @@ A working log for this repo. It records common themes, what has been learned, mi
   - What is the frame rate on the user's phone in first person? Untested on a real GPU.
   - Next ideas: badges and gyms, a PC outside the START menu, riding and surfing on Pokémon, villagers in the houses, farming and chests, sounds for mobs and footsteps.
   - Are the survival numbers right on a phone (hunger rate, night length, mob counts)? Tuned only in headless tests.
+  - Pokécraft scores weakly on the merge test: no cross-game AI, no shared health, the host's powers don't apply while using the guest's thing, and two bags. The next merge pass is planned in `pokecraft/GAMEPLAY.md`. Would rebuilding Pokécraft's player movement as a Minecraft-exact core, checked against MinecraftOSS the way the RL core is checked against RocketSim, make "1:1" provable?
+- Is the user's RL-in-GTA video a private build of lewistardif/RocketLeagueMinecraft or a different mod? The public code lacks the story-mode ability, the camera toggle and homing missiles.
 
 ## 7. Session log
 
@@ -236,3 +262,8 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Minecraft side: a 36-slot inventory with names; recipe-book crafting from the jar's recipes; smelting; tool tiers, break times and drops; crack overlay and particles; hearts, hunger, air, fall, lava and drowning; death and respawn; 3D mobs from MC skins (zombie, skeleton, spider, creeper, animals), melee and arrows; block light from torches; sun and moon.
   - Pokémon side: step encounters in grass, snow, water and caves; gentle day roamers and aggressive night ones; fishing; a POKé crafting tab; evolution stones in ores; your Pokémon fights monsters beside you.
   - Fixed a worker race that undid fresh block edits. Four headless suites pass (a new `survive.mjs`). Design notes in `pokecraft/GAMEPLAY.md`. Republished the artifact in place and merged to `main`.
+- **2026-10-05 (what a true merge is):**
+  - The user showed the RL car and ball in GTA V and asked for a study of true game merges.
+  - Two research agents covered the mod and a survey of 23 merges. I verified the key repos myself.
+  - Wrote `mashup-research/MERGE_EXAMPLES.md`, INSTRUCTIONS.md §B8 (the merge test) and a Pokécraft score against the test.
+  - The user also taught the recombination method: `tools/recombine.py`, and the first pass in `mashup-research/RECOMBINATION_2026-10-05.md`.
