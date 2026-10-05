@@ -84,6 +84,29 @@ console.log('swimming', JSON.stringify(sank), 'then', rose.toFixed(2));
 if (!sank.water) fail('not in the water');
 if (!(rose > sank.y + 0.4)) fail('jump did not swim up');
 
+// 2b. Getting out: swim into the bank and climb onto it (level with the water, then one block higher).
+for (const high of [false, true]) {
+  await g(({ x0, y0, z0, high }) => {
+    const stone = __pc.names.indexOf('stone'), air = __pc.names.indexOf('air');
+    for (let dz = -1; dz <= 1; dz++) for (const dx of [4, 5]) {
+      __pcTest.edit(x0 + dx, y0, z0 + dz, stone);
+      __pcTest.edit(x0 + dx, y0 + 1, z0 + dz, high ? stone : air);
+      for (let dy = 2; dy <= 4; dy++) __pcTest.edit(x0 + dx, y0 + dy, z0 + dz, air);
+    }
+    const p = __pc.player; p.pos = [x0 + 2.5, y0 - 1.5, z0 + 0.5]; p.vel = [0, 0, 0]; p.yaw = -Math.PI / 2; p.pitch = 0;
+  }, { ...pad, high });
+  await frames(30);
+  await page.keyboard.down('KeyW'); await page.keyboard.down('Space');
+  // Until you're out of the water and over the bank, then let go.
+  await page.waitForFunction((x) => !__pc.player.inWater && __pc.player.pos[0] > x, pad.x0 + 4.3, { timeout: 15000 }).catch((e) => console.log('  wait:', e.message.split('\n')[0]));
+  await page.keyboard.up('KeyW'); await page.keyboard.up('Space');
+  await frames(40);
+  const out = await g(() => ({ pos: __pc.player.pos.map((v) => +v.toFixed(2)), water: __pc.player.inWater, ground: __pc.player.onGround }));
+  console.log(high ? 'out onto a bank 1 higher' : 'out onto a level bank', JSON.stringify(out));
+  if (out.water || !out.ground || out.pos[0] < pad.x0 + 4 || Math.abs(out.pos[1] - (pad.y0 + (high ? 2 : 1))) > 0.05) fail(`could not climb out of the water${high ? ' onto a higher bank' : ''}`);
+}
+await g(({ x0, y0, z0 }) => { const air = __pc.names.indexOf('air'); for (let dz = -1; dz <= 1; dz++) for (const dx of [4, 5]) __pcTest.edit(x0 + dx, y0 + 1, z0 + dz, air); }, pad);
+
 // 3. The bed: place it, refused by day, sleep at night, wake at it.
 await g(({ x0, y0, z0 }) => { const p = __pc.player; p.pos = [x0 + 0.5, y0 + 1, z0 + 0.5]; p.vel = [0, 0, 0]; p.yaw = Math.PI / 2; p.pitch = -0.7; }, pad);
 await frames(30);
