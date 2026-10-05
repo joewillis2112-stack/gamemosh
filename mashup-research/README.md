@@ -12,6 +12,8 @@ was cloned or its page fetched, and the top picks were checked a second time.
 | [VERIFIED_ROUND2.md](VERIFIED_ROUND2.md) | **Round 2.**
   - 14 more Rust rewrites (A58–A71), 12 more rebuildable games, and 5 new pairings (P9–P13).
   - A table of engines that ship readable game code (LÖVE, PICO-8, C#, Godot, RPG Maker…). |
+| [MERGE_EXAMPLES.md](MERGE_EXAMPLES.md) | **What makes a true merge** (2026-10-05). The RL car + ball in GTA V taken apart from its source, 23 other merges (libsm64, mario64-in-minecraft, Mari0, Cadence of Hyrule…), the 14-question merge test, and recurring techniques. |
+| [RECOMBINATION_2026-10-05.md](RECOMBINATION_2026-10-05.md) | The first word-recombination pass (method in RESEARCH.md §5): 30 random seeds from the chat, and the ideas they raised for Pokécraft. |
 | [VERIFIED.md](VERIFIED.md) | The full verified list. **Section A:** 57 games already rebuilt in Rust. **Section B:** 80 games that could be rebuilt, split into source releases, decompilations, documented reimplementations, and browser games. |
 
 ## Headline findings (round 1)
