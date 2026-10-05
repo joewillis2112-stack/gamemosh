@@ -16,6 +16,23 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
   - Ten hearts and ten drumsticks. Falling, drowning, lava, starving and monsters hurt; a full belly heals. Hold USE with food to eat. If you die you wake at your bed and keep your things.
   - Minecraft's night monsters, as 3D models in Minecraft's skins: zombies, husks, drowned, skeletons that shoot, spiders, and creepers that blow holes in the ground. Undead burn at sunrise. Cows, pigs, sheep and chickens graze by day for food and wool. Hit things with MINE (swords hit harder); your lead Pokémon joins in against monsters, and monsters drop Pokémon money.
   - Torches, lanterns, glowstone and lava light the dark around them.
+- **Your lead Pokémon changes how you survive.** The lead is the first Pokémon in your party that hasn't fainted, and its types show under your party:
+  - Water: you breathe 3× longer and swim faster.
+  - Flying: hold JUMP to glide, and you take no fall damage.
+  - Fire: lights the dark around you, cooks raw food as you eat it, and lava hurts less.
+  - Grass: sunlight heals you.
+  - Electric: FLASH, so the night is never pitch black.
+  - Ice: water freezes under your feet.
+  - Ghost: the undead leave you alone. Poison and Bug: spiders do too.
+  - Rock and Ground: you mine faster.
+  - Fighting: your hits are harder.
+  - Normal: you get hungry more slowly.
+  - Psychic: it senses monsters coming.
+  - Dragon: you take less damage.
+- **One Pokémon, both games.**
+  - Your follower fights Minecraft monsters beside you, and their hits come off its real HP; it can faint.
+  - Beating monsters with it out, and mining ore, gives it real EXP. Pokémon Red levels it up and teaches it moves, and when it's time it evolves out in the world with Pokémon Red's own cutscene.
+  - A creeper's blast scatters wild Pokémon.
 - **Both at once.**
   - A POKé crafting tab turns Minecraft materials into Pokémon items: iron, red dye and a button make POKé BALLs; a bottle and berries make a POTION; spider eye an ANTIDOTE, golden apple a REVIVE, diamond and sugar a RARE CANDY, and more.
   - Ores sometimes hold evolution stones: Thunder Stone in copper, Moon Stone in diamond, Leaf Stone in emerald, Water Stone in lapis, Fire Stone in redstone.
@@ -66,6 +83,7 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 - In battles, the Pokémon pictures aren't drawn and the white background is see-through, so only the HUD, text and menus are left.
 - `battle_view` tells the page which Pokémon are out, whether each is showing (hits blink it, fainting hides it), and how far it's sliding or shaking. The page moves the 3D sprites to match.
 - `start_wild_battle`, `start_trainer_battle`, `take_battle_outcome`, `open_shop`, `heal_party` and `party_summary` cover battles, shops, healing and the party.
+- `give_exp` levels a party Pokémon up outside battle with Pokémon's own code (stats, moves) and queues its real evolution cutscene; `evolving` tells the page to show that cutscene over the world. `hurt_party` takes HP off a party Pokémon that fought a Minecraft monster.
 - When Pokémon's player is moved off Route 1, by a blackout, FLY, DIG, TELEPORT or an ESCAPE ROPE, you wake at your bed.
 
 **The page (`web/`):**
@@ -76,6 +94,7 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 | `items.js` | Item names, stack sizes, tools, break times, drops, food, fuel; the POKé recipes |
 | `inventory.js` | The 36-slot inventory and its screen: bag, crafting, furnace, POKé tabs |
 | `survival.js` | Hearts, hunger, breath, fall damage |
+| `perks.js` | What each Pokémon type does for you in the Minecraft world |
 | `mobs.js` | Minecraft's mobs as box models in their own skins: spawning from the biome's lists, AI, arrows, creepers, the follower fighting |
 | `view.js` | three.js scene, materials, sky and day/night, sprites |
 | `player.js` | Walking physics: collision, auto-step, swimming, the block ray |
@@ -101,6 +120,7 @@ pokecraft/build.sh                # clones both sources at the pinned commits, p
                                   # builds both wasm modules, bundles dist/index.html
 node pokecraft/tests/play.mjs     # headless phone: walk, START menu, mine and place, wild + trainer battles, Nurse, save/continue
 node pokecraft/tests/more.mjs     # steps and walls, swimming, bed and sleep, merchant shop, waking at your bed, landscape
+node pokecraft/tests/merge.mjs    # the merge test: type perks, EXP from ore and monsters, evolving, follower fainting, creeper vs wild Pokémon
 node pokecraft/tests/survive.mjs  # inventory and crafting, tool tiers, POKé crafting, grass encounters, day/night roamers,
                                   # a zombie fight, eating, fishing, falling, death and respawn, torches, save/continue
 ```

@@ -71,12 +71,16 @@ Scored after the gameplay pass against `mashup-research/MERGE_EXAMPLES.md` §3. 
 | 14 | Real state | Yes: saves hold both games | None needed |
 | — | One inventory | No: two bags | **Poké Balls and Potions as Minecraft hotbar items** |
 
+**Done in the first merge pass (2026-10-05):**
+- Party abilities as survival perks (10 → yes).
+- Follower fights use real party HP; monsters and ore give real EXP, with level-ups, moves and the real evolution cutscene played over the world (8 and 9 → yes).
+- A creeper blast scatters wild Pokémon (12, a start).
+- `tests/merge.mjs` tests each of these cells.
+
 **Next merge pass, in order:**
-1. Party abilities as survival perks.
-2. Shared health and EXP for the follower, with Minecraft XP feeding Pokémon EXP.
-3. Moves that edit the world, and the Poké Ball as a physics object.
-4. One inventory.
-5. HMs as Minecraft verbs.
-6. Cross-game AI.
+1. Moves that edit the world, and the Poké Ball as a physics object.
+2. One inventory.
+3. HMs as Minecraft verbs.
+4. Cross-game AI (mobs hunt wild Pokémon; Pokémon flee creepers).
 
 Then write the interaction-matrix test.

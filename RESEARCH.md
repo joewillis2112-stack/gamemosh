@@ -180,6 +180,12 @@ A working log for this repo. It records common themes, what has been learned, mi
 - A Pokémon that pops out at your feet (grass) or runs into you fills the screen in a first-person battle. Move any opponent under 3.5 blocks back to about 5 blocks along a clear line of sight.
 - Step encounters: count distance walked, roll once per block, and give a few grace steps after each battle. Pokémon Red's tall-grass rate is about 1 in 10 steps, which feels right in 3D too.
 
+**Pokécraft merge pass (2026-10-05)**
+- A hidden game's party can be edited from outside its battles by calling its own functions: `process_level_up`, `check_level_evolution`, `finalize_evolution` (through the game's evolution cutscene state). Then levels, moves and evolutions behave exactly as in a battle. Don't reimplement EXP curves on the page.
+- A full-screen cutscene from the hidden game (evolution) can play over the 3D world: key its white backdrop out and put pale panels only behind its text, as with battles.
+- The follower must not attack monsters that your perks keep calm. Hitting them makes them angry, and the "calm" perk then looks broken. The headless test caught this.
+- A carried light is one uniform (position, strength) in the block shader, with distance falloff mixed into block light. Putting it on the follower, which trails behind you, made it nearly invisible. Put it on the player.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -267,3 +273,9 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Two research agents covered the mod and a survey of 23 merges. I verified the key repos myself.
   - Wrote `mashup-research/MERGE_EXAMPLES.md`, INSTRUCTIONS.md §B8 (the merge test) and a Pokécraft score against the test.
   - The user also taught the recombination method: `tools/recombine.py`, and the first pass in `mashup-research/RECOMBINATION_2026-10-05.md`.
+- **2026-10-05 (merge pass 1):**
+  - The user said to start whatever comes first; I took the top items from the merge test.
+  - Your lead Pokémon's types are survival perks: Water breath, Flying glide, Fire light and cooking, Grass sun healing, Electric FLASH, Ice frost-walk, Ghost/Poison/Bug calming mobs, Rock/Ground mining, Fighting melee, Normal hunger, Psychic sense, Dragon armour.
+  - The follower takes real party HP from monsters and can faint. Monsters and ore give real EXP through pokered's level-up code, and evolutions play Pokémon Red's own cutscene over the world.
+  - New runner calls: `give_exp`, `hurt_party`, `evolving`.
+  - New `tests/merge.mjs`. All five suites pass on a clean build. Republished the artifact and merged to `main`.

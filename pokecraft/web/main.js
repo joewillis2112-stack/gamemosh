@@ -18,6 +18,7 @@ import { Inventory } from './inventory.js';
 import { Survival } from './survival.js';
 import { Mobs } from './mobs.js';
 import { hiding, fished, levelAt } from './encounters.js';
+import { perksFor, calms } from './perks.js';
 
 const ASSETS = window.PC_ASSETS;
 const W = ASSETS.world;
@@ -214,6 +215,113 @@ function updateParty() {
   }
   const lead = S.party.find((p) => p.hp > 0);
   if (S.ents) S.ents.setFollower(lead ? lead.species : null);
+  applyPerks(lead);
+}
+
+// ---------------------------------------------------------------- the lead's perks
+/// Your lead Pokémon's types as survival perks (perks.js).
+function applyPerks(lead) {
+  if (S.testLead) lead = S.testLead;
+  const key = lead ? lead.species + '|' + lead.types.join() : '';
+  if (key === S.perkKey) return;
+  const first = S.perkKey === undefined;
+  S.perkKey = key;
+  S.perks = perksFor(lead ? lead.types : []);
+  if (S.surv) S.surv.perks = S.perks;
+  if (S.player) S.player.mods = { swim: S.perks.swim || 1, jump: S.perks.jump || 1, glide: !!S.perks.glide };
+  if (S.view) {
+    S.view.setLightFloor(S.perks.floor || 0.035);
+    if (!S.perks.hand) S.view.setHandLight(0, -999, 0, 0);
+  }
+  $('perk').innerHTML = lead ? S.perks.types.map((t) => `<b class="t-${t.toLowerCase()}">${t.toUpperCase()}</b>`).join('') : '';
+  $('perk').title = S.perks.text.join('\n');
+  if (lead && !first) toast(`${lead.species.toUpperCase()} leads. ${S.perks.text.join('. ')}.`, 4200);
+}
+
+/// The lead's party slot: the first Pokémon that hasn't fainted.
+const leadIndex = () => S.party.findIndex((p) => p.hp > 0);
+
+/// EXP for the lead, earned in the Minecraft world. Pokémon Red levels it up,
+/// teaches it moves, and plays its evolution when one is due.
+function giveExp(amount, from) {
+  const i = leadIndex();
+  if (i < 0 || amount <= 0 || S.mode !== 'world' || S.battle) return;
+  let r = null;
+  try { r = JSON.parse(S.runner.give_exp(i, Math.round(amount))); } catch { r = null; }
+  if (!r) return;
+  const name = r.species.toUpperCase();
+  feed(`+${Math.round(amount)} EXP ${name}${from ? ' (' + from + ')' : ''}`);
+  const f = S.ents.follower;
+  if (f) S.view.burst(f.pos[0], f.pos[1] + 0.8, f.pos[2], [0.55, 1, 0.3], 10, 1.5, 2);
+  if (r.level > r.old_level) {
+    const nice = (m) => m.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+    const moves = r.learned.map(nice).join(' and ');
+    toast(`${name} grew to LV ${r.level}!${moves ? ` ${name} learned ${moves}!` : ''}${r.blocked.length ? ` (It wants to learn ${r.blocked.map(nice).join(', ')}, but knows 4 moves.)` : ''}${r.evolves ? ` What? ${name} is evolving!` : ''}`, 3800);
+  }
+  updateParty();
+}
+
+/// Your follower takes a hit from a Minecraft monster: real HP off the real Pokémon.
+function followerHurt(type, dmg) {
+  const i = leadIndex();
+  if (i < 0 || S.mode !== 'world' || S.battle) return;
+  const mon = S.party[i];
+  const hp = Math.max(1, Math.round(dmg * mon.max_hp / 40));
+  let left = 0;
+  try { left = S.runner.hurt_party(i, hp); } catch { return; }
+  const f = S.ents.follower;
+  if (f) S.view.burst(f.pos[0], f.pos[1] + 0.8, f.pos[2], [0.9, 0.15, 0.15], 6, 2, 1.5);
+  if (left === 0) toast(`${mon.species.toUpperCase()} fainted fighting the ${type.toUpperCase()}!`, 3000);
+  updateParty();
+}
+
+// Minecraft gives XP for these ores; here the XP goes to your lead Pokémon.
+const ORE_EXP = { coal_ore: [0, 2], deepslate_coal_ore: [0, 2], diamond_ore: [3, 7], deepslate_diamond_ore: [3, 7], emerald_ore: [3, 7], deepslate_emerald_ore: [3, 7],
+  lapis_ore: [2, 5], deepslate_lapis_ore: [2, 5], redstone_ore: [1, 5], deepslate_redstone_ore: [1, 5], nether_quartz_ore: [2, 5], nether_gold_ore: [0, 1] };
+// Base EXP per monster beaten, as Pokémon would give for a wild one (× level / 7).
+const MOB_EXP = { zombie: 60, husk: 65, drowned: 65, skeleton: 70, stray: 75, spider: 60, creeper: 90 };
+// A Fire-type lead cooks raw food as you eat it.
+const COOKED = { beef: 'cooked_beef', porkchop: 'cooked_porkchop', chicken: 'cooked_chicken', mutton: 'cooked_mutton', cod: 'cooked_cod', salmon: 'cooked_salmon', potato: 'baked_potato', rabbit: 'cooked_rabbit' };
+
+/// An Ice-type lead freezes the water you walk onto; it melts behind you.
+function frostWalk() {
+  const p = S.player, ice = S.names.indexOf('frosted_ice'), water = S.names.indexOf('water');
+  const y = Math.floor(p.pos[1] - 0.5);
+  if (p.inWater || ice < 0) return;
+  S.frost = S.frost || [];
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+    const x = Math.floor(p.pos[0]) + dx, z = Math.floor(p.pos[2]) + dz;
+    if (S.world.block(x, y, z) === water && blockInfo(S.world.block(x, y + 1, z))?.air) {
+      edit(x, y, z, ice);
+      S.frost.push({ x, y, z, t: performance.now() });
+    }
+  }
+}
+function meltFrost() {
+  if (!S.frost || !S.frost.length) return;
+  const now = performance.now(), p = S.player.pos, water = S.names.indexOf('water'), ice = S.names.indexOf('frosted_ice');
+  S.frost = S.frost.filter((f) => {
+    const under = Math.abs(f.x + 0.5 - p[0]) < 1.3 && Math.abs(f.z + 0.5 - p[2]) < 1.3 && Math.abs(f.y + 1 - p[1]) < 1.5;
+    if (now - f.t < 7000 || under) return true;
+    if (S.world.block(f.x, f.y, f.z) === ice) edit(f.x, f.y, f.z, water);
+    return false;
+  });
+}
+
+/// A Psychic-type lead senses monsters coming, and where.
+function sense() {
+  const p = S.player;
+  for (const m of S.mobs.list) {
+    if (!m.k.hostile || m.sensed) continue;
+    const dx = m.body.pos[0] - p.pos[0], dz = m.body.pos[2] - p.pos[2];
+    if (Math.hypot(dx, dz) > 22) continue;
+    m.sensed = true;
+    let a = Math.atan2(-dx, -dz) - p.yaw;
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    const where = Math.abs(a) < 0.8 ? 'ahead' : Math.abs(a) > 2.3 ? 'behind you' : a > 0 ? 'to your left' : 'to your right';
+    feed(`${S.party[leadIndex()]?.species.toUpperCase() || 'Your POKéMON'} senses a ${m.type.toUpperCase()} ${where}`);
+    return;
+  }
 }
 
 function updateHud() {
@@ -309,11 +417,16 @@ function drawLayer(px, screen) {
     }
   }
   if (S.fading && !S.sleep) { $('fade').style.opacity = '0'; S.fading = false; }
+  // An evolution happens out in the world: its white backdrop is keyed out.
+  if (screen === 'Evolution') {
+    for (let i = 0; i < px.length; i += 4) if (px[i] > 232 && px[i + 1] > 232 && px[i + 2] > 232) px[i + 3] = 0;
+  }
   layerImg.data.set(px);
   lg.putImageData(layerImg, 0, 0);
   gb.clearRect(0, 0, 160, 144);
-  if (screen === 'Battle' && S.opaque < 160 * 144) {
-    for (const [y0, y1] of [[0, 40], [40, 96], [96, 144]]) {
+  if ((screen === 'Battle' && S.opaque < 160 * 144) || screen === 'Evolution') {
+    // Pale panels behind the HUD rows so they read over the world (not behind an evolving Pokémon).
+    for (const [y0, y1] of screen === 'Evolution' ? [[96, 144]] : [[0, 40], [40, 96], [96, 144]]) {
       let minx = 160, miny = 144, maxx = -1, maxy = -1;
       for (let y = y0; y < y1; y++) for (let x = 0; x < 160; x++) {
         if (px[(y * 160 + x) * 4 + 3]) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
@@ -653,7 +766,7 @@ function mine() {
     clearCrack();
     if (S.attackCool <= 0) {
       S.attackCool = 0.55;
-      S.mobs.damage(mob, S.items.damage(S.inv.held), p.pos);
+      S.mobs.damage(mob, S.items.damage(S.inv.held) + (S.perks.melee || 0), p.pos);
       S.view.burst(mob.body.pos[0], mob.body.pos[1] + 1, mob.body.pos[2], [0.8, 0.1, 0.1], 6, 2, 1.5);
     }
     return;
@@ -662,6 +775,9 @@ function mine() {
   const name = S.names[S.world.block(hit.x, hit.y, hit.z)];
   const bt = S.items.breakTime(name, S.inv.held);
   if (bt.t === Infinity) return;
+  const want = S.items.wants(name).kind;
+  const fast = (want === 'pickaxe' && S.perks.mine) || (want === 'shovel' && S.perks.dig) || 1;
+  bt.t /= fast;
   const key = `${hit.x},${hit.y},${hit.z}`;
   if (!S.mining || S.mining.key !== key) S.mining = { key, t: 0 };
   S.mining.t += DT;
@@ -679,6 +795,11 @@ function mine() {
     if (d.poke) {
       if (givePoke(d.poke)) toast(`You found a ${d.poke.replace(/_/g, ' ')}! It's in your POKéMON bag.`, 3000);
     } else gain(d[0], d[1]);
+  }
+  const ore = ORE_EXP[name];
+  if (ore) {
+    const xp = ore[0] + Math.floor(Math.random() * (ore[1] - ore[0] + 1));
+    if (xp) giveExp(xp * 6, S.items.name(name));
   }
 }
 
@@ -822,7 +943,11 @@ function worldStep(first) {
   // Eating: hold USE with food in hand.
   const held = S.inv.held, pts = held ? S.items.food(held) : 0;
   if (pts && c.down('a') && S.surv.food < 20) {
-    if (S.surv.eat(pts, true, DT)) { S.inv.useHeld(); feed(`Ate ${S.items.name(held)}`); }
+    const cooked = S.perks.cook && COOKED[held];
+    if (S.surv.eat(cooked ? S.items.food(cooked) || pts : pts, true, DT)) {
+      S.inv.useHeld();
+      feed(cooked ? `Ate ${S.items.name(cooked)} (cooked by your FIRE POKéMON)` : `Ate ${S.items.name(held)}`);
+    }
     if (S.frames % 8 === 0) S.view.burst(...p.eye().map((v, i) => v + p.look()[i] * 0.6), tileColour(W.icons[held] && W.icons[held].b !== undefined ? W.icons[held].b : 0), 2, 1, 1);
   } else S.surv.eating = 0;
   if (S.fishing) fishStep();
@@ -835,7 +960,12 @@ function worldStep(first) {
   const fx = Math.floor(p.pos[0]), fz = Math.floor(p.pos[2]);
   const head = blockInfo(S.world.block(fx, Math.floor(p.pos[1] + 1.62), fz));
   const feet = blockInfo(S.world.block(fx, Math.floor(p.pos[1] + 0.1), fz));
-  S.surv.step(DT, p, { headInWater: !!(head && head.water), inLava: !!(feet && feet.lava), sprinting: sprint && moved > 0.01, moving: moved > 0.01 });
+  const sunlit = S.perks.sunHeal && !isNight() && S.frames % 30 === 0 ? skyOpen([p.pos[0], p.pos[1] + 1, p.pos[2]]) : S.sunlit;
+  S.sunlit = sunlit;
+  S.surv.step(DT, p, { headInWater: !!(head && head.water), inLava: !!(feet && feet.lava), sprinting: sprint && moved > 0.01, moving: moved > 0.01, sunlit: sunlit && !isNight() });
+  if (S.perks.frost) frostWalk();
+  if (S.frames % 20 === 0) meltFrost();
+  if (S.perks.sense && S.frames % 90 === 0) sense();
   stepEncounters(moved);
   if (p.pos[1] < -80) { S.surv.hurtCool = 0; S.surv.hurt(40, 'void'); }
 }
@@ -886,7 +1016,7 @@ function tickOnce(first) {
   S.opaque = opaque;
   S.frames++;
   const screen = r.screen_name();
-  S.screen = screen.startsWith('Shop') ? 'Shop' : screen;
+  S.screen = screen.startsWith('Shop') ? 'Shop' : r.evolving() ? 'Evolution' : screen;
   if (S.mode === 'world') {
     if (screen !== 'Overworld' || opaque > 0) {
       S.mode = 'poke';
@@ -974,6 +1104,10 @@ function frame(now) {
       sign(biome.replace(/_/g, ' ').toUpperCase());
     }
     S.view.skyTime(S.g.time);
+    if (S.perks && S.perks.hand && !S.battle) {
+      const pp = S.player.pos;
+      S.view.setHandLight(pp[0], pp[1] + 1.2, pp[2], 1);
+    }
     S.view.stepParticles(dt / 1000);
     S.surv.render();
     if (S.itemNameUntil && now > S.itemNameUntil) { $('itemname').hidden = true; S.itemNameUntil = 0; }
@@ -1076,7 +1210,7 @@ function makeEntities() {
     say: (t) => toast(t, 2400), onChange: () => renderHotbar(),
   });
   S.surv = new Survival({ onDeath: died, flash: () => { const h = $('hurt'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); } });
-  S.stepDist = 0; S.grace = 0; S.attackCool = 0;
+  S.stepDist = 0; S.grace = 0; S.attackCool = 0; S.perks = perksFor([]); S.perkKey = undefined;
   S.mobs = new Mobs({
     view: S.view, world: S.world, blockInfo, solidAt, waterAt, player: S.player, survival: S.surv, isNight,
     biome: (x, z) => { const n = biomeName(x, z); return n ? { name: n, ...W.biomes[n] } : null; },
@@ -1094,7 +1228,22 @@ function makeEntities() {
       if (!f || !lead) return null;
       return { species: f.species, level: lead.level, pos: f.pos, colour: [1, 0.85, 0.3] };
     },
-    reward: (type) => { const n = { creeper: 60, skeleton: 40, stray: 45, spider: 35 }[type] || 30; try { S.runner.add_money(n); } catch { /* no money */ } feed(`+¥${n}`); },
+    reward: (type) => {
+      const n = { creeper: 60, skeleton: 40, stray: 45, spider: 35 }[type] || 30;
+      try { S.runner.add_money(n); } catch { /* no money */ }
+      feed(`+¥${n}`);
+      if (S.ents.follower) giveExp((MOB_EXP[type] || 60) * zoneLevel() / 7, type.toUpperCase());
+    },
+    calm: (type) => calms(S.perks, type),
+    followerHurt,
+    blast: (x, y, z, r) => {
+      for (const e of [...S.ents.list]) {
+        if (e.kind !== 'wild' || e.inBattle || Math.hypot(e.pos[0] - x, e.pos[2] - z) > r) continue;
+        S.view.burst(e.pos[0], e.pos[1] + 0.6, e.pos[2], [0.9, 0.9, 0.9], 12, 3, 3);
+        S.ents.remove(e);
+        feed(`The wild ${e.species.toUpperCase()} fled from the blast!`);
+      }
+    },
     clearLine, skyOpen,
   });
   S.ents = new Entities({
@@ -1263,6 +1412,8 @@ window.__pcTest = {
   startBattle: (kind, e) => startBattle(kind, e), saveAll, updateParty, throwBall, interact, edit,
   solidAt, blockAt: (x, y, z) => S.names[S.world.block(x, y, z)], targetBlock, mine, terrainHere,
   stepEncounters, fish, landCatch: () => S.fishing && landCatch(S.fishing), revive, givePoke, nearBlock,
+  giveExp, followerHurt, frostWalk,
+  forceLead: (lead) => { S.testLead = lead; applyPerks(lead); },
 };
 
 async function main() {

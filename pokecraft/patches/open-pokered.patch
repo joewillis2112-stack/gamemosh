@@ -191,7 +191,7 @@ index 65802e5..4c2b13f 100644
          if let Ok(mut mgr) = self.manager.lock() {
              mgr.update_frame();
 diff --git a/crates/pokered-runner-web/src/lib.rs b/crates/pokered-runner-web/src/lib.rs
-index fa5bec4..5cff16a 100644
+index fa5bec4..67d2246 100644
 --- a/crates/pokered-runner-web/src/lib.rs
 +++ b/crates/pokered-runner-web/src/lib.rs
 @@ -394,6 +394,70 @@ impl PokeredRunner {
@@ -265,7 +265,7 @@ index fa5bec4..5cff16a 100644
      /// The current game screen as a short name (`"Overworld"`, `"Battle"`, …)
      /// for the editor's HUD.
      pub fn screen_name(&self) -> String {
-@@ -464,6 +528,156 @@ impl PokeredRunner {
+@@ -464,6 +528,219 @@ impl PokeredRunner {
          self.game.debug_full_heal();
      }
  
@@ -383,6 +383,69 @@ index fa5bec4..5cff16a 100644
 +            Some(items.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
 +    }
 +
++    /// Pokécraft: `amount` EXP for party slot `index`, earned outside battle
++    /// (Minecraft monsters your Pokémon fought, ore you mined). Levels up as
++    /// the game does: stats, the moves it learns while it has a free slot,
++    /// and the real evolution cutscene when a level evolution is due (played
++    /// on the next frames; B cancels it, as after a battle). Returns
++    /// `{"species","level","old_level","learned":[…],"blocked":[…],"evolves"}`,
++    /// or `"null"` for an empty or fainted slot.
++    pub fn give_exp(&mut self, index: u32, amount: u32) -> String {
++        use pokered_core::battle::experience::level_up::process_level_up;
++        use pokered_core::battle::settlement::evolution::check_level_evolution;
++        use pokered_core::evolution_screen::{EvolutionScreenState, PendingEvolution};
++        let i = index as usize;
++        let Some(mon) = self.game.save_data.party.get_mut(i) else { return "null".into() };
++        if mon.hp == 0 {
++            return "null".into();
++        }
++        mon.total_exp = mon.total_exp.saturating_add(amount).min(1_640_000);
++        let up = process_level_up(mon);
++        let species = mon.species;
++        let evolves = if up.leveled_up { check_level_evolution(species, up.new_level) } else { None };
++        let names = |v: &[MoveId]| v.iter().map(|m| format!("\"{m:?}\"")).collect::<Vec<_>>().join(",");
++        let out = format!(
++            "{{\"species\":\"{:?}\",\"level\":{},\"old_level\":{},\"learned\":[{}],\"blocked\":[{}],\"evolves\":{}}}",
++            species,
++            up.new_level,
++            up.old_level,
++            names(&up.learned_moves),
++            names(&up.blocked_moves),
++            evolves.map(|e| format!("\"{e:?}\"")).unwrap_or_else(|| "null".into())
++        );
++        if let Some(to) = evolves {
++            if self.game.evolution_anim.is_none() {
++                let mut name_buf = [0u8; pokered_core::battle::state::NAME_TEXT_BUF];
++                let name = mon.display_name(&mut name_buf).to_string();
++                self.game.evolution_anim = Some(EvolutionScreenState::new(
++                    vec![PendingEvolution { party_index: i, from: species, to, name, force: false }],
++                    None,
++                    self.game.state.config.language == Lang::Zh,
++                ));
++            }
++        }
++        out
++    }
++
++    /// Pokécraft: an evolution cutscene is playing (it owns the screen until
++    /// it ends; the page keys its white out to show it over the world).
++    pub fn evolving(&self) -> bool {
++        self.game.evolution_anim.is_some()
++    }
++
++    /// Pokécraft: party slot `index` takes `damage` HP outside battle (it
++    /// fought a Minecraft monster beside you). Returns the HP left; at 0 it
++    /// has fainted, as in a battle.
++    pub fn hurt_party(&mut self, index: u32, damage: u32) -> u32 {
++        match self.game.save_data.party.get_mut(index as usize) {
++            Some(mon) => {
++                mon.hp = mon.hp.saturating_sub(damage.min(u16::MAX as u32) as u16);
++                mon.hp as u32
++            }
++            None => 0,
++        }
++    }
++
 +    /// How the last battle ended, once: `""` if none since the last call,
 +    /// else `"Win"`, `"Loss"`, `"Draw"`, `"Escaped"`, `"Captured"` or `"Unknown"`.
 +    pub fn take_battle_outcome(&mut self) -> String {
@@ -422,7 +485,7 @@ index fa5bec4..5cff16a 100644
      /// Push the configured text speed (frames between revealed characters) —
      /// 1/3/5, matching the in-game text speed option.
      pub fn set_text_delay_frames(&mut self, frames: u16) {
-@@ -494,6 +708,9 @@ impl PokeredRunner {
+@@ -494,6 +771,9 @@ impl PokeredRunner {
      /// Native/testable boot path (no `JsValue`): every failure is a plain
      /// `String`.
      fn boot(save_json: Option<&str>) -> Result<Self, String> {
