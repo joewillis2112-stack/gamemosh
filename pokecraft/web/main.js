@@ -1,35 +1,35 @@
-// Pokécraft: Pokémon Red played in an endless Minecraft world.
-// Minecraft's world generator (MinecraftOSS, mcgen.wasm) makes the land; the
-// page draws it top-down with Minecraft's block textures and walks Red over
-// it. Pokémon Red (open-pokered) runs hidden underneath: its START menu,
-// text boxes and shops draw over the Minecraft world, and its battles take
-// over the screen when a wild Pokémon jumps out of the grass or a Minecraft
-// mob catches you.
+// Pokécraft: Pokémon Red in an endless first-person Minecraft world.
+//
+// Minecraft's world generator (MinecraftOSS, mcgen.wasm) makes the land in a
+// worker that also turns it into meshes; three.js draws it. Wild Pokémon live
+// in the world as sprites coloured with their Super Game Boy palettes, your
+// lead Pokémon follows you, and trainers walk up to challenge you.
+// Pokémon Red (open-pokered) runs hidden underneath: battles happen right in
+// the world (your Pokémon and the wild one face off where you met), with
+// Pokémon's own HUD, text and menus drawn on top; START opens its menu.
 import initPokered, { PokeredRunner } from 'pokered-runner';
-import { WorldGen } from './gen.js';
-import { buildBlocks, buildBiomes, Tiles, tintFor, K, NONE, SHOP_RE } from './world.js';
-import { wildFor, levelAt, formAt, MOB_POKEMON, HOSTILE } from './encounters.js';
+import { World } from './gen.js';
+import { View } from './view.js';
+import { Player, raycast, EYE } from './player.js';
+import { Controls, GB } from './controls.js';
+import { Entities } from './entities.js';
 
 const ASSETS = window.PC_ASSETS;
+const W = ASSETS.world;
 const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- constants
-const GB = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128 };
 const POKE_HZ = 59.7275;
-const SAVE_KEY = 'pcraft.save';
-const FLAGS_KEY = 'pcraft.flags';
-const WORLD_KEY = 'pcraft.world';
-const MUTE_KEY = 'pcraft.muted';
+const DT = 1 / POKE_HZ;
+const SAVE_KEY = 'pcraft3.save', FLAGS_KEY = 'pcraft3.flags', WORLD_KEY = 'pcraft3.world', EDITS_KEY = 'pcraft3.edits', MUTE_KEY = 'pcraft.muted';
 const AUTOSAVE_MS = 30000;
-// Where Pokémon Red's own player waits, unseen, while you walk Minecraft.
-// Route 1: its music plays over the world, and nothing there can start a script.
+// Pokémon Red's own player stands still on Route 1, unseen: its music plays
+// and nothing there can start a script.
 const PARK = { map: 'Route1', x: 10, y: 20 };
-const STEP_FRAMES = 8; // frames per tile walking (2 px a frame, as on the Game Boy)
-const SPRINT_FRAMES = 4; // holding B: Minecraft's sprint
-const JUMP_FRAMES = 16;
-const MOB_STEP_FRAMES = 16;
-const DAY_TICKS = 24000; // a Minecraft day: 20 minutes
-const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const DAY_TICKS = 24000; // Minecraft's day: 20 minutes
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+const RADIUS = TOUCH ? 3 : 4; // chunks drawn around you
+const REACH = 5;
 const STARTERS = {
   bulbasaur: { species: 'Bulbasaur', moves: ['Tackle', 'Growl'] },
   charmander: { species: 'Charmander', moves: ['Scratch', 'Growl'] },
@@ -47,28 +47,25 @@ async function gunzip(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
+async function image(b64) {
+  const img = new Image();
+  img.src = 'data:image/png;base64,' + b64;
+  await img.decode();
+  return img;
+}
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch { /* storage blocked */ } },
 };
-const buzz = (ms = 8) => { try { navigator.vibrate && navigator.vibrate(ms); } catch { /* unsupported */ } };
-const chance = (p) => Math.random() < p;
-const pickWeighted = (list) => {
-  let total = 0;
-  for (const [, w] of list) total += w;
-  let r = Math.random() * total;
-  for (const e of list) { r -= e[1]; if (r < 0) return e[0]; }
-  return list[0][0];
-};
 
-/// Minecraft's seed rules: a number is used as is; any other text is hashed
-/// like Java's String.hashCode. Returns [lo, hi] 32-bit halves.
+/// Minecraft's seed rules: a number is used as is; other text is hashed like
+/// Java's String.hashCode. Returns [lo, hi] 32-bit halves.
 function parseSeed(text) {
   const t = (text || '').trim();
   if (!t) return [(Math.random() * 2 ** 32) >>> 0, (Math.random() * 2 ** 32) | 0];
   if (/^-?\d+$/.test(t)) {
-    let v = BigInt.asIntN(64, BigInt(t));
+    const v = BigInt.asIntN(64, BigInt(t));
     return [Number(v & 0xffffffffn) >>> 0, Number(BigInt.asIntN(32, v >> 32n))];
   }
   let h = 0;
@@ -77,143 +74,39 @@ function parseSeed(text) {
 }
 const seedString = ([lo, hi]) => BigInt.asIntN(64, (BigInt(hi) << 32n) | BigInt(lo >>> 0)).toString();
 
-// ---------------------------------------------------------------- input
-const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'start', 'select'];
-const input = {
-  touch: new Set(), keys: new Set(), padHeld: new Set(),
-  latched: new Set(), held: new Set(), prev: new Set(), locked: new Set(),
-  poll() {
-    this.prev = this.held;
-    const raw = new Set([...this.touch, ...this.keys]);
-    this.padHeld.clear();
-    for (const pad of (navigator.getGamepads ? navigator.getGamepads() : [])) {
-      if (!pad) continue;
-      const b = (i) => pad.buttons[i] && pad.buttons[i].pressed;
-      if (b(12) || pad.axes[1] < -0.5) this.padHeld.add('up');
-      if (b(13) || pad.axes[1] > 0.5) this.padHeld.add('down');
-      if (b(14) || pad.axes[0] < -0.5) this.padHeld.add('left');
-      if (b(15) || pad.axes[0] > 0.5) this.padHeld.add('right');
-      if (b(0)) this.padHeld.add('a');
-      if (b(1)) this.padHeld.add('b');
-      if (b(9)) this.padHeld.add('start');
-      if (b(8)) this.padHeld.add('select');
-    }
-    for (const x of this.padHeld) raw.add(x);
-    for (const x of this.locked) if (!raw.has(x)) this.locked.delete(x);
-    const held = new Set([...raw, ...this.latched]);
-    this.latched.clear();
-    for (const x of this.locked) held.delete(x);
-    this.held = held;
-  },
-  down(b) { return this.held.has(b); },
-  pressed(b) { return this.held.has(b) && !this.prev.has(b); },
-  // Swallow buttons still physically down until they are released, so the
-  // press that closed one screen doesn't also act on the next.
-  lock() {
-    for (const x of [...this.touch, ...this.keys, ...this.padHeld]) this.locked.add(x);
-    this.latched.clear();
-    this.held = new Set();
-  },
-  gbMask() {
-    let m = 0;
-    if (this.down('a')) m |= GB.A;
-    if (this.down('b')) m |= GB.B;
-    if (this.down('select')) m |= GB.SELECT;
-    if (this.down('start')) m |= GB.START;
-    if (this.down('right')) m |= GB.RIGHT;
-    if (this.down('left')) m |= GB.LEFT;
-    if (this.down('up')) m |= GB.UP;
-    if (this.down('down')) m |= GB.DOWN;
-    return m;
-  },
-  dir() {
-    // The most recently pressed direction wins when two are held.
-    for (const d of ['up', 'down', 'left', 'right']) if (this.pressed(d)) { this.last = d; return d; }
-    if (this.last && this.down(this.last)) return this.last;
-    for (const d of ['up', 'down', 'left', 'right']) if (this.down(d)) { this.last = d; return d; }
-    return null;
-  },
+// ---------------------------------------------------------------- state
+const S = {
+  mode: 'loading', // loading | title | newworld | world | poke
+  started: false,
+  runner: null,
+  world: null,
+  view: null,
+  player: null,
+  ents: null,
+  controls: null,
+  names: null, // block names by id
+  info: null, // block info by id
+  biomeNames: null,
+  g: null, // the saved world state: seed, spawn, time, inventory...
+  frames: 0,
+  acc: 0,
+  last: 0,
+  alive: 0,
+  clearFor: 0,
+  opaque: 0,
+  battle: null,
+  mining: null,
+  lastSave: 0,
+  toastUntil: 0,
+  signUntil: 0,
+  party: [],
+  edits: {},
 };
-
-const KEYS = {
-  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
-  KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right',
-  KeyZ: 'a', KeyK: 'a', Space: 'a', KeyX: 'b', KeyJ: 'b', Escape: 'b',
-  Enter: 'start', ShiftLeft: 'select', ShiftRight: 'select', Backspace: 'select',
-};
-addEventListener('keydown', (e) => {
-  if (e.target && e.target.tagName === 'INPUT') return;
-  const b = KEYS[e.code];
-  if (!b) return;
-  e.preventDefault();
-  if (!e.repeat) input.latched.add(b);
-  input.keys.add(b);
-  unlockAudio();
-});
-addEventListener('keyup', (e) => { const b = KEYS[e.code]; if (b) input.keys.delete(b); });
-addEventListener('blur', () => { input.keys.clear(); input.touch.clear(); });
-
-function setupTouch() {
-  const pointers = new Map();
-  const recompute = () => {
-    input.touch.clear();
-    for (const set of pointers.values()) for (const b of set) input.touch.add(b);
-    for (const el of document.querySelectorAll('[data-btn]')) el.classList.toggle('down', input.touch.has(el.dataset.btn));
-    const dp = $('dpad');
-    for (const d of ['up', 'down', 'left', 'right']) dp.classList.toggle(d, input.touch.has(d));
-  };
-  const buttonsAt = (x, y) => {
-    const out = new Set();
-    const dp = $('dpad').getBoundingClientRect();
-    if (x >= dp.left && x <= dp.right && y >= dp.top && y <= dp.bottom) {
-      const dx = (x - (dp.left + dp.width / 2)) / (dp.width / 2);
-      const dy = (y - (dp.top + dp.height / 2)) / (dp.height / 2);
-      if (Math.hypot(dx, dy) > 0.18) {
-        // 4-way: the world is a grid, so a thumb between two arms picks one.
-        if (Math.abs(dx) > Math.abs(dy)) out.add(dx > 0 ? 'right' : 'left');
-        else out.add(dy > 0 ? 'down' : 'up');
-      }
-      return out;
-    }
-    const el = document.elementFromPoint(x, y);
-    const btn = el && el.closest('[data-btn]');
-    if (btn) out.add(btn.dataset.btn);
-    return out;
-  };
-  const pad = $('pad');
-  pad.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    unlockAudio();
-    pad.setPointerCapture?.(e.pointerId);
-    const set = buttonsAt(e.clientX, e.clientY);
-    if (set.size) buzz();
-    for (const b of set) input.latched.add(b);
-    pointers.set(e.pointerId, set);
-    recompute();
-  });
-  pad.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    e.preventDefault();
-    const before = pointers.get(e.pointerId);
-    const set = buttonsAt(e.clientX, e.clientY);
-    const isDir = (b) => b in DIRS;
-    const keep = [...before].filter((b) => !isDir(b));
-    const next = new Set([...keep, ...[...set].filter(isDir)]);
-    if ([...next].some((b) => !before.has(b))) { buzz(5); for (const b of next) if (!before.has(b)) input.latched.add(b); }
-    pointers.set(e.pointerId, next);
-    recompute();
-  });
-  const up = (e) => { pointers.delete(e.pointerId); recompute(); };
-  pad.addEventListener('pointerup', up);
-  pad.addEventListener('pointercancel', up);
-  pad.addEventListener('contextmenu', (e) => e.preventDefault());
-}
+window.__pc = S;
 
 // ---------------------------------------------------------------- audio
 const audio = {
-  ctx: null, node: null, gain: null,
-  muted: store.get(MUTE_KEY) === '1',
-  peak: 0,
+  ctx: null, node: null, gain: null, muted: store.get(MUTE_KEY) === '1', peak: 0,
   start() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -223,16 +116,14 @@ const audio = {
     this.gain.gain.value = this.muted ? 0 : 0.8;
     this.gain.connect(this.ctx.destination);
     this.node = this.ctx.createScriptProcessor(2048, 0, 2);
-    this.node.onaudioprocess = (e) => this.fill(e.outputBuffer);
+    this.node.onaudioprocess = (e) => {
+      const L = e.outputBuffer.getChannelData(0), R = e.outputBuffer.getChannelData(1), n = L.length;
+      if (this.muted || !S.runner || performance.now() - S.alive > 250) { L.fill(0); R.fill(0); return; }
+      const s = S.runner.render_audio(n, this.ctx.sampleRate);
+      for (let i = 0; i < n; i++) { L[i] = s[2 * i]; R[i] = s[2 * i + 1]; }
+      for (let i = 0; i < n; i += 16) this.peak = Math.max(this.peak, Math.abs(L[i]));
+    };
     this.node.connect(this.gain);
-  },
-  fill(buf) {
-    const L = buf.getChannelData(0), R = buf.getChannelData(1), n = L.length;
-    // Quiet when muted or when the loop has stopped (hidden tab, stall).
-    if (this.muted || !S.runner || performance.now() - S.alive > 250) { L.fill(0); R.fill(0); return; }
-    const s = S.runner.render_audio(n, this.ctx.sampleRate);
-    for (let i = 0; i < n; i++) { L[i] = s[2 * i]; R[i] = s[2 * i + 1]; }
-    for (let i = 0; i < n; i += 16) this.peak = Math.max(this.peak, Math.abs(L[i]));
   },
   setMuted(m) {
     this.muted = m;
@@ -247,216 +138,394 @@ function unlockAudio() {
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {});
 }
 
-// ---------------------------------------------------------------- state
-const S = {
-  mode: 'loading', // loading | title | newworld | world | poke
-  started: false,
-  runner: null,
-  gen: null,
-  blocks: null,
-  biomes: null,
-  tiles: null,
-  w: null, // the world: seed, player, mobs, clock
-  frames: 0,
-  acc: 0,
-  last: 0,
-  alive: 0,
-  carry: 0,
-  clearFor: 0,
-  opaque: 0,
-  battle: null,
-  edges: new Set(), // buttons pressed since the last game frame
-  lastSave: 0,
-  toastUntil: 0,
-  signUntil: 0,
-};
-window.__pc = S; // test hooks
-window.__pcTest = { col, stepKind, wildBattle: () => wildBattle(col(S.w.x, S.w.z)), mobBattle: (m) => mobBattle(m, true), saveAll, party, spawnTrader: () => spawnTrader(), meet: (m) => meet(m), trySleep: () => trySleep() };
+// ---------------------------------------------------------------- blocks
+function blockInfo(id) {
+  if (id < 0) return null;
+  return S.info[id];
+}
+function buildInfo(names) {
+  return names.map((name) => {
+    const b = W.blocks[name];
+    return {
+      name,
+      h: !b || !b.c ? 0 : b.s === 'slab' ? 0.5 : 1,
+      water: name === 'water' || name === 'bubble_column',
+      leaves: /_leaves$/.test(name),
+      lava: name === 'lava',
+      air: !b,
+      shape: b ? b.s : 'air',
+      tile: b ? b.f[1] : 0,
+      hardness: hardness(name, b),
+    };
+  });
+}
+function hardness(name, b) {
+  if (!b) return Infinity;
+  if (/^(bedrock|barrier|end_portal_frame|water|lava|bubble_column)$/.test(name)) return Infinity;
+  if (b.s === 'cross' || b.s === 'flat' || /_leaves$|^snow$|^vine$/.test(name)) return 0.15;
+  if (/(dirt|grass_block|sand|gravel|clay|mud|podzol|mycelium|farmland|snow_block|soul_sand|powder_snow|dirt_path)/.test(name)) return 0.55;
+  if (/(_log|_wood|_planks|_stem|_hyphae|bookshelf|chest|crafting_table|barrel|pumpkin|melon|_fence|_door|_stairs|_slab|composter|bed$|ladder|_sign)/.test(name)) return 1.2;
+  if (/obsidian|crying_obsidian|ancient_debris/.test(name)) return 6;
+  if (/(_ore|stone|deepslate|cobble|brick|andesite|diorite|granite|tuff|calcite|basalt|terracotta|concrete|prismarine|sandstone|quartz|iron|gold|diamond|emerald|copper)/.test(name)) return 1.8;
+  return 0.8;
+}
+const solidAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return b ? b.h : 1; };
+const waterAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return !!(b && b.water); };
 
-const canvas = $('screen');
-const g = canvas.getContext('2d', { alpha: false });
-g.imageSmoothingEnabled = false;
+// ---------------------------------------------------------------- clock
+const isNight = () => S.g.time >= 13000 && S.g.time < 23000;
+function daylight() {
+  const t = S.g.time;
+  if (t < 12000) return 1;
+  if (t < 13500) return 1 - ((t - 12000) / 1500) * 0.82;
+  if (t < 22500) return 0.18;
+  return 0.18 + ((t - 22500) / 1500) * 0.82;
+}
+const dist0 = () => Math.hypot(S.player.pos[0] - S.g.origin[0], S.player.pos[2] - S.g.origin[1]);
+const zoneLevel = () => 3 + Math.floor(dist0() / 40);
+function biomeName(x, z) {
+  const b = S.world.biomeAt(Math.floor(x), Math.floor(z));
+  return b < 0 ? null : S.biomeNames[b];
+}
+
+// ---------------------------------------------------------------- messages
+function toast(text, ms = 2800) {
+  S.toastAt = performance.now();
+  $('toast').textContent = text;
+  $('toast').hidden = false;
+  S.toastUntil = performance.now() + ms;
+}
+function hideToast() { $('toast').hidden = true; S.toastUntil = 0; }
+function sign(text) {
+  $('sign').textContent = text;
+  $('sign').hidden = false;
+  S.signUntil = performance.now() + 2600;
+}
+function updateMessages(now) {
+  if (S.toastUntil && now > S.toastUntil) hideToast();
+  if (S.signUntil && now > S.signUntil) { $('sign').hidden = true; S.signUntil = 0; }
+}
+
+// ---------------------------------------------------------------- HUD
+function updateParty() {
+  try { S.party = JSON.parse(S.runner.party_summary()); } catch { S.party = []; }
+  const el = $('party');
+  el.innerHTML = '';
+  for (const p of S.party) {
+    const row = document.createElement('div');
+    row.className = 'mon' + (p.hp === 0 ? ' fainted' : '');
+    const pct = p.max_hp ? Math.max(0, p.hp / p.max_hp) : 0;
+    row.innerHTML = `<b>${p.species.toUpperCase()}</b><i>L${p.level}</i><span class="hp"><span style="width:${(pct * 100).toFixed(0)}%" class="${pct < 0.2 ? 'red' : pct < 0.5 ? 'yellow' : ''}"></span></span>`;
+    el.appendChild(row);
+  }
+  const lead = S.party.find((p) => p.hp > 0);
+  if (S.ents) S.ents.setFollower(lead ? lead.species : null);
+}
+
+function updateHud() {
+  const g = S.g;
+  const hours = Math.floor(g.time / 1000 + 6) % 24, mins = Math.floor((g.time % 1000) * 0.06);
+  $('clock').textContent = `${isNight() ? 'NIGHT' : 'DAY'} ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+  $('zone').textContent = `WILD LV~${zoneLevel()}`;
+}
+
+function renderHotbar() {
+  const el = $('hotbar');
+  el.innerHTML = '';
+  S.g.inv.forEach((slot, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot' + (i === S.g.sel ? ' sel' : '');
+    d.dataset.slot = i;
+    if (slot) {
+      const info = W.blocks[slot.name];
+      const tile = info ? info.f[info.s === 'cube' || info.s === 'slab' ? 1 : 0] : 0;
+      const cols = W.cols;
+      d.style.backgroundImage = `url(${S.atlasUrl})`;
+      d.style.backgroundPosition = `${((tile % cols) / (cols - 1)) * 100}% ${(Math.floor(tile / cols) / (S.atlasRows - 1)) * 100}%`;
+      d.style.backgroundSize = `${cols * 100}% ${(S.atlasRows) * 100}%`;
+      d.innerHTML = `<span>${slot.n}</span>`;
+      d.title = slot.name;
+    }
+    el.appendChild(d);
+  });
+}
+function addToInventory(name, n = 1) {
+  const inv = S.g.inv;
+  const slot = inv.find((s) => s && s.name === name && s.n < 64);
+  if (slot) slot.n += n;
+  else {
+    const empty = inv.findIndex((s) => !s);
+    if (empty < 0) return false;
+    inv[empty] = { name, n };
+  }
+  renderHotbar();
+  return true;
+}
+
+// ---------------------------------------------------------------- the Pokémon layer
+const gbCanvas = $('gb');
+const gb = gbCanvas.getContext('2d');
 const layer = document.createElement('canvas');
 layer.width = 160; layer.height = 144;
 const lg = layer.getContext('2d');
 const layerImg = lg.createImageData(160, 144);
 
-// ---------------------------------------------------------------- the world
-function col(x, z) {
-  const c = S.gen.get(x >> 4, z >> 4);
-  if (!c) return null;
-  const i = ((z & 15) << 4) | (x & 15);
-  const d = c.deco[i], cn = c.canopy[i];
-  return {
-    g: S.blocks[c.ground[i]], gy: c.gy[i],
-    d: d === NONE ? null : S.blocks[d],
-    cn: cn === NONE ? null : S.blocks[cn], lift: c.lift[i],
-    b: S.biomes[c.biome[i]],
-  };
-}
-
-/// How (and whether) something on column `a` can step onto column `b`.
-function stepKind(a, b, surfing) {
-  if (!a || !b) return null;
-  if (b.g.kind === K.WALL || b.g.kind === K.LAVA) return null;
-  if (b.d && (b.d.kind === K.WALL || b.d.kind === K.LAVA)) return null;
-  if (b.g.kind === K.WATER) return surfing ? 'walk' : null;
-  const dy = b.gy - a.gy;
-  if (surfing) return Math.abs(dy) <= 1 ? 'land' : null;
-  if (Math.abs(dy) <= 1) return 'walk';
-  if (dy <= -2 && dy >= -4) return 'jump'; // a ledge: one way, down
-  return null;
-}
-
-const mobAt = (x, z) => S.w.mobs.find((m) => (m.x === x && m.z === z) || (m.move && m.x + m.move.dx === x && m.z + m.move.dz === z));
-const distFromOrigin = () => Math.hypot(S.w.x - S.w.origin[0], S.w.z - S.w.origin[1]);
-const zoneLevel = () => 3 + Math.floor(distFromOrigin() / 40);
-const isNight = () => S.w.time >= 13000 && S.w.time < 23000;
-function daylight() {
-  const t = S.w.time;
-  if (t < 12000) return 1;
-  if (t < 13500) return 1 - (t - 12000) / 1500 * 0.68;
-  if (t < 22500) return 0.32;
-  return 0.32 + (t - 22500) / 1500 * 0.68;
-}
-
-function party() {
-  try { return JSON.parse(S.runner.party_summary()); } catch { return []; }
-}
-const canSurf = () => party().some((p) => p.types.includes('Water') || p.moves.includes('Surf'));
-
-// ---------------------------------------------------------------- messages
-function toast(text, ms = 2600) {
-  S.toastAt = performance.now();
-  const el = $('toast');
-  el.textContent = text;
-  el.hidden = false;
-  S.toastUntil = performance.now() + ms;
-}
-function sign(text) {
-  const el = $('sign');
-  el.textContent = text;
-  el.hidden = false;
-  S.signUntil = performance.now() + 2500;
-}
-function hideToast() { $('toast').hidden = true; S.toastUntil = 0; }
-function hideSign() { $('sign').hidden = true; S.signUntil = 0; }
-function updateMessages(now) {
-  if (S.toastUntil && now > S.toastUntil) { $('toast').hidden = true; S.toastUntil = 0; }
-  if (S.signUntil && now > S.signUntil) { $('sign').hidden = true; S.signUntil = 0; }
-}
-function updateHud() {
-  const w = S.w;
-  if (!w) return;
-  const hours = Math.floor(w.time / 1000 + 6) % 24, mins = Math.floor((w.time % 1000) * 0.06);
-  $('clock').textContent = `${isNight() ? 'NIGHT' : 'DAY'} ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-  $('zone').textContent = `WILD LV~${zoneLevel()}`;
-}
-
-// ---------------------------------------------------------------- player
-function worldStep(first) {
-  const w = S.w;
-  w.time = (w.time + 1 / 3) % DAY_TICKS;
-  if (w.sleep) { sleepStep(); return; }
-  updateMobs();
-  if (w.move) {
-    w.move.t++;
-    if (w.move.t >= w.move.len) finishStep();
-    return;
-  }
-  if (S.mode !== 'world') return;
-  if (first && S.edges.has('start')) { S.startEdge = true; return; }
-  if (first && S.edges.has('a')) { interact(); return; }
-  if (first && S.edges.has('select')) { trySleep(); return; }
-  const dir = input.dir();
-  if (!dir) { w.turn = 0; return; }
-  if (dir !== w.facing) {
-    // A tap turns on the spot; holding walks.
-    w.facing = dir;
-    w.turn = 5;
-    return;
-  }
-  if (w.turn > 0) { w.turn--; if (w.turn > 0) return; }
-  tryMove(dir);
-}
-
-function tryMove(dir) {
-  const w = S.w;
-  const [dx, dz] = DIRS[dir];
-  const here = col(w.x, w.z), there = col(w.x + dx, w.z + dz);
-  if (!here || !there) return; // still generating
-  const mob = mobAt(w.x + dx, w.z + dz);
-  if (mob) { meet(mob); return; }
-  const kind = stepKind(here, there, w.surf);
-  if (!kind) {
-    if (!w.surf && there.g.kind === K.WATER && !w.bumpedWater) {
-      w.bumpedWater = true;
-      toast(canSurf() ? 'The water is calm. Press A to SURF.' : 'The water is deep. A WATER POKéMON could carry you.');
+/// Draw Pokémon's frame: opaque screens as they are; over the world, only
+/// what Pokémon drew (menus, text, HUD), with a pale panel behind the
+/// battle HUD so it reads against the world.
+function drawLayer(px, screen) {
+  // The battle's opening wipe (black over a see-through screen) becomes a
+  // fade of the whole view, not a black box over part of it.
+  if (screen === 'Battle') {
+    let black = 0, other = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      if (!px[i + 3]) continue;
+      if (px[i] < 16 && px[i + 1] < 16 && px[i + 2] < 16) black++; else other++;
     }
-    return;
+    if (!other && black > 160 * 144 * 0.3) {
+      $('fade').style.opacity = String(Math.min(1, black / (160 * 144) * 1.4));
+      gb.clearRect(0, 0, 160, 144);
+      S.fading = true;
+      return;
+    }
   }
-  w.bumpedWater = false;
-  const len = kind === 'jump' ? JUMP_FRAMES : input.down('b') && !w.surf ? SPRINT_FRAMES : STEP_FRAMES;
-  w.move = { dx, dz, t: 0, len, jump: kind === 'jump', land: kind === 'land' };
+  if (S.fading && !S.sleep) { $('fade').style.opacity = '0'; S.fading = false; }
+  layerImg.data.set(px);
+  lg.putImageData(layerImg, 0, 0);
+  gb.clearRect(0, 0, 160, 144);
+  if (screen === 'Battle' && S.opaque < 160 * 144) {
+    for (const [y0, y1] of [[0, 40], [40, 96], [96, 144]]) {
+      let minx = 160, miny = 144, maxx = -1, maxy = -1;
+      for (let y = y0; y < y1; y++) for (let x = 0; x < 160; x++) {
+        if (px[(y * 160 + x) * 4 + 3]) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
+      }
+      if (maxx < 0) continue;
+      gb.fillStyle = 'rgba(248,248,240,0.92)';
+      gb.fillRect(Math.max(0, minx - 3), Math.max(0, miny - 2), Math.min(160, maxx + 4) - Math.max(0, minx - 3), Math.min(144, maxy + 3) - Math.max(0, miny - 2));
+    }
+  }
+  gb.drawImage(layer, 0, 0);
 }
 
-function finishStep() {
-  const w = S.w;
-  const m = w.move;
-  w.x += m.dx; w.z += m.dz;
-  w.move = null;
-  w.parity ^= 1;
-  if (m.land) w.surf = false;
-  w.steps++;
-  const here = col(w.x, w.z);
-  if (!here) return;
-  if (here.b.label !== w.biomeLabel && performance.now() - (w.signAt || 0) > 4000) {
-    // Like a Pokémon route sign; not again for a few seconds at a ragged border.
-    w.biomeLabel = here.b.label;
-    w.signAt = performance.now();
-    sign(here.b.label);
+// ---------------------------------------------------------------- battles in the world
+function startBattle(kind, ent) {
+  if (S.battle || S.mode !== 'world') return;
+  const r = S.runner;
+  try {
+    if (kind === 'trainer') r.start_trainer_battle(ent.trainer.cls, ent.trainer.index);
+    else r.start_wild_battle(ent.species, ent.level);
+  } catch (e) { console.warn(e); return; }
+  ent.inBattle = true;
+  const p = S.player;
+  const ex = ent.pos[0], ez = ent.pos[2];
+  let dx = ex - p.pos[0], dz = ez - p.pos[2];
+  const l = Math.hypot(dx, dz) || 1;
+  dx /= l; dz /= l;
+  // Pixelmon-style: you stay where you are and watch; your Pokémon comes out
+  // a couple of blocks ahead of you, a little to the left.
+  // The opponent comes to a spot about 5 blocks off that you can see:
+  // straight ahead if it can, otherwise a little to either side.
+  let d = Math.hypot(ex - p.pos[0], ez - p.pos[2]);
+  const eye = p.eye();
+  const seen = (x, y, z) => clearLine(eye, [x, y + 0.6, z]);
+  if (d > 6 || !seen(ex, ent.pos[1], ez)) {
+    const base = Math.atan2(dx, dz);
+    let found = false;
+    for (const turn of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1]) {
+      for (const want of [5, 4, 6, 3.5, 3]) {
+        const a = base + turn, nx = p.pos[0] + Math.sin(a) * want, nz = p.pos[2] + Math.cos(a) * want;
+        const gg = S.ents.ground(nx, p.pos[1] + 3, nz);
+        if (gg && gg.water === !!ent.water && Math.abs(gg.y - p.pos[1]) < 4 && seen(nx, gg.y, nz)) {
+          ent.pos = [nx, gg.y, nz]; d = want; dx = Math.sin(a); dz = Math.cos(a); found = true; break;
+        }
+      }
+      if (found) break;
+    }
   }
-  let rate = 0;
-  if (w.surf) rate = 1 / 22;
-  else if (here.d && here.d.grass) rate = 1 / 10;
-  else if (here.g.rough || (here.d && here.d.snow)) rate = 1 / 40;
-  if (w.steps > w.safeUntil && chance(rate)) wildBattle(here);
+  const ahead = Math.min(2.6, Math.max(1.4, d * 0.5));
+  const mx = p.pos[0] + dx * ahead + dz * 1.3, mz = p.pos[2] + dz * ahead - dx * 1.3;
+  const g = S.ents.ground(mx, p.pos[1] + 2, mz);
+  S.battle = {
+    kind, ent, dir: [dx, dz], enemyPos: [ent.pos[0], ent.pos[1], ent.pos[2]],
+    monPos: [mx, g ? g.y : p.pos[1], mz], eye: p.eye(),
+    enemyRoot: null, monRoot: null, enemySpecies: null, monSpecies: null,
+  };
+  if (kind === 'wild') { S.battle.enemyRoot = ent.root; S.battle.enemySpecies = ent.species; }
+  if (S.ents.follower) S.ents.follower.root.visible = false;
+  S.mode = 'poke';
+  S.clearFor = 0;
 }
 
-function facingCol() {
-  const w = S.w;
-  const [dx, dz] = DIRS[w.facing];
-  return { x: w.x + dx, z: w.z + dz, c: col(w.x + dx, w.z + dz) };
+/// Nothing solid (leaves aside) on the straight line from a to b.
+function clearLine(a, b) {
+  const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) * 4);
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    const bi = blockInfo(S.world.block(Math.floor(a[0] + (b[0] - a[0]) * t), Math.floor(a[1] + (b[1] - a[1]) * t), Math.floor(a[2] + (b[2] - a[2]) * t)));
+    if (!bi || (bi.h > 0 && !bi.leaves)) return false;
+  }
+  return true;
+}
+
+function stageBattle() {
+  const b = S.battle, r = S.runner, view = S.view;
+  let v = null;
+  try { v = JSON.parse(r.battle_view()); } catch { v = null; }
+  const [dx, dz] = b.dir;
+  const rx = -dz, rz = dx; // to the right, looking at the opponent
+  // Enemy picture (a trainer's Pokémon appears in front of the trainer).
+  if (v && v.enemy !== b.enemySpecies) {
+    const pic = S.ents.spritePic(v.enemy, false);
+    if (pic) {
+      if (b.kind === 'wild' && b.enemyRoot) view.repaint(b.enemyRoot, pic.cell, pic.height);
+      else {
+        if (b.enemyRoot && b.enemyRoot !== b.ent.root) view.drop(b.enemyRoot);
+        b.enemyRoot = view.sprite(pic.cell, pic.height);
+        const ep = [b.ent.pos[0] - dx * 1.6, b.ent.pos[1], b.ent.pos[2] - dz * 1.6];
+        const g = S.ents.ground(ep[0], ep[1] + 1, ep[2]);
+        b.enemyPos = [ep[0], g ? g.y : ep[1], ep[2]];
+      }
+      b.enemySpecies = v.enemy;
+    }
+  }
+  if (v && v.player !== b.monSpecies) {
+    const pic = S.ents.spritePic(v.player, true);
+    if (pic) {
+      if (b.monRoot) view.repaint(b.monRoot, pic.cell, pic.height);
+      else b.monRoot = view.sprite(pic.cell, pic.height);
+      b.monSpecies = v.player;
+    }
+  }
+  if (b.enemyRoot) {
+    const off = v ? v.enemy_dx / 20 : 0, up = v ? -v.enemy_dy / 20 : 0;
+    b.enemyRoot.position.set(b.enemyPos[0] + rx * off, b.enemyPos[1] + up, b.enemyPos[2] + rz * off);
+    b.enemyRoot.visible = !!(v && v.enemy_shown);
+  }
+  if (b.monRoot) {
+    const off = v ? v.player_dx / 20 : 0, up = v ? -v.player_dy / 20 : 0;
+    b.monRoot.position.set(b.monPos[0] + rx * off, b.monPos[1] + up, b.monPos[2] + rz * off);
+    b.monRoot.visible = !!(v && v.player_shown);
+  }
+  // Camera: your own eyes, turned toward the opponent, which sits up and to
+  // the right of centre like on the Game Boy.
+  const cam = view.camera;
+  const eh = b.enemyRoot ? b.enemyRoot.userData.height : 1;
+  cam.position.set(b.eye[0], b.eye[1], b.eye[2]);
+  cam.lookAt(b.enemyPos[0] - rx * 1.0, b.enemyPos[1] + eh * 0.1, b.enemyPos[2] - rz * 1.0);
+  if (b.monRoot) view.face(b.monRoot);
+  if (b.enemyRoot) view.face(b.enemyRoot);
+}
+
+function endBattle(outcome) {
+  const b = S.battle;
+  S.battle = null;
+  if (!b) return;
+  const view = S.view;
+  if (b.monRoot) view.drop(b.monRoot);
+  if (b.enemyRoot && b.enemyRoot !== b.ent.root) view.drop(b.enemyRoot);
+  b.ent.inBattle = false;
+  if (b.kind === 'wild') {
+    if (outcome === 'Win' || outcome === 'Captured') S.ents.remove(b.ent);
+    else {
+      b.ent.root.visible = true;
+      b.ent.aggressive = false;
+      b.ent.cooldown = 8;
+      if (b.enemySpecies !== b.ent.species) { const pic = S.ents.spritePic(b.ent.species, false); view.repaint(b.ent.root, pic.cell, pic.height); }
+    }
+  } else if (b.kind === 'trainer') {
+    if (outcome !== 'Loss') b.ent.beaten = true;
+    if (b.ent.alert) { view.scene.remove(b.ent.alert); b.ent.alert = null; }
+    b.ent.life = 60 * 60;
+  }
+  if (S.ents.follower) S.ents.follower.root.visible = true;
+}
+
+// ---------------------------------------------------------------- a thrown Poké Ball
+let ballTex = null;
+function ballSprite() {
+  if (!ballTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const x = c.getContext('2d');
+    x.fillStyle = '#e8302c'; x.beginPath(); x.arc(8, 8, 7, Math.PI, 0); x.fill();
+    x.fillStyle = '#f8f8f0'; x.beginPath(); x.arc(8, 8, 7, 0, Math.PI); x.fill();
+    x.fillStyle = '#181818'; x.fillRect(1, 7, 14, 2); x.beginPath(); x.arc(8, 8, 2.6, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#f8f8f0'; x.beginPath(); x.arc(8, 8, 1.4, 0, Math.PI * 2); x.fill();
+    ballTex = c;
+  }
+  return ballTex;
+}
+function throwBall() {
+  if (S.ball) return;
+  if (!S.party.some((p) => p.hp > 0)) { toast('Your POKéMON have no strength left. Rest or visit a NURSE.'); return; }
+  const p = S.player;
+  const eye = p.eye(), dir = p.look();
+  const target = S.ents.pick(eye, dir, 28);
+  const end = target && (target.kind === 'wild' || (target.kind === 'trainer' && !target.beaten))
+    ? [target.pos[0], target.pos[1] + 0.6, target.pos[2]]
+    : [eye[0] + dir[0] * 10, eye[1] + dir[1] * 10, eye[2] + dir[2] * 10];
+  const sprite = S.view.sprite3(ballSprite());
+  sprite.scale.setScalar(0.35);
+  S.ball = { t: 0, from: [eye[0] + dir[0] * 0.6, eye[1] - 0.3, eye[2] + dir[2] * 0.6], to: end, target, sprite };
+}
+function updateBall() {
+  const b = S.ball;
+  if (!b) return;
+  b.t += DT / 0.55;
+  const t = Math.min(1, b.t);
+  const pos = b.from.map((v, i) => v + (b.to[i] - v) * t);
+  pos[1] += Math.sin(Math.PI * t) * 1.4;
+  b.sprite.position.set(...pos);
+  if (t >= 1) {
+    S.view.scene.remove(b.sprite);
+    S.ball = null;
+    if (b.target && S.mode === 'world') {
+      const lead = S.party.find((x) => x.hp > 0);
+      if (lead) toast(`Go! ${lead.species.toUpperCase()}!`, 1400);
+      startBattle(b.target.kind === 'trainer' ? 'trainer' : 'wild', b.target);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- doing things
+function targetBlock() {
+  const p = S.player;
+  return raycast(p.eye(), p.look(), REACH, (x, y, z) => {
+    const b = blockInfo(S.world.block(x, y, z));
+    return b && !b.air && !b.water;
+  });
 }
 
 function interact() {
-  const w = S.w;
-  const f = facingCol();
-  if (!f.c) return;
-  const mob = mobAt(f.x, f.z);
-  if (mob) { meet(mob); return; }
-  if (SHOP_RE.test(f.c.g.name)) { villageBell(); return; }
-  if (!w.surf && f.c.g.kind === K.WATER) {
-    if (!canSurf()) { toast('The water is deep. A WATER POKéMON could carry you.'); return; }
-    const lead = party().find((p) => p.types.includes('Water') || p.moves.includes('Surf'));
-    toast(`${lead.species.toUpperCase()} used SURF!`, 1600);
-    w.surf = true;
-    w.move = { dx: DIRS[w.facing][0], dz: DIRS[w.facing][1], t: 0, len: STEP_FRAMES, jump: false, land: false };
-    return;
-  }
-  // Pokémon-style: say what's there.
-  const thing = f.c.g.kind === K.WALL ? f.c.g : f.c.d && !f.c.d.grass ? f.c.d : null;
-  if (thing) {
-    const what = thing.name.replace(/_/g, ' ').toUpperCase();
-    toast(`It's ${/^[AEIOU]/.test(what) ? 'an' : 'a'} ${what}.`, 1500);
-  }
+  const p = S.player;
+  const eye = p.eye(), dir = p.look();
+  const ent = S.ents.pick(eye, dir, 4.5);
+  if (ent) return talk(ent);
+  const hit = targetBlock();
+  if (!hit) return;
+  const name = S.names[S.world.block(hit.x, hit.y, hit.z)];
+  if (/_bed$/.test(name)) return sleep(hit);
+  if (name === 'bell') { toast('DING! The village NURSE and CLERK are right here.'); return; }
+  place(hit);
 }
 
-function meet(mob) {
-  if (!mob.trader) { mobBattle(mob, false); return; }
-  mob.facing = { up: 'down', down: 'up', left: 'right', right: 'left' }[S.w.facing];
-  mob.wait = 200;
-  S.runner.open_shop(shopStock().join(','));
+function talk(e) {
+  const r = S.runner;
+  if (e.kind === 'wild') return startBattle('wild', e);
+  if (e.kind === 'trainer') {
+    if (e.beaten) { toast('TRAINER: You beat me fair and square.'); return; }
+    return startBattle('trainer', e);
+  }
+  if (e.kind === 'nurse') {
+    r.heal_party();
+    S.g.spawn = [e.pos[0], e.pos[1], e.pos[2] + 1];
+    toast('NURSE: Your POKéMON are fighting fit! We hope to see you again. (You will wake up here.)', 3600);
+    saveAll('nurse');
+    return;
+  }
+  if (e.kind === 'clerk' || e.kind === 'merchant') {
+    r.open_shop(shopStock().join(','));
+  }
 }
 
 function shopStock() {
@@ -469,486 +538,369 @@ function shopStock() {
   return stock;
 }
 
-function villageBell() {
-  S.runner.heal_party();
-  S.runner.open_shop(shopStock().join(','));
-  S.w.spawn = [S.w.x, S.w.z];
-  toast('The village BELL rings. Your POKéMON are healed, and you will wake up here.', 3200);
-}
-
-function trySleep() {
-  const w = S.w;
+function sleep(hit) {
   if (!isNight()) { toast('You can only sleep at night.'); return; }
-  if (w.mobs.some((m) => m.hostile && Math.abs(m.x - w.x) + Math.abs(m.z - w.z) < 8)) {
-    toast('You may not rest now; there are monsters nearby.');
+  if (S.ents.list.some((e) => e.kind === 'wild' && e.aggressive && Math.hypot(e.pos[0] - S.player.pos[0], e.pos[2] - S.player.pos[2]) < 8)) {
+    toast('You may not rest now; there are POKéMON nearby.');
     return;
   }
-  w.sleep = { t: 0 };
+  S.sleep = { t: 0, bed: [hit.x + 0.5, hit.y + 1, hit.z + 0.5] };
 }
 function sleepStep() {
-  const w = S.w;
-  w.sleep.t++;
-  if (w.sleep.t === 60) {
+  const s = S.sleep;
+  s.t++;
+  $('fade').style.opacity = String(s.t < 60 ? s.t / 60 : Math.max(0, 1 - (s.t - 60) / 60));
+  if (s.t === 60) {
     S.runner.heal_party();
-    w.time = 0;
-    w.mobs = w.mobs.filter((m) => !m.hostile);
-    w.spawn = [w.x, w.z];
+    S.g.time = 0;
+    S.g.spawn = s.bed;
   }
-  if (w.sleep.t >= 120) {
-    w.sleep = null;
-    toast('You slept until morning. Your POKéMON are healed. You will wake up here.', 3200);
+  if (s.t >= 120) {
+    S.sleep = null;
+    $('fade').style.opacity = '0';
+    toast('You slept until morning. Your POKéMON are healed, and you will wake up here.', 3400);
     saveAll('sleep');
   }
 }
 
-// ---------------------------------------------------------------- battles
-function wildBattle(here) {
-  const w = S.w;
-  const level = levelAt(distFromOrigin(), Math.random);
-  const species = wildFor(here.b.name, w.surf, level, Math.random, isNight());
-  try { S.runner.start_wild_battle(species, level); } catch { return; }
-  S.battle = { kind: 'wild', species, level };
-  S.mode = 'poke';
+function place(hit) {
+  const slot = S.g.inv[S.g.sel];
+  if (!slot) return;
+  const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
+  const here = blockInfo(S.world.block(x, y, z));
+  if (!here || !(here.air || here.water || here.shape === 'cross' || here.shape === 'flat')) return;
+  // Not inside yourself.
+  const p = S.player.pos;
+  if (x + 1 > p[0] - 0.3 && x < p[0] + 0.3 && z + 1 > p[2] - 0.3 && z < p[2] + 0.3 && y + 1 > p[1] && y < p[1] + 1.8) return;
+  const id = S.names.indexOf(slot.name);
+  if (id < 0) return;
+  edit(x, y, z, id);
+  if (--slot.n <= 0) S.g.inv[S.g.sel] = null;
+  renderHotbar();
 }
 
-function mobBattle(mob, ambush) {
-  const [line, bonus, prize] = MOB_POKEMON[mob.type];
-  const level = Math.min(75, levelAt(distFromOrigin(), Math.random) + bonus);
-  const species = formAt(line, level);
-  try { S.runner.start_wild_battle(species, level); } catch { return; }
-  S.battle = { kind: 'mob', mob, species, level, prize };
-  S.mode = 'poke';
-  const name = mob.type.replace(/_/g, ' ').toUpperCase();
-  toast(ambush ? `A ${name} attacks! It's a ${species.toUpperCase()}!` : `The ${name} is really a ${species.toUpperCase()}!`, 2200);
+function edit(x, y, z, id) {
+  S.world.set(x, y, z, id);
+  const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
+  const k = cx + ',' + cz;
+  (S.edits[k] = S.edits[k] || {})[`${x - cx * 16},${y},${z - cz * 16}`] = id;
 }
 
-// Back from Pokémon's screens to walking the world.
-function backToWorld() {
-  const w = S.w, r = S.runner;
-  S.mode = 'world';
-  S.clearFor = 0;
-  input.lock();
-  S.edges.clear();
-  const outcome = r.take_battle_outcome();
-  const b = S.battle;
-  S.battle = null;
-  if (b) {
-    w.safeUntil = w.steps + 3;
-    if (b.kind === 'mob') {
-      w.mobs = w.mobs.filter((m) => m !== b.mob);
-      if (outcome === 'Win' && b.prize) {
-        const money = b.prize * b.level;
-        r.add_money(money);
-        toast(`The ${b.mob.type.toUpperCase()} dropped ¥${money}!`);
-      }
-    }
-  }
-  // Blacking out, FLY, DIG, TELEPORT and ESCAPE ROPE all move Pokémon's
-  // player off its hidden spot: here, they all take you back to where you
-  // last slept (or rang a bell).
-  if (r.current_map() !== PARK.map) {
-    try { r.warp_to(PARK.map, PARK.x, PARK.y); } catch { /* stays where it is */ }
-    w.x = w.spawn[0]; w.z = w.spawn[1];
-    w.surf = false; w.move = null;
-    w.mobs = [];
-    toast(outcome === 'Loss' ? 'You woke up where you last rested.' : 'You return to where you last rested.', 3000);
-  }
-  saveAll('battle');
-}
-
-// ---------------------------------------------------------------- mobs
-function updateMobs() {
-  const w = S.w;
-  w.mobTimer = (w.mobTimer || 0) + 1;
-  if (w.mobTimer % 45 === 0) spawnMob();
-  if (w.mobTimer % 3600 === 1800 && w.steps > 30) spawnTrader();
-  // Hostile mobs burn away in daylight; everything far away despawns.
-  w.mobs = w.mobs.filter((m) => {
-    if (Math.abs(m.x - w.x) > 18 || Math.abs(m.z - w.z) > 18) return false;
-    if (m.hostile && !isNight() && w.time > 1000 && chance(0.004)) return false;
-    if (m.trader && --m.life <= 0) return false;
-    return true;
-  });
-  for (const m of w.mobs) {
-    if (m.move) {
-      m.move.t++;
-      if (m.move.t >= MOB_STEP_FRAMES) { m.x += m.move.dx; m.z += m.move.dz; m.move = null; }
-      continue;
-    }
-    if (--m.wait > 0) continue;
-    const dx0 = w.x - m.x, dz0 = w.z - m.z;
-    const chasing = m.hostile && isNight() && Math.abs(dx0) + Math.abs(dz0) <= 9 && !w.sleep;
-    m.wait = chasing ? 10 + Math.floor(Math.random() * 10) : 50 + Math.floor(Math.random() * 120);
-    let dir;
-    if (chasing) {
-      dir = Math.abs(dx0) > Math.abs(dz0) ? (dx0 > 0 ? 'right' : 'left') : (dz0 > 0 ? 'down' : 'up');
-      if (Math.abs(dx0) + Math.abs(dz0) === 1) {
-        // Next to you: it attacks, unless you're busy.
-        m.facing = dir;
-        if (S.mode === 'world' && !w.move && !S.battle) mobBattle(m, true);
-        continue;
-      }
-    } else {
-      if (chance(0.4)) continue;
-      dir = ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)];
-    }
-    m.facing = dir;
-    const [dx, dz] = DIRS[dir];
-    const tx = m.x + dx, tz = m.z + dz;
-    if ((tx === w.x && tz === w.z) || (w.move && tx === w.x + w.move.dx && tz === w.z + w.move.dz)) continue;
-    if (mobAt(tx, tz)) continue;
-    const kind = stepKind(col(m.x, m.z), col(tx, tz), false);
-    if (kind === 'walk') m.move = { dx, dz, t: 0 };
+function mine() {
+  const hit = targetBlock();
+  if (!hit) { S.mining = null; $('crack').hidden = true; return; }
+  const id = S.world.block(hit.x, hit.y, hit.z);
+  const b = blockInfo(id);
+  if (!b || b.hardness === Infinity) return;
+  const key = `${hit.x},${hit.y},${hit.z}`;
+  if (!S.mining || S.mining.key !== key) S.mining = { key, t: 0 };
+  S.mining.t += DT;
+  const k = S.mining.t / b.hardness;
+  $('crack').hidden = false;
+  $('crack').style.setProperty('--k', String(Math.min(1, k)));
+  if (k >= 1) {
+    S.mining = null;
+    $('crack').hidden = true;
+    edit(hit.x, hit.y, hit.z, S.names.indexOf('air'));
+    const keep = b.shape === 'cube' || b.shape === 'slab' || /_bed$|bell|lantern/.test(b.name);
+    const drop = b.name === 'grass_block' || b.name === 'podzol' || b.name === 'mycelium' || b.name === 'dirt_path' ? 'dirt' : b.name === 'stone' ? 'cobblestone' : b.name;
+    if (keep) addToInventory(drop);
+    // Double plants come down whole; the block above a removed one may float, as in Minecraft.
   }
 }
 
-// Now and then in daylight a Wandering Trader turns up: he runs a Poké Mart.
-function spawnTrader() {
-  const w = S.w;
-  if (isNight() || w.mobs.some((m) => m.trader)) return;
-  for (let tries = 0; tries < 8; tries++) {
-    const ang = Math.random() * Math.PI * 2, r = 6 + Math.random() * 4;
-    const x = Math.round(w.x + Math.cos(ang) * r), z = Math.round(w.z + Math.sin(ang) * r);
-    const c = col(x, z);
-    if (!c || c.g.kind !== K.LAND || c.cn || mobAt(x, z)) continue;
-    w.mobs.push({ type: 'wandering_trader', x, z, facing: 'down', move: null, wait: 60, hostile: false, trader: true, life: 5400 });
-    toast('A WANDERING TRADER is nearby. He sells POKé BALLS and medicine.', 3000);
-    return;
-  }
+// ---------------------------------------------------------------- the loop
+function worldStep(first) {
+  const c = S.controls, p = S.player;
+  S.g.time = (S.g.time + 20 / 60) % DAY_TICKS;
+  if (S.sleep) { sleepStep(); return; }
+  const [lx, ly] = c.takeLook();
+  p.yaw -= lx;
+  p.pitch = Math.max(-1.55, Math.min(1.55, p.pitch - ly));
+  if (c.slot >= 0) { S.g.sel = c.slot; c.slot = -1; renderHotbar(); }
+  if (c.wheel) { S.g.sel = (S.g.sel + Math.sign(c.wheel) + 9) % 9; c.wheel = 0; renderHotbar(); }
+  if (first && c.pressed('start')) { S.startEdge = true; return; }
+  if (first && c.pressed('a')) interact();
+  if (first && c.pressed('ball')) throwBall();
+  if (c.down('mine') || c.down('b')) mine();
+  else if (S.mining) { S.mining = null; $('crack').hidden = true; }
+  p.step(DT, c.move(), c.down('jump'), c.down('sprint') || (TOUCH && Math.hypot(...c.stick) > 0.95), solidAt, waterAt);
+  if (p.pos[1] < -80) respawn('You fell out of the world.');
+  const lava = blockInfo(S.world.block(Math.floor(p.pos[0]), Math.floor(p.pos[1] + 0.1), Math.floor(p.pos[2])));
+  if (lava && lava.lava) respawn('Too hot! You climbed out of the lava back at your bed.');
 }
 
-function spawnMob() {
-  const w = S.w;
-  const night = isNight();
-  const cap = night ? 6 : 5;
-  if (w.mobs.length >= cap) return;
-  for (let tries = 0; tries < 6; tries++) {
-    const ang = Math.random() * Math.PI * 2, r = 7 + Math.random() * 5;
-    const x = Math.round(w.x + Math.cos(ang) * r), z = Math.round(w.z + Math.sin(ang) * r);
-    const c = col(x, z);
-    if (!c || c.g.kind !== K.LAND || c.cn || mobAt(x, z)) continue;
-    const spawns = (c.b.spawns && c.b.spawns[night ? 'monster' : 'creature']) || [];
-    const list = spawns.filter(([t]) => MOB_POKEMON[t] && ASSETS.world.mobs[t] !== undefined);
-    if (!list.length) return;
-    const type = pickWeighted(list);
-    w.mobs.push({ type, x, z, facing: 'down', move: null, wait: 30, hostile: HOSTILE.has(type) });
-    return;
-  }
+function respawn(msg) {
+  const [x, y, z] = S.g.spawn;
+  S.player.pos = [x, y + 0.1, z];
+  S.player.vel = [0, 0, 0];
+  if (msg) toast(msg, 3200);
 }
 
-// ---------------------------------------------------------------- drawing
-function drawBlock(block, biome, x, y, anim, alpha = 1) {
-  const frame = block.frames > 1 ? anim % block.frames : 0;
-  const t = S.tiles.get(block.tile + frame, tintFor(block, biome), block.leaves);
-  if (alpha !== 1) { g.globalAlpha = alpha; g.drawImage(t, x, y); g.globalAlpha = 1; } else g.drawImage(t, x, y);
-}
-
-function spriteFrame(facing, walking, parity) {
-  // Pokémon's sheet: down, up, left standing; then down, up, left stepping.
-  // Right is left mirrored; down/up steps alternate feet by mirroring.
-  if (facing === 'down') return [walking ? 3 : 0, walking && parity];
-  if (facing === 'up') return [walking ? 4 : 1, walking && parity];
-  if (facing === 'left') return [walking ? 5 : 2, false];
-  return [walking ? 5 : 2, true];
-}
-function drawTile(tile, x, y, flip) {
-  const t = S.tiles.get(tile, '');
-  if (!flip) { g.drawImage(t, x, y); return; }
-  g.save(); g.translate(x + 16, y); g.scale(-1, 1); g.drawImage(t, 0, 0); g.restore();
-}
-
-function drawWorld() {
-  const w = S.w;
-  const mv = w.move;
-  const t = mv ? mv.t / mv.len : 0;
-  const camX = Math.round((w.x + (mv ? mv.dx * t : 0)) * 16) - 64;
-  const camZ = Math.round((w.z + (mv ? mv.dz * t : 0)) * 16) - 64;
-  const tx0 = Math.floor(camX / 16), tz0 = Math.floor(camZ / 16);
-  const anim = Math.floor(S.frames / 6);
-  const cols = [];
-  for (let tz = tz0 - 1; tz <= tz0 + 10; tz++) {
-    const row = [];
-    for (let tx = tx0 - 1; tx <= tx0 + 11; tx++) row.push(col(tx, tz));
-    cols.push(row);
-  }
-  const at = (tx, tz) => cols[tz - tz0 + 1][tx - tx0 + 1];
-
-  for (let tz = tz0; tz <= tz0 + 9; tz++) {
-    for (let tx = tx0; tx <= tx0 + 10; tx++) {
-      const sx = tx * 16 - camX, sy = tz * 16 - camZ;
-      const c = at(tx, tz);
-      if (!c) { g.fillStyle = '#0b0b10'; g.fillRect(sx, sy, 16, 16); continue; }
-      drawBlock(c.g, c.b, sx, sy, anim);
-      if (c.g.kind !== K.WATER) {
-        // Height reads as light: high ground pale, low ground dark.
-        const h = c.gy - 64;
-        if (h > 0) { g.fillStyle = `rgba(255,255,255,${Math.min(0.2, h * 0.005)})`; g.fillRect(sx, sy, 16, 16); }
-        else if (h < 0) { g.fillStyle = `rgba(0,0,0,${Math.min(0.35, -h * 0.03)})`; g.fillRect(sx, sy, 16, 16); }
-        // Edges: a drop to the south is a ledge face; drops east and west
-        // and a rise to the north cast thin shadows.
-        const s = at(tx, tz + 1), e = at(tx + 1, tz), wv = at(tx - 1, tz), n = at(tx, tz - 1);
-        if (s) {
-          const d = c.gy - s.gy;
-          if (d >= 2) { g.fillStyle = 'rgba(40,24,8,.55)'; g.fillRect(sx, sy + 12, 16, 4); g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(sx, sy + 11, 16, 1); }
-          else if (d === 1) { g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(sx, sy + 14, 16, 2); }
-        }
-        if (e && c.gy - e.gy >= 1) { g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(sx + 15, sy, 1, 16); }
-        if (wv && c.gy - wv.gy >= 1) { g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(sx, sy, 1, 16); }
-        if (n && n.gy - c.gy >= 2) { g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(sx, sy, 16, 3); }
-      }
-      if (c.d) drawBlock(c.d, c.b, sx, sy, anim);
-    }
-  }
-
-  // Mobs and the player, back to front.
-  const things = w.mobs.map((m) => {
-    const mt = m.move ? m.move.t / MOB_STEP_FRAMES : 0;
-    return { z: m.z + (m.move ? m.move.dz * mt : 0), draw() {
-      const x = Math.round((m.x + (m.move ? m.move.dx * mt : 0)) * 16) - camX;
-      const y = Math.round(this.z * 16) - camZ - 3 - (m.move && m.move.t % 8 < 4 ? 1 : 0);
-      if (x < -16 || y < -16 || x > 160 || y > 144) return;
-      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(x + 3, y + 15, 10, 2);
-      drawTile(ASSETS.world.mobs[m.type], x, y, m.facing === 'left');
-    } };
-  });
-  things.push({ z: w.z + (mv ? mv.dz * t : 0), draw() {
-    const sheet = ASSETS.world.player[w.surf ? 'seel' : 'red'];
-    const walking = !!mv && mv.t < mv.len / 2;
-    const [f, flip] = spriteFrame(w.facing, walking, w.parity);
-    const jump = mv && mv.jump ? Math.round(Math.sin(Math.PI * t) * 8) : 0;
-    if (jump) { g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(66, 74, 12, 2); }
-    drawTile(sheet + f, 64, 60 - jump, flip);
-  } });
-  things.sort((a, b) => a.z - b.z);
-  for (const th of things) th.draw();
-
-  // Tall grass hides the player's feet, as in Pokémon.
-  const here = mv ? null : at(w.x, w.z);
-  if (here && here.d && here.d.grass) {
-    const tile = S.tiles.get(here.d.tile, tintFor(here.d, here.b));
-    g.drawImage(tile, 0, 10, 16, 6, 64, 70, 16, 6);
-  }
-
-  // Tree tops over everything; see-through right around the player.
-  for (let tz = tz0; tz <= tz0 + 9; tz++) {
-    for (let tx = tx0; tx <= tx0 + 10; tx++) {
-      const c = at(tx, tz);
-      if (!c || !c.cn) continue;
-      const near = Math.abs(tx - w.x) <= 1 && Math.abs(tz - w.z) <= 1;
-      const sx = tx * 16 - camX, sy = tz * 16 - camZ;
-      drawBlock(c.cn, c.b, sx, sy, anim, near ? 0.4 : 1);
-      if (!near && c.cn.leaves) { g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(sx, sy + 13, 16, 3); }
-    }
-  }
-
-  // Day and night.
-  const light = daylight();
-  if (light < 1) {
-    g.globalCompositeOperation = 'multiply';
-    const r = Math.round(40 + 215 * light), gg = Math.round(56 + 199 * light), b = Math.round(110 + 145 * light);
-    g.fillStyle = `rgb(${r},${gg},${b})`;
-    g.fillRect(0, 0, 160, 144);
-    g.globalCompositeOperation = 'source-over';
-  }
-  if (w.sleep) {
-    const a = w.sleep.t < 60 ? w.sleep.t / 60 : 1 - (w.sleep.t - 60) / 60;
-    g.fillStyle = `rgba(0,0,0,${a})`;
-    g.fillRect(0, 0, 160, 144);
-  }
-}
-
-function present(px) {
-  // A fully opaque Pokémon frame (battle, party, bag…) is the whole picture.
-  if (S.opaque === 160 * 144) {
-    layerImg.data.set(px);
-    g.putImageData(layerImg, 0, 0);
-    return;
-  }
-  drawWorld();
-  if (S.opaque > 0) {
-    layerImg.data.set(px);
-    lg.putImageData(layerImg, 0, 0);
-    g.drawImage(layer, 0, 0);
-  }
-}
-
-// ---------------------------------------------------------------- loop
 function tickOnce(first) {
-  const r = S.runner;
-  let mask;
+  const r = S.runner, c = S.controls;
+  let mask = 0;
   if (S.mode === 'world') {
     S.startEdge = false;
     worldStep(first);
     mask = S.startEdge ? GB.START : 0;
   } else {
-    if (S.w && (S.w.move || S.w.sleep)) worldStep(false);
-    mask = S.carry | input.gbMask();
-    S.carry = 0;
+    if (S.sleep) sleepStep();
+    mask = c.gbMask();
   }
+  updateBall();
+  S.ents.update(DT, S.mode !== 'world' || !!S.sleep);
   const px = r.tick_layers(mask);
   let opaque = 0;
   for (let i = 3; i < px.length; i += 4) if (px[i]) opaque++;
   S.opaque = opaque;
   S.frames++;
-  if (opaque === 160 * 144 && S.toastUntil) hideToast(); // a battle or full-screen menu
   const screen = r.screen_name();
+  S.screen = screen.startsWith('Shop') ? 'Shop' : screen;
   if (S.mode === 'world') {
     if (screen !== 'Overworld' || opaque > 0) {
       S.mode = 'poke';
       S.clearFor = 0;
-      // Pokémon's own menus and text take the screen: clear the page's
-      // messages, except one that came with this very change (a shop greeting).
-      hideSign();
+      $('sign').hidden = true;
       if (performance.now() - (S.toastAt || 0) > 500) hideToast();
     }
   } else if (screen === 'Overworld' && opaque === 0) {
     if (++S.clearFor >= 2) backToWorld();
-  } else {
-    S.clearFor = 0;
-  }
+  } else S.clearFor = 0;
   if (screen === 'SaveMenu') S.sawSaveMenu = true;
   else if (S.sawSaveMenu) { S.sawSaveMenu = false; saveAll('save menu'); }
   return px;
+}
+
+function backToWorld() {
+  const r = S.runner;
+  S.mode = 'world';
+  S.clearFor = 0;
+  S.controls.lock();
+  const outcome = r.take_battle_outcome();
+  if (S.battle) endBattle(outcome);
+  // Blacking out, FLY, DIG, TELEPORT and ESCAPE ROPE all move Pokémon's
+  // player off its hidden spot: here they take you back to your bed.
+  if (r.current_map() !== PARK.map) {
+    try { r.warp_to(PARK.map, PARK.x, PARK.y); } catch { /* stays */ }
+    respawn(outcome === 'Loss' ? 'You blacked out, and woke up where you last rested.' : 'You return to where you last rested.');
+  }
+  updateParty();
+  saveAll('back');
+}
+
+let lastChunk = '';
+function stream() {
+  const p = S.player;
+  const cx = Math.floor(p.pos[0] / 16), cz = Math.floor(p.pos[2] / 16);
+  const k = cx + ',' + cz;
+  S.world.want(cx, cz, RADIUS);
+  if (k !== lastChunk) {
+    lastChunk = k;
+    for (const gone of S.world.drop(cx, cz, RADIUS + 1)) S.view.removeChunk(gone);
+  }
 }
 
 function frame(now) {
   const dt = Math.min(100, now - (S.last || now));
   S.last = now;
   S.alive = performance.now();
-  input.poll();
-  for (const b of BUTTONS) if (input.pressed(b)) S.edges.add(b);
   updateMessages(now);
   if (S.mode === 'world' || S.mode === 'poke') {
-    const w = S.w;
-    S.gen.want(w.x >> 4, w.z >> 4, 2);
-    S.gen.pump();
+    const c = S.controls;
     S.acc += dt;
     const step = 1000 / POKE_HZ;
-    if (S.mode === 'poke') S.carry |= input.gbMask();
     let n = 0, px = null;
     while (S.acc >= step && n < 4) {
       S.acc -= step;
+      c.poll();
       px = tickOnce(n === 0);
-      if (n === 0) S.edges.clear();
       n++;
     }
     if (n === 4) S.acc = 0;
-    if (px) present(px);
+    stream();
+    c.setMode(S.mode === 'poke');
+    document.body.classList.toggle('in-battle', !!S.battle);
+    S.view.seeThrough(!!S.battle);
+    document.body.classList.toggle('gb-on', S.mode === 'poke');
+    if (px) drawLayer(px, S.screen);
+    // Camera: your eyes, or the battle's view.
+    if (S.battle) stageBattle();
+    else {
+      const p = S.player, cam = S.view.camera;
+      const eye = p.eye();
+      cam.position.set(eye[0], eye[1], eye[2]);
+      cam.rotation.set(p.pitch, p.yaw, 0);
+      const hit = S.mode === 'world' ? targetBlock() : null;
+      S.view.outline.visible = !!hit;
+      if (hit) S.view.outline.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+    }
+    const biome = biomeName(S.player.pos[0], S.player.pos[2]);
+    const sky = (biome && W.biomes[biome] && W.biomes[biome].sky) || '#78a7ff';
+    S.view.setDaylight(daylight(), sky);
+    if (biome && biome !== S.lastBiome && S.mode === 'world' && performance.now() - (S.signAt || 0) > 4000) {
+      S.lastBiome = biome;
+      S.signAt = performance.now();
+      sign(biome.replace(/_/g, ' ').toUpperCase());
+    }
+    S.view.render();
     if (S.frames % 30 === 0) updateHud();
+    if (S.frames % 90 === 0) updateParty();
     if (S.mode === 'world' && now - S.lastSave > AUTOSAVE_MS) saveAll('timer');
-  } else if (S.mode === 'title') {
-    titleInput();
-  } else if (S.mode === 'newworld') {
-    newWorldInput();
-  }
+  } else if (S.mode === 'title') titleInput();
+  else if (S.mode === 'newworld') newWorldInput();
   requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------------- saving
 function saveAll(reason) {
-  const r = S.runner, w = S.w;
-  if (!r || !w) return;
+  const r = S.runner, g = S.g;
+  if (!r || !g) return;
   const s = r.export_live_save();
   if (!s) return;
   store.set(SAVE_KEY, s);
   store.set(FLAGS_KEY, r.export_flags());
-  store.set(WORLD_KEY, JSON.stringify({
-    v: 1, seed: w.seed, seedText: w.seedText, x: w.x, z: w.z, facing: w.facing, surf: w.surf,
-    spawn: w.spawn, origin: w.origin, time: Math.floor(w.time), steps: w.steps,
-  }));
+  const p = S.player;
+  store.set(WORLD_KEY, JSON.stringify({ ...g, pos: p.pos, yaw: p.yaw, pitch: p.pitch, time: Math.floor(g.time) }));
+  store.set(EDITS_KEY, JSON.stringify(S.edits));
   S.lastSave = performance.now();
   S.lastSaveReason = reason;
 }
 
 // ---------------------------------------------------------------- starting
-function newWorldState(saved) {
-  return {
-    seed: saved.seed, seedText: saved.seedText || '', x: saved.x, z: saved.z,
-    facing: saved.facing || 'down', surf: !!saved.surf, move: null, parity: 0, turn: 0,
-    spawn: saved.spawn, origin: saved.origin, time: saved.time ?? 1000,
-    mobs: [], steps: saved.steps || 0, safeUntil: (saved.steps || 0) + 4, biomeLabel: '', sleep: null,
-  };
-}
+function status(t) { $('loading').hidden = false; $('loading').textContent = t; }
 
-async function startGenerator(seed, status) {
+async function startWorld(g) {
   status('MINECRAFT IS GENERATING THE WORLD…');
-  const gen = new WorldGen();
-  const ready = await gen.init(S.mcWasm, S.mcData, seed);
-  S.blocks = buildBlocks(ready.blocks, ASSETS.world);
-  S.biomes = buildBiomes(ready.biomes, ASSETS.world);
-  S.gen = gen;
+  const world = new World();
+  world.onError = (msg) => console.error('world:', msg);
+  const ready = await world.init({
+    wasm: S.mcWasm, data: S.mcData, seed: g.seed, world: { blocks: W.blocks, biomes: W.biomes },
+    atlas: { cols: W.cols, w: S.atlasImg.width, h: S.atlasImg.height }, radius: RADIUS,
+    edits: Object.fromEntries(Object.entries(S.edits).map(([k, v]) => [k, Object.entries(v)])),
+  });
+  S.world = world;
+  S.names = ready.blocks;
+  S.biomeNames = ready.biomes;
+  S.info = buildInfo(ready.blocks);
+  world.air = ready.blocks.indexOf('air');
+  world.stone = ready.blocks.indexOf('stone');
+  S.view = new View($('view'), S.atlasImg, S.monsImg, world);
+  S.view.setRadius(RADIUS);
+  world.onMesh = (m) => {
+    S.view.addChunk(m);
+    if (m.bells.length && S.ents) S.ents.addBells(m.bells);
+  };
   return ready;
 }
 
-/// A dry, open spot near Minecraft's own spawn point.
-async function findSpawn(spawnChunk, status) {
-  const [sx, sz] = spawnChunk;
-  for (let r = 0; r <= 8; r++) {
-    for (let dz = -r; dz <= r; dz++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-        status(`LOOKING FOR LAND… ${r ? `(${r * 16} BLOCKS OUT)` : ''}`);
-        const cx = sx + dx, cz = sz + dz;
-        await S.gen.load(cx, cz);
-        let best = null, bestScore = -1;
-        for (let z = 2; z < 14; z++) {
-          for (let x = 2; x < 14; x++) {
-            const wx = cx * 16 + x, wz = cz * 16 + z;
-            const c = col(wx, wz);
-            if (!c || c.g.kind !== K.LAND || c.cn) continue;
-            let open = 0;
-            for (let oz = -2; oz <= 2; oz++) for (let ox = -2; ox <= 2; ox++) {
-              const n = col(wx + ox, wz + oz);
-              if (n && stepKind(c, n, false) === 'walk' && !n.cn) open++;
-            }
-            const score = open * 10 - Math.abs(x - 8) - Math.abs(z - 8) - (c.d && c.d.grass ? 15 : 0);
-            if (open >= 18 && score > bestScore) { bestScore = score; best = [wx, wz]; }
-          }
-        }
-        if (best) return best;
+async function loadAround(x, z, r) {
+  const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
+  S.world.want(cx, cz, r);
+  for (let i = 0; i < 4000; i++) {
+    let missing = 0;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (!S.world.chunks.has((cx + dx) + ',' + (cz + dz))) missing++;
+    status(`LOADING CHUNKS… ${(2 * r + 1) ** 2 - missing}/${(2 * r + 1) ** 2}`);
+    if (!missing) return;
+    await new Promise((res) => setTimeout(res, 30));
+  }
+}
+
+/// Dry, open land near Minecraft's own spawn point.
+async function findSpawn([sx, sz]) {
+  for (let ring = 0; ring <= 6; ring++) {
+    for (let dz = -ring; dz <= ring; dz++) for (let dx = -ring; dx <= ring; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+      const cx = sx + dx, cz = sz + dz;
+      status(`LOOKING FOR LAND… ${ring ? `(${ring * 16} BLOCKS OUT)` : ''}`);
+      await loadAround(cx * 16 + 8, cz * 16 + 8, 0);
+      const c = S.world.chunks.get(cx + ',' + cz);
+      for (let i = 0; i < 256; i++) {
+        const lx = (i * 7 + 3) % 16, lz = Math.floor(((i * 7 + 3) % 256) / 16);
+        const x = cx * 16 + lx + 0.5, z = cz * 16 + lz + 0.5;
+        const g = S.ents.surface(x, z);
+        if (!g || g.water) continue;
+        const top = blockInfo(S.world.block(Math.floor(x), Math.floor(g.y) - 1, Math.floor(z)));
+        if (!top || /_leaves$|_log$/.test(top.name)) continue;
+        if (g.y < 62 || g.y > c.hi + 2) continue;
+        return [x, g.y, z];
       }
     }
   }
-  return [sx * 16 + 8, sz * 16 + 8];
+  const c = S.world.chunks.get(sx + ',' + sz);
+  return [sx * 16 + 8.5, (c ? c.hi : 80) + 2, sz * 16 + 8.5];
+}
+
+function makeEntities() {
+  S.ents = new Entities({
+    view: S.view, world: S.world, blockInfo, assets: W, player: S.player,
+    zoneLevel, isNight, biomeName, origin: () => S.g.origin,
+    say: (t) => toast(t, 3200),
+    onTouch: (e) => { if (S.mode === 'world' && !S.battle && !S.sleep) startBattle(e.kind === 'trainer' ? 'trainer' : 'wild', e); },
+    onSpotted: (e) => {
+      const view = S.view;
+      e.alert = view.sprite3(alertCanvas());
+      e.alert.scale.setScalar(0.8);
+      toast(`A ${e.trainer.cls.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()} wants to battle!`, 2400);
+    },
+  });
+}
+
+let alertC = null;
+function alertCanvas() {
+  if (alertC) return alertC;
+  alertC = document.createElement('canvas');
+  alertC.width = alertC.height = 16;
+  const x = alertC.getContext('2d');
+  x.fillStyle = '#f8f8f0'; x.fillRect(4, 0, 8, 16);
+  x.fillStyle = '#181818'; x.fillRect(6, 2, 4, 8); x.fillRect(6, 12, 4, 3);
+  return alertC;
 }
 
 function bootRunner(saveJson, flags) {
   const r = new PokeredRunner(saveJson);
   if (flags) r.import_flags(flags);
   S.runner = r;
-  // Re-enter the hidden spot so Route 1's music starts.
   try { r.warp_to(PARK.map, PARK.x, PARK.y); } catch { /* silent start */ }
   return r;
 }
 
 async function continueGame() {
   const saved = JSON.parse(store.get(WORLD_KEY));
-  const status = (t) => { $('loading').textContent = t; };
   enterLoading();
-  await startGenerator(saved.seed, status);
-  status('LOADING CHUNKS…');
-  await S.gen.load(saved.x >> 4, saved.z >> 4);
-  S.w = newWorldState(saved);
+  try { S.edits = JSON.parse(store.get(EDITS_KEY) || '{}'); } catch { S.edits = {}; }
+  S.g = saved;
+  await startWorld(saved);
+  S.player = new Player(...saved.pos);
+  S.player.yaw = saved.yaw || 0;
+  S.player.pitch = saved.pitch || 0;
+  makeEntities();
+  await loadAround(saved.pos[0], saved.pos[2], 1);
   bootRunner(store.get(SAVE_KEY), store.get(FLAGS_KEY));
   enterWorld();
 }
 
 async function newGame(starterKey, seedText) {
   const seed = parseSeed(seedText);
-  const status = (t) => { $('loading').textContent = t; };
   enterLoading();
-  const ready = await startGenerator(seed, status);
-  const spot = await findSpawn(ready.spawn, status);
-  // Pokémon's own save from a previous run would load on boot; a new world must not.
+  S.edits = {};
+  S.g = { v: 3, seed, seedText: seedText || seedString(seed), spawn: [0, 0, 0], origin: [0, 0], time: 1000, inv: Array(9).fill(null), sel: 0 };
+  S.g.inv[0] = { name: 'red_bed', n: 1 };
+  const ready = await startWorld(S.g);
+  S.player = new Player(0, 200, 0);
+  makeEntities();
+  const spot = await findSpawn(ready.spawn);
+  S.player.pos = [...spot];
+  S.player.pitch = -0.25;
+  S.g.spawn = [...spot];
+  S.g.origin = [spot[0], spot[2]];
+  await loadAround(spot[0], spot[2], 1);
   store.del('pokered.save');
   store.del('pokered.script_flags');
   const starter = STARTERS[starterKey];
   const r = new PokeredRunner(null);
   r.import_editor_save(JSON.stringify({
-    player: {
-      playerName: 'RED', rivalName: 'BLUE', mapName: PARK.map, positionX: PARK.x, positionY: PARK.y,
-      playTimeHours: 0, playTimeMinutes: 0, money: 3000,
-    },
+    player: { playerName: 'RED', rivalName: 'BLUE', mapName: PARK.map, positionX: PARK.x, positionY: PARK.y, playTimeHours: 0, playTimeMinutes: 0, money: 3000 },
     badges: [],
     party: [{ species: starter.species, level: 5, currentHp: 999, maxHp: 999, moves: starter.moves, nickname: '' }],
     items: [{ name: 'POKE_BALL', quantity: 10 }, { name: 'POTION', quantity: 5 }, { name: 'ANTIDOTE', quantity: 1 }],
@@ -956,9 +908,10 @@ async function newGame(starterKey, seedText) {
   }));
   S.runner = r;
   try { r.warp_to(PARK.map, PARK.x, PARK.y); } catch { /* silent start */ }
-  S.w = newWorldState({ seed, seedText: seedText || seedString(seed), x: spot[0], z: spot[1], spawn: spot, origin: spot, time: 1000 });
   enterWorld();
-  toast(`SEED ${S.w.seedText}. Wild POKéMON hide in tall grass, and Minecraft's mobs are POKéMON too. The farther you go, the stronger they get. A: talk/SURF · B: sprint · SELECT: sleep at night · START: menu`, 8000);
+  toast(TOUCH
+    ? `SEED ${S.g.seedText}. Left thumb: walk. Right thumb: look; tap to use. BALL throws your POKéMON at a wild one to battle it. MENU opens your POKéMON menu.`
+    : `SEED ${S.g.seedText}. WASD + mouse. Click: mine. Right-click / E: use. Q: throw your POKéMON's ball to battle. Space: jump. Shift: sprint. Enter: menu.`, 9000);
 }
 
 function enterLoading() {
@@ -967,60 +920,48 @@ function enterLoading() {
   $('title').hidden = false;
   $('title').querySelector('.menu').hidden = true;
   $('newworld').hidden = true;
-  $('loading').hidden = false;
-  S.mode = 'loading';
 }
 function enterWorld() {
   $('title').hidden = true;
   $('newworld').hidden = true;
-  $('hud-world').hidden = false;
+  $('loading').hidden = true;
+  document.body.classList.add('playing');
   S.mode = 'world';
   S.acc = 0;
-  S.carry = 0;
-  input.lock();
-  const here = col(S.w.x, S.w.z);
-  if (here) { S.w.biomeLabel = here.b.label; sign(here.b.label); }
+  S.view.resize();
+  S.controls.lock();
+  updateParty();
   updateHud();
+  renderHotbar();
   saveAll('start');
 }
 
-// ---------------------------------------------------------------- title + new world
+// ---------------------------------------------------------------- title
 let titleIndex = 0;
 function titleButtons() { return [...document.querySelectorAll('#title .menu button')].filter((b) => !b.hidden); }
 function renderTitle() { titleButtons().forEach((b, i) => b.classList.toggle('sel', i === titleIndex)); }
 function titleInput() {
+  const c = S.controls;
+  c.poll();
   const bs = titleButtons();
   if (!bs.length) return;
-  if (input.pressed('up')) { titleIndex = (titleIndex + bs.length - 1) % bs.length; renderTitle(); }
-  if (input.pressed('down')) { titleIndex = (titleIndex + 1) % bs.length; renderTitle(); }
-  if (input.pressed('a') || input.pressed('start')) bs[titleIndex]?.click();
+  if (c.pressed('up') || c.pressed('fwd')) { titleIndex = (titleIndex + bs.length - 1) % bs.length; renderTitle(); }
+  if (c.pressed('down') || c.pressed('back')) { titleIndex = (titleIndex + 1) % bs.length; renderTitle(); }
+  if (c.pressed('start')) bs[titleIndex]?.click();
 }
-
 let armed = false;
 function openNewWorld() {
-  if (store.get(WORLD_KEY) && !armed) {
-    armed = true;
-    $('btn-new').textContent = 'TAP AGAIN: ERASE SAVE';
-    return;
-  }
+  if (store.get(WORLD_KEY) && !armed) { armed = true; $('btn-new').textContent = 'TAP AGAIN: ERASE SAVE'; return; }
   S.started = true;
   unlockAudio();
   $('title').hidden = true;
   $('newworld').hidden = false;
   S.mode = 'newworld';
-  starterIndex = 0;
-  renderStarters();
-  input.lock();
 }
-let starterIndex = 0;
-function starterButtons() { return [...document.querySelectorAll('#starters button')]; }
-function renderStarters() { starterButtons().forEach((b, i) => b.classList.toggle('sel', i === starterIndex)); }
 function newWorldInput() {
-  const bs = starterButtons();
-  if (input.pressed('left') || input.pressed('up')) { starterIndex = (starterIndex + bs.length - 1) % bs.length; renderStarters(); }
-  if (input.pressed('right') || input.pressed('down')) { starterIndex = (starterIndex + 1) % bs.length; renderStarters(); }
-  if (input.pressed('a') || input.pressed('start')) bs[starterIndex].click();
-  if (input.pressed('b')) { $('newworld').hidden = true; $('title').hidden = false; S.mode = 'title'; input.lock(); }
+  const c = S.controls;
+  c.poll();
+  if (c.pressed('b')) { $('newworld').hidden = true; $('title').hidden = false; S.mode = 'title'; }
 }
 
 function fail(e) {
@@ -1031,49 +972,47 @@ function fail(e) {
   console.error(e);
 }
 
+window.__pcTest = {
+  startBattle: (kind, e) => startBattle(kind, e), saveAll, updateParty, throwBall, interact, edit,
+  solidAt, blockAt: (x, y, z) => S.names[S.world.block(x, y, z)], targetBlock,
+};
+
 async function main() {
-  setupTouch();
+  S.controls = new Controls(unlockAudio);
   $('mute').addEventListener('click', () => { unlockAudio(); audio.setMuted(!audio.muted); });
   audio.setMuted(audio.muted);
   $('btn-continue').addEventListener('click', () => continueGame().catch(fail));
   $('btn-new').addEventListener('click', openNewWorld);
-  for (const b of starterButtons()) {
+  for (const b of document.querySelectorAll('#starters button')) {
     b.addEventListener('click', () => newGame(b.dataset.starter, $('seed').value).catch(fail));
   }
-  $('toast').addEventListener('click', () => { $('toast').hidden = true; S.toastUntil = 0; });
+  $('toast').addEventListener('click', hideToast);
+  addEventListener('resize', () => S.view && S.view.resize());
   const leaving = (why) => { if (S.mode === 'world' || S.mode === 'poke') saveAll(why); };
   addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      leaving('hidden');
-      if (audio.ctx) audio.ctx.suspend().catch(() => {});
-    } else if (audio.ctx && S.started) {
-      audio.ctx.resume().catch(() => {});
-    }
+    if (document.hidden) { leaving('hidden'); if (audio.ctx) audio.ctx.suspend().catch(() => {}); }
+    else if (audio.ctx && S.started) audio.ctx.resume().catch(() => {});
   });
   addEventListener('pagehide', () => leaving('pagehide'));
-
   try {
     if (typeof DecompressionStream === 'undefined') throw new Error('this browser is too old (no DecompressionStream)');
     const [pk, mc] = await Promise.all([gunzip(b64bytes(ASSETS.pk)), gunzip(b64bytes(ASSETS.mc))]);
     await initPokered({ module_or_path: pk });
     S.mcWasm = mc;
     S.mcData = b64bytes(ASSETS.data);
-    const img = new Image();
-    img.src = 'data:image/png;base64,' + ASSETS.atlas;
-    await img.decode();
-    S.tiles = new Tiles(img, ASSETS.world.cols);
-  } catch (e) {
-    fail(e);
-    throw e;
-  }
-  delete ASSETS.pk; delete ASSETS.mc; delete ASSETS.data; delete ASSETS.atlas;
+    S.atlasImg = await image(ASSETS.atlas);
+    S.monsImg = await image(ASSETS.mons);
+    S.atlasUrl = 'data:image/png;base64,' + ASSETS.atlas;
+    S.atlasRows = S.atlasImg.height / 16;
+  } catch (e) { fail(e); throw e; }
+  delete ASSETS.pk; delete ASSETS.mc; delete ASSETS.data; delete ASSETS.mons;
   $('loading').hidden = true;
   $('btn-continue').hidden = !(store.get(WORLD_KEY) && store.get(SAVE_KEY));
   if (!store.set('pcraft.probe', '1')) $('nosave').hidden = false;
   $('title').querySelector('.menu').hidden = false;
-  titleIndex = 0;
   renderTitle();
   S.mode = 'title';
   requestAnimationFrame(frame);
 }
 main();
+

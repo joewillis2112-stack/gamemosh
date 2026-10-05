@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#1b1d24">
+<meta name="theme-color" content="#0e1310">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Pokécraft</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,48 +12,38 @@
 </head>
 <body>
 <div id="app">
-  <header id="hud">
-    <span id="brand">POKéCRAFT</span>
-    <span id="hud-world" hidden><span id="clock">DAY 07:00</span> <span id="zone">WILD LV~3</span></span>
-    <button id="mute" type="button">SOUND ON</button>
-  </header>
+  <canvas id="view"></canvas>
+  <div id="fade"></div>
 
-  <main id="stage">
-    <div id="bezel">
-      <div id="glass">
-        <canvas id="screen" width="160" height="144"></canvas>
-        <div id="sign" hidden></div>
-        <div id="toast" hidden></div>
-
-        <section id="title" class="overlay">
-          <h1>POKé<span>CRAFT</span></h1>
-          <p class="sub">POKéMON RED × MINECRAFT</p>
-          <p id="loading">LOADING…</p>
-          <div class="menu" hidden>
-            <button id="btn-continue" type="button" hidden>CONTINUE</button>
-            <button id="btn-new" type="button">NEW WORLD</button>
-          </div>
-          <p id="nosave" hidden>SAVING IS OFF IN THIS BROWSER. PROGRESS ENDS WHEN YOU CLOSE THE PAGE.</p>
-          <p class="hint">Minecraft makes an endless world from a seed. You walk it as RED. Wild POKéMON hide in its grass, and its mobs are POKéMON in disguise.</p>
-        </section>
-
-        <section id="newworld" class="overlay box" hidden>
-          <h2>NEW WORLD</h2>
-          <label for="seed">SEED</label>
-          <input id="seed" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="random" maxlength="32">
-          <p class="pick">CHOOSE YOUR FIRST POKéMON</p>
-          <div id="starters">
-            <button type="button" data-starter="bulbasaur">BULBASAUR</button>
-            <button type="button" data-starter="charmander">CHARMANDER</button>
-            <button type="button" data-starter="squirtle">SQUIRTLE</button>
-          </div>
-          <p class="hint">SQUIRTLE can SURF from the start.<br>B: BACK</p>
-        </section>
-      </div>
+  <div id="hud">
+    <div id="topbar">
+      <span id="brand">POKéCRAFT</span>
+      <span id="clock">DAY 07:00</span>
+      <span id="zone">WILD LV~3</span>
+      <button id="mute" type="button">SOUND ON</button>
     </div>
-  </main>
+    <div id="party"></div>
+    <div id="crosshair"></div>
+    <div id="crack" hidden></div>
+    <div id="sign" hidden></div>
+  </div>
 
-  <div id="pad">
+  <canvas id="gb" width="160" height="144"></canvas>
+  <div id="toast" hidden></div>
+
+  <div id="fps-pad">
+    <div id="stick" hidden><div id="knob"></div></div>
+    <button type="button" class="act menubtn" data-act="start">MENU</button>
+    <div id="hotbar"></div>
+    <div id="acts">
+      <button type="button" class="act ball" data-act="ball" aria-label="throw your POKéMON's ball"><i></i>BALL</button>
+      <button type="button" class="act mine" data-act="mine">MINE</button>
+      <button type="button" class="act use" data-act="a">USE</button>
+      <button type="button" class="act jump" data-act="jump">JUMP</button>
+    </div>
+  </div>
+
+  <div id="gb-pad" hidden>
     <div id="dpad" aria-label="direction pad">
       <span class="arm up"></span><span class="arm down"></span>
       <span class="arm left"></span><span class="arm right"></span>
@@ -68,6 +58,30 @@
       <button type="button" data-btn="a" class="round a">A</button>
     </div>
   </div>
+
+  <section id="title" class="panel">
+    <h1>POKé<span>CRAFT</span></h1>
+    <p class="sub">POKéMON RED × MINECRAFT</p>
+    <p id="loading">LOADING…</p>
+    <div class="menu" hidden>
+      <button id="btn-continue" type="button" hidden>CONTINUE</button>
+      <button id="btn-new" type="button">NEW WORLD</button>
+    </div>
+    <p id="nosave" hidden>SAVING IS OFF IN THIS BROWSER. PROGRESS ENDS WHEN YOU CLOSE THE PAGE.</p>
+    <p class="hint">An endless Minecraft world, made by Minecraft's own generator. Wild POKéMON live in it, trainers roam it, and battles happen right where you meet.</p>
+  </section>
+
+  <section id="newworld" class="panel box" hidden>
+    <h2>NEW WORLD</h2>
+    <label for="seed">SEED</label>
+    <input id="seed" type="text" autocomplete="off" spellcheck="false" placeholder="random" maxlength="32">
+    <p class="pick">CHOOSE YOUR FIRST POKéMON</p>
+    <div id="starters">
+      <button type="button" data-starter="bulbasaur">BULBASAUR</button>
+      <button type="button" data-starter="charmander">CHARMANDER</button>
+      <button type="button" data-starter="squirtle">SQUIRTLE</button>
+    </div>
+  </section>
 </div>
 <script>/*ASSETS*/</script>
 <script>/*SCRIPT*/</script>

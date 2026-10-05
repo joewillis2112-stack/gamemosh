@@ -22,6 +22,6 @@ Layout:
 - `tests/`: Playwright suites
 - `tools/build.mjs`: single-file HTML build
 - `gamecorner/`: Game Corner Arcade, the first attempt, a game-in-game rather than a true mosh (Pokémon Red + PICO-8 cabinets). See its README; build with `gamecorner/build.sh`
-- `pokecraft/`: Pokécraft, Pokémon Red played in an endless Minecraft world (MinecraftOSS worldgen + open-pokered). See its README; build with `pokecraft/build.sh`
+- `pokecraft/`: Pokécraft, Pokémon Red in an endless first-person Minecraft world, Pixelmon-style (MinecraftOSS worldgen + open-pokered + three.js). See its README; build with `pokecraft/build.sh`
 - `mashup-research/`: verified game and rewrite research, in rounds
 - `GAMEMOSH_BRIEF.md`: early research
