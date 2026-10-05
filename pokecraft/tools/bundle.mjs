@@ -44,6 +44,7 @@ const assets = {
   mc: b64(gz(join(work, 'mcgen.wasm'))),
   data: b64(readFileSync(join(work, 'mcdata.bin'))), // already gzipped; mcgen unpacks it
   atlas: b64(readFileSync(join(work, 'assets/blocks.png'))),
+  items: b64(readFileSync(join(work, 'assets/items.png'))),
   mons: b64(readFileSync(join(work, 'assets/mons.png'))),
   world: JSON.parse(readFileSync(join(work, 'assets/world.json'), 'utf8')),
 };

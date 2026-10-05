@@ -14,6 +14,8 @@ export class World {
     this.onError = null;
     this.mode = '';
     this.stats = { meshes: 0, ms: 0 };
+    this.pending = []; // our edits the worker hasn't sent a mesh for yet: [x, y, z, id, seq]
+    this.seq = 0;
   }
 
   async init({ wasm, data, seed, world, atlas, radius, edits }) {
@@ -60,7 +62,13 @@ export class World {
     if (m.t === 'mesh') {
       const k = m.cx + ',' + m.cz;
       this.sent.delete(k);
-      this.chunks.set(k, { lo: m.lo, hi: m.hi, vol: m.vol, biome: m.biome, bells: m.bells });
+      const c = { lo: m.lo, hi: m.hi, vol: m.vol, biome: m.biome, bells: m.bells };
+      // The worker made this before seeing our newest edits: keep them.
+      this.pending = this.pending.filter((e) => e[4] > m.seq);
+      for (const [x, y, z, id] of this.pending) {
+        if (Math.floor(x / 16) === m.cx && Math.floor(z / 16) === m.cz && y >= c.lo && y <= c.hi) c.vol[(y - c.lo) * 256 + (z - m.cz * 16) * 16 + (x - m.cx * 16)] = id;
+      }
+      this.chunks.set(k, c);
       this.stats.meshes++;
       this.stats.ms += m.ms;
       if (this.onMesh) this.onMesh(m);
@@ -118,7 +126,9 @@ export class World {
     const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
     const c = this.chunks.get(cx + ',' + cz);
     if (c && y >= c.lo && y <= c.hi) c.vol[(y - c.lo) * 256 + (z - cz * 16) * 16 + (x - cx * 16)] = id;
-    this.post({ t: 'edit', at: [x, y, z, id] });
+    const seq = ++this.seq;
+    this.pending.push([x, y, z, id, seq]);
+    this.post({ t: 'edit', at: [x, y, z, id], seq });
   }
 
   async biomesAt(points) {

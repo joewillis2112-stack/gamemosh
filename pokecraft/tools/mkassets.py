@@ -1,10 +1,12 @@
 # Builds Pokécraft's art from the Minecraft client jar and Pokémon's graphics:
 #   blocks.png - every block face texture the 3D world needs (16x16 tiles)
+#   items.png  - icons for items that aren't blocks (tools, food, ingots…)
 #   mons.png   - every Pokémon's front and back picture, coloured with its
 #                Super Game Boy palette, plus the NPCs (Nurse, Clerk, trainers)
 #   world.json - block name -> shape, face tiles, tint, collision;
 #                biome name -> colours and Minecraft's spawn lists;
-#                species -> picture cells and sizes; NPC sprites
+#                species -> picture cells and sizes; NPC sprites; item names,
+#                icons and Minecraft's own crafting and smelting recipes; mob skins
 # Usage: python3 mkassets.py client.jar blocks.json biomes.json open-pokered/ out/
 import io, json, re, sys, zipfile
 from PIL import Image
@@ -184,6 +186,14 @@ for y in range(16):
 side.alpha_composite(tinted)
 add_tile('grass_block_side', side)
 
+# Light levels from Minecraft's block properties.
+LIGHT = {'torch': 14, 'wall_torch': 14, 'soul_torch': 10, 'soul_wall_torch': 10, 'redstone_torch': 7, 'redstone_wall_torch': 7,
+         'lantern': 15, 'soul_lantern': 10, 'glowstone': 15, 'sea_lantern': 15, 'jack_o_lantern': 15, 'campfire': 15,
+         'soul_campfire': 10, 'lava': 15, 'magma_block': 3, 'shroomlight': 15, 'fire': 15, 'end_rod': 14, 'beacon': 15,
+         'ochre_froglight': 15, 'verdant_froglight': 15, 'pearlescent_froglight': 15, 'glow_lichen': 7, 'cave_vines': 14,
+         'cave_vines_plant': 14, 'sea_pickle': 6, 'amethyst_cluster': 5, 'brewing_stand': 1, 'furnace': 0, 'crying_obsidian': 10}
+LIGHT_SUFFIX = {'_candle': 3}
+
 blocks, missing = {}, []
 for name in block_names:
     if name in AIR:
@@ -225,9 +235,13 @@ for name in block_names:
     entry = {'s': shape, 'f': faces, 'c': 1 if solid else 0, 'l': layer}
     if tint:
         entry['t'] = tint
-    if name == 'lava' or name == 'magma_block' or name.endswith('lantern') or 'torch' in name or name == 'glowstone' or name == 'sea_lantern' or name == 'jack_o_lantern' or name.endswith('campfire') or name == 'shroomlight':
-        entry['e'] = 1  # glows: stays lit at night
+    glow = LIGHT.get(name) or next((v for k, v in LIGHT_SUFFIX.items() if name.endswith(k)), 0)
+    if glow:
+        entry['e'] = glow  # light level it gives off, as in Minecraft
     blocks[name] = entry
+
+# Minecraft's ten cracking stages, drawn over a block while you mine it.
+destroy = [tex_tile(f'destroy_stage_{i}') for i in range(10)]
 
 # ---------------------------------------------------------------- biomes
 grass_map, foliage_map = png(TEX + 'colormap/grass.png'), png(TEX + 'colormap/foliage.png')
@@ -238,6 +252,16 @@ def sample(img, temp, down):
     d = min(max(down, 0.0), 1.0) * t
     r, g, b, _ = img.getpixel((int((1 - t) * 255), int((1 - d) * 255)))
     return '#%02x%02x%02x' % (r, g, b)
+
+
+def spawns_of(d):
+    # Minecraft's own spawn lists for the biome (creatures by day, monsters by night).
+    nat = d.get('attributes', {}).get('minecraft:gameplay/natural_mob_spawns', {})
+    out = {}
+    for cat, lst in nat.get('argument', {}).get('spawns_by_category', {}).items():
+        if cat in ('creature', 'monster'):
+            out[cat] = [[e['type'].split(':')[1], e['weight']] for e in lst]
+    return out
 
 
 biomes = {}
@@ -257,7 +281,8 @@ for name in biome_names:
         grass = '#%06x' % (((c & 0xfefefe) + 0x28340a) >> 1)
     sky = d.get('attributes', {}).get('minecraft:visual/sky_color')
     biomes[name] = {'grass': grass, 'foliage': foliage, 'water': fx.get('water_color', '#3f76e4'),
-                    'temp': temp, 'sky': ('#%06x' % sky) if isinstance(sky, int) else '#78a7ff'}
+                    'temp': temp, 'sky': ('#%06x' % sky) if isinstance(sky, int) else '#78a7ff',
+                    'spawns': spawns_of(d)}
 
 # ---------------------------------------------------------------- Pokémon pictures
 # Super Game Boy palettes from open-pokered's own transcription of the ROM.
@@ -362,6 +387,132 @@ for cls, sprite in TRAINERS.items():
     trainers[cls] = {'npc': sprite, 'parties': [[i, max(m['level'] for m in p['pokemon']), len(p['pokemon'])]
                                                  for i, p in enumerate(d['parties']) if p['pokemon']]}
 
+# ---------------------------------------------------------------- items, names, recipes
+lang = json.loads(jar.read('assets/minecraft/lang/en_us.json'))
+item_tex = {n[len(TEX) + 5:-4] for n in jar.namelist() if n.startswith(TEX + 'item/') and n.endswith('.png')}
+names = jar.namelist()
+
+
+def tag_items(tag, seen=None):
+    """Item ids in an item tag, following nested tags."""
+    seen = seen or set()
+    if tag in seen:
+        return []
+    seen.add(tag)
+    path = f'data/minecraft/tags/item/{tag}.json'
+    if path not in names:
+        return []
+    out = []
+    for v in json.loads(jar.read(path))['values']:
+        v = v['id'] if isinstance(v, dict) else v
+        if v.startswith('#'):
+            out += tag_items(v[1:].split(':')[1], seen)
+        else:
+            out.append(v.split(':')[1])
+    return out
+
+
+def alternatives(ing):
+    if isinstance(ing, dict):
+        ing = ing.get('item') or ing.get('tag') and '#' + ing['tag'] or ing.get('id')
+    if isinstance(ing, list):
+        out = []
+        for i in ing:
+            out += alternatives(i)
+        return out
+    if ing.startswith('#'):
+        return tag_items(ing[1:].split(':')[1])
+    return [ing.split(':')[1]]
+
+
+def known(item):
+    return item in blocks or item in item_tex
+
+
+recipes = []
+for path in sorted(n for n in names if n.startswith('data/minecraft/recipe/') and n.endswith('.json')):
+    try:
+        r = json.loads(jar.read(path))
+    except ValueError:
+        continue
+    kind = r.get('type', '').split(':')[-1]
+    res = r.get('result')
+    if not isinstance(res, dict) or 'id' not in res:
+        continue
+    out_id, count = res['id'].split(':')[1], res.get('count', 1)
+    if kind == 'crafting_shaped':
+        pattern = r['pattern']
+        counts = {}
+        for row in pattern:
+            for ch in row:
+                if ch != ' ':
+                    counts[ch] = counts.get(ch, 0) + 1
+        ings = [[alternatives(r['key'][ch]), n] for ch, n in counts.items()]
+        grid = 3 if len(pattern) > 2 or max(len(row) for row in pattern) > 2 else 2
+    elif kind == 'crafting_shapeless':
+        merged = {}
+        for ing in r['ingredients']:
+            key = tuple(alternatives(ing))
+            merged[key] = merged.get(key, 0) + 1
+        ings = [[list(k), n] for k, n in merged.items()]
+        grid = 3 if sum(merged.values()) > 4 else 2
+    elif kind in ('smelting',):
+        ings = [[alternatives(r['ingredient']), 1]]
+        grid = 'furnace'
+    else:
+        continue
+    ings = [[[i for i in alts if known(i)], n] for alts, n in ings]
+    if not known(out_id) or any(not alts for alts, _ in ings):
+        continue
+    recipes.append({'out': out_id, 'n': count, 'in': ings, 'g': grid})
+
+# Every item that can be held: blocks, recipe ingredients and results, and drops.
+EXTRA = ['stick', 'coal', 'charcoal', 'raw_iron', 'raw_gold', 'raw_copper', 'iron_ingot', 'gold_ingot', 'copper_ingot', 'diamond',
+         'emerald', 'lapis_lazuli', 'redstone', 'flint', 'apple', 'wheat_seeds', 'rotten_flesh', 'bone', 'arrow', 'string',
+         'spider_eye', 'gunpowder', 'beef', 'cooked_beef', 'porkchop', 'cooked_porkchop', 'chicken', 'cooked_chicken', 'mutton',
+         'cooked_mutton', 'leather', 'feather', 'cod', 'cooked_cod', 'salmon', 'cooked_salmon', 'sweet_berries', 'bread',
+         'fishing_rod', 'bone_meal', 'red_dye', 'white_dye', 'iron_nugget', 'gold_nugget', 'egg', 'white_wool', 'glass_bottle',
+         'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'wooden_axe', 'stone_axe', 'iron_axe', 'diamond_axe',
+         'wooden_shovel', 'stone_shovel', 'iron_shovel', 'diamond_shovel', 'wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword',
+         'baked_potato', 'potato', 'carrot', 'melon_slice', 'pumpkin_pie', 'cookie', 'glow_berries', 'mushroom_stew', 'bowl', 'sugar']
+held = set(EXTRA)
+for r in recipes:
+    held.add(r['out'])
+    for alts, _ in r['in']:
+        held.update(alts)
+item_tiles, icons = [], {}
+for item in sorted(held):
+    if item in item_tex:
+        img = png(TEX + 'item/' + item + '.png').crop((0, 0, 16, 16))
+        icons[item] = {'i': len(item_tiles)}
+        item_tiles.append(img)
+    elif item in blocks:
+        b = blocks[item]
+        icons[item] = {'b': b['f'][1] if b['s'] in ('cube', 'slab') else b['f'][0]}
+
+
+def nice(item):
+    return lang.get(f'item.minecraft.{item}') or lang.get(f'block.minecraft.{item}') or item.replace('_', ' ').title()
+
+
+item_names = {i: nice(i) for i in set(icons) | set(blocks)}
+IROWS = (len(item_tiles) + 31) // 32
+items_atlas = Image.new('RGBA', (32 * 16, max(1, IROWS) * 16))
+for i, t in enumerate(item_tiles):
+    items_atlas.paste(t, ((i % 32) * 16, (i // 32) * 16))
+items_atlas.save(f'{out}/items.png', optimize=True)
+
+# Minecraft mob skins for the 3D mob models.
+MOB_SKINS = {'zombie': 'zombie/zombie', 'husk': 'zombie/husk', 'drowned': 'zombie/drowned', 'skeleton': 'skeleton/skeleton',
+             'stray': 'skeleton/stray', 'creeper': 'creeper/creeper', 'spider': 'spider/spider', 'cow': 'cow/cow_temperate',
+             'pig': 'pig/pig_temperate', 'sheep': 'sheep/sheep', 'sheep_wool': 'sheep/sheep_wool', 'chicken': 'chicken/chicken_temperate'}
+import base64
+mob_skins = {}
+for mob, tex in MOB_SKINS.items():
+    p = TEX + 'entity/' + tex + '.png'
+    if p in names:
+        mob_skins[mob] = base64.b64encode(jar.read(p)).decode()
+
 COLS = 32
 rows = (len(tiles) + COLS - 1) // COLS
 atlas = Image.new('RGBA', (COLS * 16, rows * 16))
@@ -380,8 +531,11 @@ for i, img in enumerate(pics):
 mon_atlas.save(f'{out}/mons.png', optimize=True)
 
 json.dump({'cols': COLS, 'blocks': blocks, 'biomes': biomes, 'pokemon': pokemon, 'npcs': npcs, 'cells': cells, 'trainers': trainers,
+           'icons': icons, 'names': item_names, 'recipes': recipes, 'skins': mob_skins, 'destroy': destroy,
+           'sun': base64.b64encode(jar.read(TEX + 'environment/celestial/sun.png' if TEX + 'environment/celestial/sun.png' in names else TEX + 'environment/sun.png')).decode(),
+           'moon': base64.b64encode(jar.read(TEX + 'environment/celestial/moon/full_moon.png' if TEX + 'environment/celestial/moon/full_moon.png' in names else TEX + 'environment/moon_phases.png')).decode(),
            'monsSize': [mon_atlas.width, mon_atlas.height]},
           open(f'{out}/world.json', 'w'), separators=(',', ':'))
 open(f'{out}/untextured.txt', 'w').write('\n'.join(missing) + '\n')
 print(f'{len(tiles)} block tiles, {len(blocks)} blocks ({len(missing)} untextured), {len(biomes)} biomes, '
-      f'{len(pokemon)} Pokémon, {len(npcs)} NPCs')
+      f'{len(pokemon)} Pokémon, {len(npcs)} NPCs, {len(icons)} items ({len(item_tiles)} item icons), {len(recipes)} recipes, {len(mob_skins)} mob skins')

@@ -1,9 +1,15 @@
-// Which Pokémon live where in a Minecraft world, and which Pokémon each
-// Minecraft mob turns into when you touch it.
+// Which Pokémon you meet, where and when.
+//
+// By day the world is gentle: cute Pokémon roam in plain sight and leave you
+// alone, and the only Pokémon that jump you are the ones hiding where Pokémon
+// always hide: tall grass, snow drifts, water you swim through, dark caves.
+// At night the scary ones come out: they roam anywhere, grass or not, and
+// they come for you.
 
 // An evolution line: species, then (level it evolves at, next species)…
 // The form you meet is the one the encounter level has reached.
 const L = (...chain) => chain;
+const one = (s) => L(s);
 const PIDGEY = L('Pidgey', 18, 'Pidgeotto', 36, 'Pidgeot');
 const RATTATA = L('Rattata', 20, 'Raticate');
 const SPEAROW = L('Spearow', 20, 'Fearow');
@@ -51,47 +57,70 @@ const VOLTORB = L('Voltorb', 30, 'Electrode');
 const PIKACHU = L('Pikachu', 40, 'Raichu');
 const DRATINI = L('Dratini', 30, 'Dragonair', 55, 'Dragonite');
 const DROWZEE = L('Drowzee', 26, 'Hypno');
-const ONIX = L('Onix');
-const one = (s) => L(s);
+const GLOOMY = L('Gloom', 40, 'Vileplume');
 
-// [line, weight, when]: when is 'day', 'night' or omitted for any time.
-const GRASSLAND = [[PIDGEY, 30], [RATTATA, 25], [SPEAROW, 12], [NIDORANF, 8], [NIDORANM, 8], [MANKEY, 5], [PIKACHU, 2], [DROWZEE, 4], [GASTLY, 6, 'night'], [ODDISH, 10, 'night']];
-const FOREST = [[CATERPIE, 20], [WEEDLE, 20], [PIDGEY, 15], [ODDISH, 10], [BELLSPROUT, 10], [PIKACHU, 4], [VENONAT, 8, 'night'], [GASTLY, 6, 'night'], [one('Scyther'), 1]];
-const DARK = [[ODDISH, 20], [VENONAT, 20], [PARAS, 15], [GASTLY, 20], [EXEGGCUTE, 8], [one('Tangela'), 6], [one('Pinsir'), 2]];
-const TAIGA = [[GROWLITHE, 15], [VULPIX, 10], [NIDORANF, 10], [NIDORANM, 10], [PIDGEY, 15], [RATTATA, 10], [MEOWTH, 10], [ABRA, 4], [GASTLY, 6, 'night']];
-const JUNGLE = [[PARAS, 20], [EXEGGCUTE, 15], [one('Tangela'), 15], [ODDISH, 10], [BELLSPROUT, 10], [one('Scyther'), 5], [one('Pinsir'), 5], [one('Bulbasaur'), 2], [VENONAT, 10, 'night']];
-const SWAMP = [[GRIMER, 20], [KOFFING, 20], [EKANS, 15], [POLIWAG, 15], [PSYDUCK, 10], [SLOWPOKE, 10], [one('Tangela'), 5], [GASTLY, 10, 'night']];
-const DESERT = [[SANDSHREW, 30], [EKANS, 25], [DIGLETT, 15], [CUBONE, 15], [one('Charmander'), 2], [ZUBAT, 10, 'night']];
-const BADLANDS = [[DIGLETT, 20], [SANDSHREW, 20], [GEODUDE, 20], [CUBONE, 10], [RHYHORN, 10], [ONIX, 6], [ZUBAT, 10, 'night']];
-const SAVANNA = [[PONYTA, 20], [DODUO, 20], [one('Tauros'), 10], [RHYHORN, 10], [MANKEY, 10], [SPEAROW, 15], [MEOWTH, 10], [one('Kangaskhan'), 3]];
-const SNOW = [[SEEL, 15], [one('Jynx'), 10], [SANDSHREW, 5], [GROWLITHE, 5], [PIDGEY, 10], [one('Lapras'), 1], [one('Snorlax'), 1], [GASTLY, 6, 'night']];
-const MOUNTAIN = [[GEODUDE, 25], [MACHOP, 20], [ONIX, 10], [MANKEY, 10], [RHYHORN, 8], [CLEFAIRY, 6], [ZUBAT, 15, 'night'], [one('Aerodactyl'), 1]];
-const MEADOW = [[CLEFAIRY, 15], [JIGGLYPUFF, 15], [PIDGEY, 15], [NIDORANF, 10], [NIDORANM, 10], [ODDISH, 10], [one('Chansey'), 2], [one('Eevee'), 2], [GASTLY, 6, 'night']];
-const MUSHROOM = [[PARAS, 30], [CLEFAIRY, 20], [one('Chansey'), 8], [VENONAT, 20], [one('Mew'), 1]];
-const CHERRY = [[CLEFAIRY, 25], [JIGGLYPUFF, 25], [one('Chansey'), 5], [ODDISH, 15], [one('Eevee'), 3], [ABRA, 5]];
-const BEACH = [[KRABBY, 30], [SHELLDER, 20], [PSYDUCK, 15], [SLOWPOKE, 15], [STARYU, 10, 'night'], [one('Squirtle'), 2]];
-const OCEAN = [[TENTACOOL, 40], [HORSEA, 15], [STARYU, 10], [SHELLDER, 10], [KRABBY, 10], [MAGIKARP, 10], [one('Lapras'), 2], [DRATINI, 1]];
-const RIVER = [[MAGIKARP, 25], [GOLDEEN, 25], [POLIWAG, 20], [PSYDUCK, 15], [SLOWPOKE, 10], [DRATINI, 2]];
-
-const GROUPS = {
-  plains: GRASSLAND, sunflower_plains: GRASSLAND,
-  forest: FOREST, flower_forest: FOREST, birch_forest: FOREST, old_growth_birch_forest: FOREST, windswept_forest: FOREST, dappled_forest: FOREST,
-  dark_forest: DARK, pale_garden: DARK,
-  taiga: TAIGA, old_growth_pine_taiga: TAIGA, old_growth_spruce_taiga: TAIGA, snowy_taiga: TAIGA,
-  jungle: JUNGLE, sparse_jungle: JUNGLE, bamboo_jungle: JUNGLE,
-  swamp: SWAMP, mangrove_swamp: SWAMP,
-  desert: DESERT,
-  badlands: BADLANDS, eroded_badlands: BADLANDS, wooded_badlands: BADLANDS,
-  savanna: SAVANNA, savanna_plateau: SAVANNA, windswept_savanna: SAVANNA,
-  snowy_plains: SNOW, ice_spikes: SNOW, snowy_beach: SNOW, frozen_peaks: SNOW, snowy_slopes: SNOW, grove: SNOW,
-  stony_peaks: MOUNTAIN, jagged_peaks: MOUNTAIN, windswept_hills: MOUNTAIN, windswept_gravelly_hills: MOUNTAIN, stony_shore: MOUNTAIN,
-  meadow: MEADOW,
-  mushroom_fields: MUSHROOM,
-  cherry_grove: CHERRY,
-  beach: BEACH,
-  river: RIVER, frozen_river: RIVER,
+// ---------------------------------------------------------------- by day: the gentle ones
+// Biome groups -> [line, weight].
+const DAY = {
+  grassland: [[PIDGEY, 25], [RATTATA, 15], [NIDORANF, 10], [NIDORANM, 10], [one('Tauros'), 6], [PONYTA, 5], [DODUO, 6], [PIKACHU, 3], [JIGGLYPUFF, 6], [one('Eevee'), 1]],
+  forest: [[CATERPIE, 25], [WEEDLE, 15], [PIDGEY, 15], [ODDISH, 10], [BELLSPROUT, 10], [PIKACHU, 5], [PARAS, 6], [one('Farfetchd'), 2], [one('Eevee'), 1]],
+  taiga: [[GROWLITHE, 12], [VULPIX, 12], [PIDGEY, 15], [RATTATA, 10], [MEOWTH, 10], [NIDORANF, 8], [NIDORANM, 8], [one('Eevee'), 2]],
+  jungle: [[PARAS, 15], [EXEGGCUTE, 15], [one('Tangela'), 12], [ODDISH, 10], [BELLSPROUT, 10], [PIKACHU, 6], [one('Bulbasaur'), 3], [one('Scyther'), 2]],
+  swamp: [[POLIWAG, 20], [PSYDUCK, 15], [SLOWPOKE, 15], [ODDISH, 10], [one('Tangela'), 8], [one('Bulbasaur'), 2]],
+  desert: [[SANDSHREW, 25], [DIGLETT, 15], [CUBONE, 10], [PONYTA, 8], [one('Charmander'), 3]],
+  badlands: [[DIGLETT, 20], [SANDSHREW, 20], [GEODUDE, 15], [PONYTA, 10], [VULPIX, 8]],
+  savanna: [[PONYTA, 20], [DODUO, 20], [one('Tauros'), 15], [one('Kangaskhan'), 4], [MEOWTH, 10], [PIDGEY, 10], [RHYHORN, 5]],
+  snow: [[SEEL, 15], [JIGGLYPUFF, 10], [SANDSHREW, 6], [PSYDUCK, 8], [one('Lapras'), 1], [one('Snorlax'), 1], [VULPIX, 6]],
+  mountain: [[GEODUDE, 20], [CLEFAIRY, 15], [JIGGLYPUFF, 10], [MACHOP, 10], [RHYHORN, 6], [one('Chansey'), 2], [one('Aerodactyl'), 1]],
+  meadow: [[CLEFAIRY, 15], [JIGGLYPUFF, 15], [PIDGEY, 10], [ODDISH, 10], [one('Chansey'), 4], [one('Eevee'), 3], [PIKACHU, 5], [one('Tauros'), 5]],
+  mushroom: [[PARAS, 20], [CLEFAIRY, 15], [one('Chansey'), 8], [one('Mew'), 1]],
+  cherry: [[CLEFAIRY, 20], [JIGGLYPUFF, 20], [one('Chansey'), 6], [ODDISH, 10], [one('Eevee'), 4], [ABRA, 3]],
+  beach: [[KRABBY, 20], [SHELLDER, 15], [PSYDUCK, 15], [SLOWPOKE, 15], [one('Squirtle'), 3], [SEEL, 5]],
 };
-const WATER_GROUPS = { river: RIVER, frozen_river: RIVER, swamp: SWAMP, mangrove_swamp: SWAMP };
+
+// ---------------------------------------------------------------- at night: the scary ones
+const NIGHT = {
+  grassland: [[GASTLY, 20], [ZUBAT, 15], [RATTATA, 8], [EKANS, 12], [DROWZEE, 12], [MANKEY, 8], [SPEAROW, 8], [one('Haunter'), 3]],
+  forest: [[GASTLY, 18], [VENONAT, 15], [ZUBAT, 12], [GLOOMY, 10], [one('Beedrill'), 6], [one('Scyther'), 3], [one('Pinsir'), 3], [one('Haunter'), 3]],
+  dark: [[GASTLY, 25], [one('Haunter'), 10], [VENONAT, 15], [one('Parasect'), 10], [GLOOMY, 10], [one('Gengar'), 1]],
+  taiga: [[GASTLY, 15], [ZUBAT, 15], [one('Arcanine'), 2], [DROWZEE, 12], [one('Haunter'), 4], [one('Primeape'), 6]],
+  jungle: [[VENONAT, 15], [GASTLY, 12], [one('Scyther'), 6], [one('Pinsir'), 6], [EKANS, 10], [one('Haunter'), 4]],
+  swamp: [[GRIMER, 20], [KOFFING, 20], [EKANS, 12], [GASTLY, 15], [one('Muk'), 3], [one('Weezing'), 3]],
+  desert: [[EKANS, 20], [CUBONE, 15], [ZUBAT, 15], [one('Marowak'), 5], [one('Arbok'), 4], [GASTLY, 8]],
+  badlands: [[ZUBAT, 15], [GEODUDE, 10], [CUBONE, 12], [one('Onix'), 6], [EKANS, 10], [one('Marowak'), 4]],
+  savanna: [[EKANS, 15], [ZUBAT, 15], [one('Primeape'), 8], [GASTLY, 12], [DROWZEE, 10]],
+  snow: [[one('Jynx'), 15], [GASTLY, 15], [ZUBAT, 10], [one('Dewgong'), 4], [one('Haunter'), 4]],
+  mountain: [[ZUBAT, 20], [one('Golbat'), 8], [MACHOP, 10], [one('Onix'), 8], [GASTLY, 12], [one('Graveler'), 4]],
+  meadow: [[GASTLY, 18], [DROWZEE, 15], [ZUBAT, 12], [ABRA, 5], [one('Hypno'), 3]],
+  mushroom: [[one('Parasect'), 20], [GASTLY, 15], [VENONAT, 15], [GRIMER, 10]],
+  cherry: [[GASTLY, 18], [ABRA, 10], [DROWZEE, 15], [one('Haunter'), 4]],
+  beach: [[ZUBAT, 15], [GASTLY, 15], [one('Kingler'), 6], [TENTACOOL, 10]],
+};
+
+// ---------------------------------------------------------------- terrain where Pokémon hide
+const SNOW_DAY = [[SEEL, 25], [JIGGLYPUFF, 15], [SANDSHREW, 10], [PSYDUCK, 10], [one('Lapras'), 2], [one('Snorlax'), 2], [VULPIX, 8]];
+const SNOW_NIGHT = [[one('Jynx'), 25], [GASTLY, 15], [one('Dewgong'), 10], [ZUBAT, 10], [one('Haunter'), 4], [one('Articuno'), 1]];
+const WATER_DAY = [[MAGIKARP, 25], [GOLDEEN, 20], [POLIWAG, 15], [PSYDUCK, 15], [HORSEA, 10], [SHELLDER, 10], [STARYU, 8], [one('Lapras'), 1]];
+const WATER_NIGHT = [[TENTACOOL, 30], [STARYU, 15], [one('Tentacruel'), 8], [one('Gyarados'), 2], [GASTLY, 8], [DRATINI, 2]];
+const RIVER_DAY = [[MAGIKARP, 30], [GOLDEEN, 25], [POLIWAG, 20], [PSYDUCK, 15], [SLOWPOKE, 10], [DRATINI, 2]];
+const CAVE = [[ZUBAT, 35], [GEODUDE, 25], [PARAS, 10], [DIGLETT, 8], [one('Onix'), 6], [CLEFAIRY, 4], [MACHOP, 6]];
+const FISH = [[MAGIKARP, 40], [GOLDEEN, 20], [POLIWAG, 12], [KRABBY, 10], [SHELLDER, 8], [HORSEA, 8], [TENTACOOL, 8], [STARYU, 5], [DRATINI, 1]];
+
+const GROUP = {
+  plains: 'grassland', sunflower_plains: 'grassland',
+  forest: 'forest', flower_forest: 'forest', birch_forest: 'forest', old_growth_birch_forest: 'forest', windswept_forest: 'forest', dappled_forest: 'forest',
+  dark_forest: 'dark', pale_garden: 'dark',
+  taiga: 'taiga', old_growth_pine_taiga: 'taiga', old_growth_spruce_taiga: 'taiga', snowy_taiga: 'taiga', grove: 'snow',
+  jungle: 'jungle', sparse_jungle: 'jungle', bamboo_jungle: 'jungle',
+  swamp: 'swamp', mangrove_swamp: 'swamp',
+  desert: 'desert',
+  badlands: 'badlands', eroded_badlands: 'badlands', wooded_badlands: 'badlands',
+  savanna: 'savanna', savanna_plateau: 'savanna', windswept_savanna: 'savanna',
+  snowy_plains: 'snow', ice_spikes: 'snow', snowy_beach: 'snow', frozen_peaks: 'snow', snowy_slopes: 'snow',
+  stony_peaks: 'mountain', jagged_peaks: 'mountain', windswept_hills: 'mountain', windswept_gravelly_hills: 'mountain', stony_shore: 'mountain',
+  meadow: 'meadow', mushroom_fields: 'mushroom', cherry_grove: 'cherry', beach: 'beach',
+};
+const groupOf = (biome) => GROUP[biome] || (/ocean|river/.test(biome) ? 'beach' : 'grassland');
 
 export function formAt(line, level) {
   let s = line[0];
@@ -99,37 +128,40 @@ export function formAt(line, level) {
   return s;
 }
 
-function pick(list, rand, night) {
-  const ok = list.filter(([, , when]) => !when || (when === 'night') === night);
+function pick(list, rand) {
   let total = 0;
-  for (const e of ok) total += e[1];
+  for (const e of list) total += e[1];
   let r = rand() * total;
-  for (const e of ok) { r -= e[1]; if (r < 0) return e[0]; }
-  return ok[0][0];
+  for (const e of list) { r -= e[1]; if (r < 0) return e[0]; }
+  return list[0][0];
 }
 
-/// The wild Pokémon for a step in `biome`: on water when `surfing`.
-export function wildFor(biome, surfing, level, rand, night) {
-  const list = surfing ? (WATER_GROUPS[biome] || OCEAN) : (GROUPS[biome] || (biome.includes('ocean') ? BEACH : GRASSLAND));
-  return formAt(pick(list, rand, night), level);
+/// A Pokémon roaming in plain sight: cute by day, scary at night.
+export function roamer(biome, level, rand, night) {
+  const g = groupOf(biome);
+  const list = night ? (NIGHT[g] || NIGHT.grassland) : (DAY[g === 'dark' ? 'forest' : g] || DAY.grassland);
+  return formAt(pick(list, rand), level);
 }
+
+/// A Pokémon that jumps out of where you're walking: 'grass', 'snow',
+/// 'water', 'cave'.
+export function hiding(terrain, biome, level, rand, night) {
+  const g = groupOf(biome);
+  let list;
+  if (terrain === 'snow') list = night ? SNOW_NIGHT : SNOW_DAY;
+  else if (terrain === 'water') list = night ? WATER_NIGHT : /river|swamp/.test(biome) ? RIVER_DAY : WATER_DAY;
+  else if (terrain === 'cave') list = CAVE;
+  // Grass: the biome's own Pokémon; at night the grass hides the scary ones too.
+  else list = night ? [...(NIGHT[g] || NIGHT.grassland), ...(DAY[g === 'dark' ? 'forest' : g] || DAY.grassland).map(([l, w]) => [l, w / 2])] : (DAY[g === 'dark' ? 'forest' : g] || DAY.grassland);
+  return formAt(pick(list, rand), level);
+}
+
+/// What bites on a fishing line: a Pokémon, mostly.
+export function fished(level, rand) { return formAt(pick(FISH, rand), level); }
 
 /// Wild level for a spot: the farther from where the world began, the
-/// stronger. About one level per 40 blocks, ±2.
-export function levelAt(dist, rand) {
-  const base = 3 + Math.floor(dist / 40);
+/// stronger. About one level per 40 blocks, ±2; night ones a bit tougher.
+export function levelAt(dist, rand, night = false) {
+  const base = 3 + Math.floor(dist / 40) + (night ? 2 : 0);
   return Math.max(2, Math.min(70, base + Math.floor(rand() * 5) - 2));
 }
-
-// Minecraft mob -> [Pokémon line, level bonus, prize money per level when beaten].
-export const MOB_POKEMON = {
-  zombie: [GASTLY, 2, 8], husk: [CUBONE, 2, 8], drowned: [POLIWAG, 2, 8],
-  skeleton: [CUBONE, 3, 10], stray: [SEEL, 3, 10], creeper: [VOLTORB, 3, 12],
-  spider: [VENONAT, 2, 8], enderman: [ABRA, 6, 20], slime: [one('Ditto'), 2, 10],
-  pig: [SLOWPOKE, 0, 0], cow: [one('Tauros'), 0, 0], sheep: [JIGGLYPUFF, 0, 0],
-  chicken: [DODUO, 0, 0], wolf: [GROWLITHE, 1, 0], rabbit: [NIDORANF, 0, 0],
-  fox: [VULPIX, 0, 0], horse: [PONYTA, 1, 0], donkey: [PONYTA, 0, 0], goat: [RHYHORN, 1, 0],
-  frog: [POLIWAG, 0, 0], mooshroom: [PARAS, 0, 0], ocelot: [MEOWTH, 1, 0], cat: [MEOWTH, 0, 0],
-  parrot: [SPEAROW, 0, 0], armadillo: [SANDSHREW, 0, 0], llama: [PONYTA, 1, 0], bee: [WEEDLE, 0, 0],
-};
-export const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'skeleton', 'stray', 'creeper', 'spider', 'enderman', 'slime']);

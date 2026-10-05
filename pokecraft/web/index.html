@@ -26,7 +26,15 @@
     <div id="crosshair"></div>
     <div id="crack" hidden></div>
     <div id="sign" hidden></div>
+    <div id="feed"></div>
+    <div id="itemname" hidden></div>
+    <div id="eatbar" hidden></div>
+    <div id="stats">
+      <div id="air" hidden></div>
+      <div class="statrow"><div id="hearts"></div><div id="food"></div></div>
+    </div>
   </div>
+  <div id="hurt"></div>
 
   <canvas id="gb" width="160" height="144"></canvas>
   <div id="toast" hidden></div>
@@ -35,6 +43,7 @@
     <div id="stick" hidden><div id="knob"></div></div>
     <button type="button" class="act menubtn" data-act="start">MENU</button>
     <div id="hotbar"></div>
+    <button type="button" class="act bag" data-act="inv">BAG</button>
     <div id="acts">
       <button type="button" class="act ball" data-act="ball" aria-label="throw your POKéMON's ball"><i></i>BALL</button>
       <button type="button" class="act mine" data-act="mine">MINE</button>
@@ -58,6 +67,27 @@
       <button type="button" data-btn="a" class="round a">A</button>
     </div>
   </div>
+
+  <section id="inv" hidden>
+    <div class="ipanel">
+      <div id="inv-tabs">
+        <button type="button" data-tab="bag">BAG</button>
+        <button type="button" data-tab="craft">CRAFT</button>
+        <button type="button" data-tab="furnace">FURNACE</button>
+        <button type="button" data-tab="poke">POKé</button>
+        <button type="button" id="inv-close" aria-label="close">✕</button>
+      </div>
+      <div id="inv-body"></div>
+      <div class="ifoot"><p id="inv-info"></p><button type="button" id="inv-drop" hidden>DROP</button></div>
+    </div>
+  </section>
+
+  <section id="dead" hidden>
+    <h2>YOU DIED!</h2>
+    <p id="dead-why"></p>
+    <p class="keep">You keep your things. Your POKéMON wait for you.</p>
+    <button type="button" id="respawn">RESPAWN</button>
+  </section>
 
   <section id="title" class="panel">
     <h1>POKé<span>CRAFT</span></h1>

@@ -13,6 +13,11 @@ import { View } from './view.js';
 import { Player, raycast, EYE } from './player.js';
 import { Controls, GB } from './controls.js';
 import { Entities } from './entities.js';
+import { Items } from './items.js';
+import { Inventory } from './inventory.js';
+import { Survival } from './survival.js';
+import { Mobs } from './mobs.js';
+import { hiding, fished, levelAt } from './encounters.js';
 
 const ASSETS = window.PC_ASSETS;
 const W = ASSETS.world;
@@ -155,19 +160,8 @@ function buildInfo(names) {
       air: !b,
       shape: b ? b.s : 'air',
       tile: b ? b.f[1] : 0,
-      hardness: hardness(name, b),
     };
   });
-}
-function hardness(name, b) {
-  if (!b) return Infinity;
-  if (/^(bedrock|barrier|end_portal_frame|water|lava|bubble_column)$/.test(name)) return Infinity;
-  if (b.s === 'cross' || b.s === 'flat' || /_leaves$|^snow$|^vine$/.test(name)) return 0.15;
-  if (/(dirt|grass_block|sand|gravel|clay|mud|podzol|mycelium|farmland|snow_block|soul_sand|powder_snow|dirt_path)/.test(name)) return 0.55;
-  if (/(_log|_wood|_planks|_stem|_hyphae|bookshelf|chest|crafting_table|barrel|pumpkin|melon|_fence|_door|_stairs|_slab|composter|bed$|ladder|_sign)/.test(name)) return 1.2;
-  if (/obsidian|crying_obsidian|ancient_debris/.test(name)) return 6;
-  if (/(_ore|stone|deepslate|cobble|brick|andesite|diorite|granite|tuff|calcite|basalt|terracotta|concrete|prismarine|sandstone|quartz|iron|gold|diamond|emerald|copper)/.test(name)) return 1.8;
-  return 0.8;
 }
 const solidAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return b ? b.h : 1; };
 const waterAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return !!(b && b.water); };
@@ -229,37 +223,62 @@ function updateHud() {
   $('zone').textContent = `WILD LV~${zoneLevel()}`;
 }
 
+/// CSS for an item's icon: a block face from the block atlas, or an item picture.
+function iconCss(id) {
+  const ic = W.icons[id];
+  if (!ic) return '';
+  const blockIcon = ic.b !== undefined;
+  const tile = blockIcon ? ic.b : ic.i;
+  const cols = 32, rows = blockIcon ? S.atlasRows : S.itemRows;
+  const url = blockIcon ? S.atlasUrl : S.itemsUrl;
+  return `background-image:url(${url});background-size:${cols * 100}% ${rows * 100}%;background-position:${((tile % cols) / (cols - 1)) * 100}% ${(Math.floor(tile / cols) / Math.max(1, rows - 1)) * 100}%`;
+}
+
 function renderHotbar() {
   const el = $('hotbar');
   el.innerHTML = '';
-  S.g.inv.forEach((slot, i) => {
+  for (let i = 0; i < 9; i++) {
+    const slot = S.inv.slots[i];
     const d = document.createElement('div');
-    d.className = 'slot' + (i === S.g.sel ? ' sel' : '');
+    d.className = 'slot' + (i === S.inv.sel ? ' sel' : '');
     d.dataset.slot = i;
     if (slot) {
-      const info = W.blocks[slot.name];
-      const tile = info ? info.f[info.s === 'cube' || info.s === 'slab' ? 1 : 0] : 0;
-      const cols = W.cols;
-      d.style.backgroundImage = `url(${S.atlasUrl})`;
-      d.style.backgroundPosition = `${((tile % cols) / (cols - 1)) * 100}% ${(Math.floor(tile / cols) / (S.atlasRows - 1)) * 100}%`;
-      d.style.backgroundSize = `${cols * 100}% ${(S.atlasRows) * 100}%`;
-      d.innerHTML = `<span>${slot.n}</span>`;
-      d.title = slot.name;
+      d.style.cssText = iconCss(slot.id);
+      d.innerHTML = slot.n > 1 ? `<span>${slot.n}</span>` : '';
     }
     el.appendChild(d);
-  });
-}
-function addToInventory(name, n = 1) {
-  const inv = S.g.inv;
-  const slot = inv.find((s) => s && s.name === name && s.n < 64);
-  if (slot) slot.n += n;
-  else {
-    const empty = inv.findIndex((s) => !s);
-    if (empty < 0) return false;
-    inv[empty] = { name, n };
   }
-  renderHotbar();
-  return true;
+  const held = S.inv.held;
+  if (held !== S.lastHeld) {
+    S.lastHeld = held;
+    if (held) {
+      $('itemname').textContent = S.items.name(held);
+      $('itemname').hidden = false;
+      S.itemNameUntil = performance.now() + 1800;
+    }
+  }
+}
+function selectSlot(i) { S.inv.sel = i; renderHotbar(); }
+
+/// A line in the pickup feed: "+3 Cobblestone".
+function feed(text) {
+  const el = $('feed');
+  const line = document.createElement('div');
+  line.textContent = text;
+  el.prepend(line);
+  while (el.children.length > 5) el.lastChild.remove();
+  setTimeout(() => line.classList.add('old'), 2600);
+  setTimeout(() => line.remove(), 3400);
+}
+function gain(item, n) {
+  const left = S.inv.add(item, n);
+  if (n - left > 0) feed(`+${n - left} ${S.items.name(item)}`);
+  if (left) feed(`No room for ${S.items.name(item)}`);
+}
+
+/// Pokémon's bag gets an item (crafted, or found in an ore).
+function givePoke(name, n = 1) {
+  try { return S.runner.give_item(name, n); } catch { return false; }
 }
 
 // ---------------------------------------------------------------- the Pokémon layer
@@ -328,7 +347,9 @@ function startBattle(kind, ent) {
   let d = Math.hypot(ex - p.pos[0], ez - p.pos[2]);
   const eye = p.eye();
   const seen = (x, y, z) => clearLine(eye, [x, y + 0.6, z]);
-  if (d > 6 || !seen(ex, ent.pos[1], ez)) {
+  // Too close fills the screen (a Pokémon out of the grass at your feet, or
+  // one that ran into you): it hops back to battle distance.
+  if (d > 6 || d < 3.5 || !seen(ex, ent.pos[1], ez)) {
     const base = Math.atan2(dx, dz);
     let found = false;
     for (const turn of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1]) {
@@ -424,8 +445,9 @@ function endBattle(outcome) {
   if (b.monRoot) view.drop(b.monRoot);
   if (b.enemyRoot && b.enemyRoot !== b.ent.root) view.drop(b.enemyRoot);
   b.ent.inBattle = false;
+  S.grace = 3; // a few steps of peace after a fight
   if (b.kind === 'wild') {
-    if (outcome === 'Win' || outcome === 'Captured') S.ents.remove(b.ent);
+    if (outcome === 'Win' || outcome === 'Captured' || b.ent.hidden) S.ents.remove(b.ent);
     else {
       b.ent.root.visible = true;
       b.ent.aggressive = false;
@@ -501,12 +523,19 @@ function interact() {
   const eye = p.eye(), dir = p.look();
   const ent = S.ents.pick(eye, dir, 4.5);
   if (ent) return talk(ent);
+  const held = S.inv.held;
+  if (held === 'fishing_rod') return fish();
   const hit = targetBlock();
-  if (!hit) return;
-  const name = S.names[S.world.block(hit.x, hit.y, hit.z)];
-  if (/_bed$/.test(name)) return sleep(hit);
+  const name = hit ? S.names[S.world.block(hit.x, hit.y, hit.z)] : null;
+  if (name && /_bed$/.test(name)) return sleep(hit);
+  if (name === 'crafting_table') { S.inv.show('craft'); return; }
+  if (name && /^(furnace|smoker|blast_furnace)$/.test(name)) { S.inv.show('furnace'); return; }
   if (name === 'bell') { toast('DING! The village NURSE and CLERK are right here.'); return; }
-  place(hit);
+  if (held && S.items.food(held)) {
+    if (S.surv.food >= 20) toast("You're not hungry.", 1200);
+    return; // eating happens while you hold USE
+  }
+  if (hit && held && S.items.isBlock(held)) place(hit, held);
 }
 
 function talk(e) {
@@ -518,8 +547,9 @@ function talk(e) {
   }
   if (e.kind === 'nurse') {
     r.heal_party();
+    S.surv.heal(20);
     S.g.spawn = [e.pos[0], e.pos[1], e.pos[2] + 1];
-    toast('NURSE: Your POKéMON are fighting fit! We hope to see you again. (You will wake up here.)', 3600);
+    toast('NURSE: Your POKéMON are fighting fit, and so are you! (You will wake up here.)', 3600);
     saveAll('nurse');
     return;
   }
@@ -540,8 +570,9 @@ function shopStock() {
 
 function sleep(hit) {
   if (!isNight()) { toast('You can only sleep at night.'); return; }
-  if (S.ents.list.some((e) => e.kind === 'wild' && e.aggressive && Math.hypot(e.pos[0] - S.player.pos[0], e.pos[2] - S.player.pos[2]) < 8)) {
-    toast('You may not rest now; there are POKéMON nearby.');
+  const near = (x, z) => Math.hypot(x - S.player.pos[0], z - S.player.pos[2]) < 8;
+  if (S.ents.list.some((e) => e.kind === 'wild' && e.aggressive && near(e.pos[0], e.pos[2])) || S.mobs.list.some((m) => m.k.hostile && near(m.body.pos[0], m.body.pos[2]))) {
+    toast('You may not rest now; there are monsters nearby.');
     return;
   }
   S.sleep = { t: 0, bed: [hit.x + 0.5, hit.y + 1, hit.z + 0.5] };
@@ -552,8 +583,10 @@ function sleepStep() {
   $('fade').style.opacity = String(s.t < 60 ? s.t / 60 : Math.max(0, 1 - (s.t - 60) / 60));
   if (s.t === 60) {
     S.runner.heal_party();
+    S.surv.heal(20);
     S.g.time = 0;
     S.g.spawn = s.bed;
+    S.mobs.clearAll();
   }
   if (s.t >= 120) {
     S.sleep = null;
@@ -563,20 +596,18 @@ function sleepStep() {
   }
 }
 
-function place(hit) {
-  const slot = S.g.inv[S.g.sel];
-  if (!slot) return;
+function place(hit, held) {
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
   const here = blockInfo(S.world.block(x, y, z));
   if (!here || !(here.air || here.water || here.shape === 'cross' || here.shape === 'flat')) return;
   // Not inside yourself.
   const p = S.player.pos;
-  if (x + 1 > p[0] - 0.3 && x < p[0] + 0.3 && z + 1 > p[2] - 0.3 && z < p[2] + 0.3 && y + 1 > p[1] && y < p[1] + 1.8) return;
-  const id = S.names.indexOf(slot.name);
+  const solid = W.blocks[held] && W.blocks[held].c;
+  if (solid && x + 1 > p[0] - 0.3 && x < p[0] + 0.3 && z + 1 > p[2] - 0.3 && z < p[2] + 0.3 && y + 1 > p[1] && y < p[1] + 1.8) return;
+  const id = S.names.indexOf(held);
   if (id < 0) return;
   edit(x, y, z, id);
-  if (--slot.n <= 0) S.g.inv[S.g.sel] = null;
-  renderHotbar();
+  S.inv.useHeld();
 }
 
 function edit(x, y, z, id) {
@@ -586,27 +617,184 @@ function edit(x, y, z, id) {
   (S.edits[k] = S.edits[k] || {})[`${x - cx * 16},${y},${z - cz * 16}`] = id;
 }
 
+// Average colour of each block texture, for the bits that fly off.
+const tileColours = new Map();
+function tileColour(tile) {
+  if (tileColours.has(tile)) return tileColours.get(tile);
+  if (!S.atlasData) {
+    const c = document.createElement('canvas');
+    c.width = S.atlasImg.width; c.height = S.atlasImg.height;
+    const g = c.getContext('2d');
+    g.drawImage(S.atlasImg, 0, 0);
+    S.atlasData = g.getImageData(0, 0, c.width, c.height);
+  }
+  const d = S.atlasData, w = d.width, sx = (tile % 32) * 16, sy = Math.floor(tile / 32) * 16;
+  let r = 0, gg = 0, b = 0, n = 0;
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const i = ((sy + y) * w + sx + x) * 4;
+    if (d.data[i + 3] < 128) continue;
+    r += d.data[i]; gg += d.data[i + 1]; b += d.data[i + 2]; n++;
+  }
+  const out = n ? [r / n / 255, gg / n / 255, b / n / 255] : [0.5, 0.5, 0.5];
+  tileColours.set(tile, out);
+  return out;
+}
+
+function clearCrack() {
+  if (S.mining) { S.mining = null; S.view.setCrack(0, 0, 0, -1); }
+}
+
+/// Hold MINE: hit what's alive in front of you, else break the block.
 function mine() {
+  const p = S.player, eye = p.eye(), dir = p.look();
   const hit = targetBlock();
-  if (!hit) { S.mining = null; $('crack').hidden = true; return; }
-  const id = S.world.block(hit.x, hit.y, hit.z);
-  const b = blockInfo(id);
-  if (!b || b.hardness === Infinity) return;
+  const mob = S.mobs.pick(eye, dir, 3.6);
+  if (mob && (!hit || Math.hypot(mob.body.pos[0] - eye[0], mob.body.pos[2] - eye[2]) < hit.t + 0.5)) {
+    clearCrack();
+    if (S.attackCool <= 0) {
+      S.attackCool = 0.55;
+      S.mobs.damage(mob, S.items.damage(S.inv.held), p.pos);
+      S.view.burst(mob.body.pos[0], mob.body.pos[1] + 1, mob.body.pos[2], [0.8, 0.1, 0.1], 6, 2, 1.5);
+    }
+    return;
+  }
+  if (!hit) { clearCrack(); return; }
+  const name = S.names[S.world.block(hit.x, hit.y, hit.z)];
+  const bt = S.items.breakTime(name, S.inv.held);
+  if (bt.t === Infinity) return;
   const key = `${hit.x},${hit.y},${hit.z}`;
   if (!S.mining || S.mining.key !== key) S.mining = { key, t: 0 };
   S.mining.t += DT;
-  const k = S.mining.t / b.hardness;
-  $('crack').hidden = false;
-  $('crack').style.setProperty('--k', String(Math.min(1, k)));
-  if (k >= 1) {
-    S.mining = null;
-    $('crack').hidden = true;
-    edit(hit.x, hit.y, hit.z, S.names.indexOf('air'));
-    const keep = b.shape === 'cube' || b.shape === 'slab' || /_bed$|bell|lantern/.test(b.name);
-    const drop = b.name === 'grass_block' || b.name === 'podzol' || b.name === 'mycelium' || b.name === 'dirt_path' ? 'dirt' : b.name === 'stone' ? 'cobblestone' : b.name;
-    if (keep) addToInventory(drop);
-    // Double plants come down whole; the block above a removed one may float, as in Minecraft.
+  const k = S.mining.t / bt.t;
+  S.view.setCrack(hit.x, hit.y, hit.z, Math.min(9, Math.floor(k * 10)), W.destroy, 32);
+  if (k < 1) return;
+  clearCrack();
+  const info = blockInfo(S.world.block(hit.x, hit.y, hit.z));
+  S.view.burst(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, tileColour(info.tile), 16, 3, 2.5);
+  edit(hit.x, hit.y, hit.z, S.names.indexOf('air'));
+  // A double plant's other half goes too.
+  for (const dy of [1, -1]) if (S.names[S.world.block(hit.x, hit.y + dy, hit.z)] === name && W.blocks[name] && W.blocks[name].s === 'cross') edit(hit.x, hit.y + dy, hit.z, S.names.indexOf('air'));
+  if (!bt.drops) { toast(`You need a better pickaxe to get anything from ${S.items.name(name)}.`, 2200); return; }
+  for (const d of S.items.drops(name)) {
+    if (d.poke) {
+      if (givePoke(d.poke)) toast(`You found a ${d.poke.replace(/_/g, ' ')}! It's in your POKéMON bag.`, 3000);
+    } else gain(d[0], d[1]);
   }
+}
+
+// ---------------------------------------------------------------- fishing
+let bobberC = null;
+function bobberCanvas() {
+  if (bobberC) return bobberC;
+  bobberC = document.createElement('canvas');
+  bobberC.width = bobberC.height = 8;
+  const x = bobberC.getContext('2d');
+  x.fillStyle = '#d83a34'; x.fillRect(1, 0, 6, 4);
+  x.fillStyle = '#f8f8f0'; x.fillRect(1, 4, 6, 3);
+  return bobberC;
+}
+function fish() {
+  const f = S.fishing;
+  if (f) {
+    if (f.phase === 'bite') landCatch(f);
+    else toast('Nothing on the line yet.', 1200);
+    stopFishing();
+    return;
+  }
+  const p = S.player;
+  const hit = raycast(p.eye(), p.look(), 18, (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return b && (b.water || b.h > 0); });
+  if (!hit || !blockInfo(S.world.block(hit.x, hit.y, hit.z)).water) { toast('Cast your line at water.', 1600); return; }
+  const sprite = S.view.sprite3(bobberCanvas());
+  sprite.scale.setScalar(0.28);
+  const pos = [hit.x + 0.5, hit.y + 0.92, hit.z + 0.5];
+  sprite.position.set(...pos);
+  S.fishing = { phase: 'wait', t: 3 + Math.random() * 7, pos, sprite };
+}
+function fishStep() {
+  const f = S.fishing;
+  f.t -= DT;
+  const p = S.player.pos;
+  if (S.inv.held !== 'fishing_rod' || Math.hypot(p[0] - f.pos[0], p[2] - f.pos[2]) > 26) { stopFishing(); return; }
+  const dip = f.phase === 'bite' ? -0.25 + Math.sin(f.t * 30) * 0.06 : Math.sin(performance.now() / 300) * 0.04;
+  f.sprite.position.set(f.pos[0], f.pos[1] + dip, f.pos[2]);
+  if (f.phase === 'wait' && f.t <= 0) {
+    f.phase = 'bite';
+    f.t = 1.1;
+    S.view.burst(f.pos[0], f.pos[1], f.pos[2], [0.6, 0.75, 1], 14, 2, 2);
+    toast('! Something bit! Press USE!', 1100);
+  } else if (f.phase === 'bite' && f.t <= 0) {
+    toast('It got away…', 1400);
+    stopFishing();
+  }
+}
+function stopFishing() {
+  if (!S.fishing) return;
+  S.view.scene.remove(S.fishing.sprite);
+  S.fishing = null;
+}
+function landCatch(f) {
+  if (Math.random() < 0.65 && canBattle()) {
+    const level = levelAt(dist0(), Math.random, isNight());
+    const species = fished(level, Math.random);
+    const ent = S.ents.makeMon(species, level, f.pos[0], f.pos[1] - 0.9, f.pos[2], { water: true, hidden: true });
+    if (ent) { toast(`A wild ${species.toUpperCase()} is on the line!`, 1600); startBattle('wild', ent); }
+    return;
+  }
+  const r = Math.random();
+  const item = r < 0.55 ? 'cod' : r < 0.8 ? 'salmon' : r < 0.86 ? 'pufferfish' : ['stick', 'string', 'bone', 'lily_pad', 'leather'][Math.floor(Math.random() * 5)];
+  gain(W.icons[item] ? item : 'cod', 1);
+}
+
+// ---------------------------------------------------------------- Pokémon in the grass
+const canBattle = () => S.party.some((p) => p.hp > 0) && !S.battle && S.mode === 'world' && !S.sleep && !S.surv.dead;
+const HIDE_RE = /^(short_grass|tall_grass|fern|large_fern|bush|short_dry_grass|tall_dry_grass|sweet_berry_bush)$/;
+
+/// Where your feet are: 'grass', 'snow', 'water', 'cave' or null.
+function terrainHere() {
+  const p = S.player;
+  const x = Math.floor(p.pos[0]), y = Math.floor(p.pos[1] + 0.05), z = Math.floor(p.pos[2]);
+  if (p.inWater) return 'water';
+  const feet = blockInfo(S.world.block(x, y, z)), under = blockInfo(S.world.block(x, y - 1, z));
+  if (feet && HIDE_RE.test(feet.name)) return 'grass';
+  if ((feet && /^(snow|powder_snow)$/.test(feet.name)) || (under && /^(snow_block|powder_snow)$/.test(under.name))) return 'snow';
+  if (y < 60 && !skyOpen([x + 0.5, y, z + 0.5])) return 'cave';
+  return null;
+}
+
+/// Nothing solid between this spot and the sky.
+function skyOpen(pos) {
+  const x = Math.floor(pos[0]), z = Math.floor(pos[2]);
+  for (let y = Math.floor(pos[1]) + 2; y < Math.floor(pos[1]) + 48; y++) {
+    const b = blockInfo(S.world.block(x, y, z));
+    if (!b) return true;
+    if (b.h > 0 && !b.leaves) return false;
+  }
+  return true;
+}
+
+function stepEncounters(moved) {
+  if (!canBattle()) return;
+  S.stepDist += moved;
+  if (S.stepDist < 1) return;
+  S.stepDist -= 1;
+  if (S.grace > 0) { S.grace--; return; }
+  const terrain = terrainHere();
+  const rate = { grass: 1 / 9, snow: 1 / 12, water: 1 / 12, cave: 1 / 22 }[terrain];
+  if (!rate || Math.random() >= rate) return;
+  const p = S.player;
+  const night = isNight();
+  const level = levelAt(dist0(), Math.random, night);
+  const species = hiding(terrain, biomeName(p.pos[0], p.pos[2]) || 'plains', level, Math.random, night);
+  const d = p.look(), l = Math.hypot(d[0], d[2]) || 1;
+  const x = p.pos[0] + (d[0] / l) * 2.2, z = p.pos[2] + (d[2] / l) * 2.2;
+  const g = S.ents.ground(x, p.pos[1] + 2, z);
+  const ent = S.ents.makeMon(species, level, x, g ? g.y : p.pos[1], z, { water: terrain === 'water', hidden: true });
+  if (!ent) return;
+  const colour = { grass: [0.35, 0.7, 0.25], snow: [0.95, 0.95, 1], water: [0.45, 0.6, 1], cave: [0.45, 0.42, 0.4] }[terrain];
+  S.view.burst(x, ent.pos[1] + 0.4, z, colour, 24, 3, 3);
+  const where = { grass: 'out of the grass', snow: 'out of the snow', water: 'out of the water', cave: 'out of the dark' }[terrain];
+  toast(`A wild ${species.toUpperCase()} jumped ${where}!`, 1600);
+  startBattle('wild', ent);
 }
 
 // ---------------------------------------------------------------- the loop
@@ -614,27 +802,67 @@ function worldStep(first) {
   const c = S.controls, p = S.player;
   S.g.time = (S.g.time + 20 / 60) % DAY_TICKS;
   if (S.sleep) { sleepStep(); return; }
+  if (S.surv.dead) return;
+  if (S.attackCool > 0) S.attackCool -= DT;
   const [lx, ly] = c.takeLook();
+  if (S.inv.open) {
+    // Bag open: you stand where you are (the world doesn't wait).
+    if (first && (c.pressed('inv') || c.pressed('start') || c.pressed('b'))) S.inv.hide();
+    p.step(DT, [0, 0], false, false, solidAt, waterAt);
+    return;
+  }
   p.yaw -= lx;
   p.pitch = Math.max(-1.55, Math.min(1.55, p.pitch - ly));
-  if (c.slot >= 0) { S.g.sel = c.slot; c.slot = -1; renderHotbar(); }
-  if (c.wheel) { S.g.sel = (S.g.sel + Math.sign(c.wheel) + 9) % 9; c.wheel = 0; renderHotbar(); }
+  if (c.slot >= 0) { selectSlot(c.slot); c.slot = -1; }
+  if (c.wheel) { selectSlot((S.inv.sel + Math.sign(c.wheel) + 9) % 9); c.wheel = 0; }
+  if (first && c.pressed('inv')) { S.inv.show(); return; }
   if (first && c.pressed('start')) { S.startEdge = true; return; }
   if (first && c.pressed('a')) interact();
   if (first && c.pressed('ball')) throwBall();
+  // Eating: hold USE with food in hand.
+  const held = S.inv.held, pts = held ? S.items.food(held) : 0;
+  if (pts && c.down('a') && S.surv.food < 20) {
+    if (S.surv.eat(pts, true, DT)) { S.inv.useHeld(); feed(`Ate ${S.items.name(held)}`); }
+    if (S.frames % 8 === 0) S.view.burst(...p.eye().map((v, i) => v + p.look()[i] * 0.6), tileColour(W.icons[held] && W.icons[held].b !== undefined ? W.icons[held].b : 0), 2, 1, 1);
+  } else S.surv.eating = 0;
+  if (S.fishing) fishStep();
   if (c.down('mine') || c.down('b')) mine();
-  else if (S.mining) { S.mining = null; $('crack').hidden = true; }
-  p.step(DT, c.move(), c.down('jump'), c.down('sprint') || (TOUCH && Math.hypot(...c.stick) > 0.95), solidAt, waterAt);
-  if (p.pos[1] < -80) respawn('You fell out of the world.');
-  const lava = blockInfo(S.world.block(Math.floor(p.pos[0]), Math.floor(p.pos[1] + 0.1), Math.floor(p.pos[2])));
-  if (lava && lava.lava) respawn('Too hot! You climbed out of the lava back at your bed.');
+  else clearCrack();
+  const before = [p.pos[0], p.pos[2]];
+  const sprint = (c.down('sprint') || (TOUCH && Math.hypot(...c.stick) > 0.95)) && S.surv.food > 6;
+  p.step(DT, c.move(), c.down('jump'), sprint, solidAt, waterAt);
+  const moved = Math.hypot(p.pos[0] - before[0], p.pos[2] - before[1]);
+  const fx = Math.floor(p.pos[0]), fz = Math.floor(p.pos[2]);
+  const head = blockInfo(S.world.block(fx, Math.floor(p.pos[1] + 1.62), fz));
+  const feet = blockInfo(S.world.block(fx, Math.floor(p.pos[1] + 0.1), fz));
+  S.surv.step(DT, p, { headInWater: !!(head && head.water), inLava: !!(feet && feet.lava), sprinting: sprint && moved > 0.01, moving: moved > 0.01 });
+  stepEncounters(moved);
+  if (p.pos[1] < -80) { S.surv.hurtCool = 0; S.surv.hurt(40, 'void'); }
 }
 
 function respawn(msg) {
   const [x, y, z] = S.g.spawn;
   S.player.pos = [x, y + 0.1, z];
   S.player.vel = [0, 0, 0];
+  S.surv.fallFrom = null;
   if (msg) toast(msg, 3200);
+}
+
+function died(cause) {
+  const why = { fall: 'You fell from a high place.', drowning: 'You drowned.', lava: 'You tried to swim in lava.', starving: 'You starved.', void: 'You fell out of the world.', creeper: 'You were blown up by a CREEPER.', arrow: 'You were shot by a SKELETON.' }[cause]
+    || `You were slain by a ${String(cause || 'monster').replace(/_/g, ' ').toUpperCase()}.`;
+  $('dead-why').textContent = why;
+  $('dead').hidden = false;
+  stopFishing();
+  clearCrack();
+  if (document.pointerLockElement) document.exitPointerLock?.();
+}
+function revive() {
+  $('dead').hidden = true;
+  S.surv.revive();
+  S.mobs.clearAll();
+  respawn('You woke up where you last rested.');
+  saveAll('respawn');
 }
 
 function tickOnce(first) {
@@ -649,7 +877,9 @@ function tickOnce(first) {
     mask = c.gbMask();
   }
   updateBall();
-  S.ents.update(DT, S.mode !== 'world' || !!S.sleep);
+  const frozen = S.mode !== 'world' || !!S.sleep || S.surv.dead;
+  S.ents.update(DT, frozen);
+  S.mobs.update(DT, frozen);
   const px = r.tick_layers(mask);
   let opaque = 0;
   for (let i = 3; i < px.length; i += 4) if (px[i]) opaque++;
@@ -731,7 +961,7 @@ function frame(now) {
       const eye = p.eye();
       cam.position.set(eye[0], eye[1], eye[2]);
       cam.rotation.set(p.pitch, p.yaw, 0);
-      const hit = S.mode === 'world' ? targetBlock() : null;
+      const hit = S.mode === 'world' && !S.inv.open ? targetBlock() : null;
       S.view.outline.visible = !!hit;
       if (hit) S.view.outline.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
     }
@@ -743,6 +973,12 @@ function frame(now) {
       S.signAt = performance.now();
       sign(biome.replace(/_/g, ' ').toUpperCase());
     }
+    S.view.skyTime(S.g.time);
+    S.view.stepParticles(dt / 1000);
+    S.surv.render();
+    if (S.itemNameUntil && now > S.itemNameUntil) { $('itemname').hidden = true; S.itemNameUntil = 0; }
+    $('eatbar').hidden = !S.surv.eating;
+    if (S.surv.eating) $('eatbar').style.setProperty('--k', String(Math.min(1, S.surv.eating / 1.6)));
     S.view.render();
     if (S.frames % 30 === 0) updateHud();
     if (S.frames % 90 === 0) updateParty();
@@ -761,7 +997,7 @@ function saveAll(reason) {
   store.set(SAVE_KEY, s);
   store.set(FLAGS_KEY, r.export_flags());
   const p = S.player;
-  store.set(WORLD_KEY, JSON.stringify({ ...g, pos: p.pos, yaw: p.yaw, pitch: p.pitch, time: Math.floor(g.time) }));
+  store.set(WORLD_KEY, JSON.stringify({ ...g, pos: p.pos, yaw: p.yaw, pitch: p.pitch, time: Math.floor(g.time), inv: S.inv.save(), surv: S.surv.save() }));
   store.set(EDITS_KEY, JSON.stringify(S.edits));
   S.lastSave = performance.now();
   S.lastSaveReason = reason;
@@ -787,6 +1023,7 @@ async function startWorld(g) {
   world.stone = ready.blocks.indexOf('stone');
   S.view = new View($('view'), S.atlasImg, S.monsImg, world);
   S.view.setRadius(RADIUS);
+  S.view.setSky(await image(W.sun), await image(W.moon));
   world.onMesh = (m) => {
     S.view.addChunk(m);
     if (m.bells.length && S.ents) S.ents.addBells(m.bells);
@@ -832,6 +1069,34 @@ async function findSpawn([sx, sz]) {
 }
 
 function makeEntities() {
+  S.items = new Items(W);
+  S.inv = new Inventory({
+    items: S.items, recipes: W.recipes, icon: iconCss, giveItem: givePoke,
+    nearTable: () => nearBlock(/^crafting_table$/), nearFurnace: () => nearBlock(/^(furnace|smoker|blast_furnace)$/),
+    say: (t) => toast(t, 2400), onChange: () => renderHotbar(),
+  });
+  S.surv = new Survival({ onDeath: died, flash: () => { const h = $('hurt'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); } });
+  S.stepDist = 0; S.grace = 0; S.attackCool = 0;
+  S.mobs = new Mobs({
+    view: S.view, world: S.world, blockInfo, solidAt, waterAt, player: S.player, survival: S.surv, isNight,
+    biome: (x, z) => { const n = biomeName(x, z); return n ? { name: n, ...W.biomes[n] } : null; },
+    surface: (x, z) => {
+      const g = S.ents.surface(x, z);
+      if (!g) return null;
+      const top = blockInfo(S.world.block(Math.floor(x), Math.floor(g.y) - 1, Math.floor(z)));
+      return { ...g, top: top ? top.name : null };
+    },
+    edit: (x, y, z, name) => edit(x, y, z, S.names.indexOf(name)),
+    drop: (item, n) => gain(item, n),
+    say: (t) => toast(t, 2600),
+    follower: () => {
+      const f = S.ents.follower, lead = S.party.find((p) => p.hp > 0);
+      if (!f || !lead) return null;
+      return { species: f.species, level: lead.level, pos: f.pos, colour: [1, 0.85, 0.3] };
+    },
+    reward: (type) => { const n = { creeper: 60, skeleton: 40, stray: 45, spider: 35 }[type] || 30; try { S.runner.add_money(n); } catch { /* no money */ } feed(`+¥${n}`); },
+    clearLine, skyOpen,
+  });
   S.ents = new Entities({
     view: S.view, world: S.world, blockInfo, assets: W, player: S.player,
     zoneLevel, isNight, biomeName, origin: () => S.g.origin,
@@ -843,7 +1108,26 @@ function makeEntities() {
       e.alert.scale.setScalar(0.8);
       toast(`A ${e.trainer.cls.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()} wants to battle!`, 2400);
     },
+    canBattle,
   });
+}
+
+/// A block matching `re` within 4 blocks of you.
+function nearBlock(re) {
+  const p = S.player.pos;
+  const x0 = Math.floor(p[0]), y0 = Math.floor(p[1]), z0 = Math.floor(p[2]);
+  for (let y = y0 - 2; y <= y0 + 3; y++) for (let z = z0 - 4; z <= z0 + 4; z++) for (let x = x0 - 4; x <= x0 + 4; x++) {
+    const b = blockInfo(S.world.block(x, y, z));
+    if (b && re.test(b.name)) return true;
+  }
+  return false;
+}
+
+/// Load the bag and body from a save (v3 saves kept 9 hotbar slots of {name, n}).
+function loadInventory(g) {
+  if (g.inv && Array.isArray(g.inv.slots)) S.inv.load(g.inv);
+  else if (Array.isArray(g.inv)) g.inv.forEach((s, i) => { if (s && s.name) S.inv.slots[i] = { id: s.name, n: s.n }; });
+  S.surv.load(g.surv);
 }
 
 let alertC = null;
@@ -875,6 +1159,8 @@ async function continueGame() {
   S.player.yaw = saved.yaw || 0;
   S.player.pitch = saved.pitch || 0;
   makeEntities();
+  loadInventory(saved);
+  await S.mobs.loadSkins(W.skins);
   await loadAround(saved.pos[0], saved.pos[2], 1);
   bootRunner(store.get(SAVE_KEY), store.get(FLAGS_KEY));
   enterWorld();
@@ -884,11 +1170,12 @@ async function newGame(starterKey, seedText) {
   const seed = parseSeed(seedText);
   enterLoading();
   S.edits = {};
-  S.g = { v: 3, seed, seedText: seedText || seedString(seed), spawn: [0, 0, 0], origin: [0, 0], time: 1000, inv: Array(9).fill(null), sel: 0 };
-  S.g.inv[0] = { name: 'red_bed', n: 1 };
+  S.g = { v: 4, seed, seedText: seedText || seedString(seed), spawn: [0, 0, 0], origin: [0, 0], time: 1000 };
   const ready = await startWorld(S.g);
   S.player = new Player(0, 200, 0);
   makeEntities();
+  S.inv.add('red_bed', 1); S.inv.add('bread', 4); S.inv.add('torch', 8);
+  await S.mobs.loadSkins(W.skins);
   const spot = await findSpawn(ready.spawn);
   S.player.pos = [...spot];
   S.player.pitch = -0.25;
@@ -974,7 +1261,8 @@ function fail(e) {
 
 window.__pcTest = {
   startBattle: (kind, e) => startBattle(kind, e), saveAll, updateParty, throwBall, interact, edit,
-  solidAt, blockAt: (x, y, z) => S.names[S.world.block(x, y, z)], targetBlock,
+  solidAt, blockAt: (x, y, z) => S.names[S.world.block(x, y, z)], targetBlock, mine, terrainHere,
+  stepEncounters, fish, landCatch: () => S.fishing && landCatch(S.fishing), revive, givePoke, nearBlock,
 };
 
 async function main() {
@@ -987,6 +1275,7 @@ async function main() {
     b.addEventListener('click', () => newGame(b.dataset.starter, $('seed').value).catch(fail));
   }
   $('toast').addEventListener('click', hideToast);
+  $('respawn').addEventListener('click', () => revive());
   addEventListener('resize', () => S.view && S.view.resize());
   const leaving = (why) => { if (S.mode === 'world' || S.mode === 'poke') saveAll(why); };
   addEventListener('visibilitychange', () => {
@@ -1004,6 +1293,9 @@ async function main() {
     S.monsImg = await image(ASSETS.mons);
     S.atlasUrl = 'data:image/png;base64,' + ASSETS.atlas;
     S.atlasRows = S.atlasImg.height / 16;
+    S.itemsImg = await image(ASSETS.items);
+    S.itemsUrl = 'data:image/png;base64,' + ASSETS.items;
+    S.itemRows = S.itemsImg.height / 16;
   } catch (e) { fail(e); throw e; }
   delete ASSETS.pk; delete ASSETS.mc; delete ASSETS.data; delete ASSETS.mons;
   $('loading').hidden = true;
