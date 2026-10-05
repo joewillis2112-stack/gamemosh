@@ -16,6 +16,7 @@ const KEYS = {
   Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'select',
   KeyZ: 'a', KeyX: 'b', KeyE: 'inv', KeyI: 'inv', KeyQ: 'ball', KeyR: 'ball', KeyF: 'a',
   Enter: 'start', Escape: 'start', Tab: 'start', Backspace: 'select', KeyM: 'start',
+  KeyC: 'sneak', ControlLeft: 'sneak', KeyV: 'ride',
 };
 
 export class Controls {
@@ -113,6 +114,13 @@ export class Controls {
       this.first();
       fps.setPointerCapture?.(e.pointerId);
       const btn = e.target.closest('[data-act]');
+      if (btn && btn.dataset.act === 'sneak') {
+        // On a phone sneaking is a toggle: you can't hold it while walking and looking.
+        this.sneakOn = !this.sneakOn;
+        btn.classList.toggle('on', this.sneakOn);
+        buzz();
+        return;
+      }
       if (btn) {
         const b = btn.dataset.act;
         this.held.add(b); this.latched.add(b);
@@ -216,6 +224,7 @@ export class Controls {
   poll() {
     this.prev = this.now;
     const now = new Set([...this.held, ...this.latched]);
+    if (this.sneakOn) now.add('sneak');
     this.latched.clear();
     if (this.mouse.left) now.add('mine');
     for (const pad of (navigator.getGamepads ? navigator.getGamepads() : [])) {

@@ -185,6 +185,14 @@ A working log for this repo. It records common themes, what has been learned, mi
 - The fix: cancel `touchstart`/`touchend` themselves (`passive: false`) on the play areas only. Pointer events still fire, and buttons outside those areas still get their clicks. Also cancel `dblclick` and `gesturestart`. As a fallback, when `visualViewport.scale > 1`, rewrite the viewport meta tag, which drops Safari back to 1×.
 - Headless Chromium doesn't double-tap-zoom, so check the cancelling (`defaultPrevented` on a dispatched `TouchEvent`) and that pad taps still reach the game. The zoom itself only shows on a real iPhone.
 
+**Movement, food and riding (2026-10-05)**
+- Perks interact with each other, not only with the other game: LAPRAS's Ice frost-walk froze the water it was surfing on. Test perk×perk cells, and switch off a perk that fights the current mode (frost-walk while riding).
+- An always-on perk can delete a core loop. A Grass partner repelling weaker grass Pokémon meant Bulbasaur players never met any. Make such perks a choice, here while sneaking.
+- A block catalog without facing can't place a wall ladder properly. Making the ladder a see-through, non-solid block you stand in keeps climbing simple, and it looks fine from any side.
+- Two speed rules in one physics step average out: the ordinary swim pull fought the sprint-swim pull, giving 1.4× instead of 2.2×. Choose the speed once, before accelerating.
+- Mount rules: land mounts drop you in water, surf mounts drop you on land, and fliers ignore fall damage. The mount is the party's lead, so fainting or switching the lead gets you off.
+- Test setups leak between steps (a hole dug by one step trapped the follower and the player in later steps). Give each step its own clean spot, or reset the party member's position.
+
 **Getting out of water (2026-10-05)**
 - The user got stuck in ponds. Swimming up was capped at the surface, the step-up assist was off in water, and once the feet left the water normal gravity pulled the player back in, so the bank was always just out of reach.
 - Minecraft's rule fixes it: swimming into a wall rises you while there's standing room within 2 blocks above your feet. `player.js` now does this while in the water or bobbing just above it. You can climb onto a bank level with the water or one block higher.
@@ -300,3 +308,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-05 (pad zoom fix):** The user reported that double-tapping the on-screen pad zoomed the game in and it couldn't zoom back out (iOS Safari). Touches on the play areas are now cancelled, with a reset fallback. Smoke, play and more pass.
 - **2026-10-05 (touch instead of the pad):** At the user's suggestion I removed the Game Boy pad on phones. Taps choose options by steering Pokémon's ▶ cursor, tapping text moves it on, drags scroll, a long press is SELECT, and BACK is B. All six suites pass; the new touch suite passed three runs in a row.
 - **2026-10-05 (out of ponds):** The user couldn't get out of water. Swimming into a bank now climbs it, as in Minecraft. A new test in `more.mjs` failed on the old build and passes on the new one (4 runs). One run failed for no reason I found and didn't recur. All six suites pass.
+- **2026-10-05 (movement, food, riding):** Added sneak, ladders and vines, sprint-swimming, faint drops by species, feeding your partner, hunting and farming perks, Repel while sneaking, and riding on land, water and in the air (new `heal_mon` runner call). New `tests/move.mjs`. All seven suites pass on a clean build.

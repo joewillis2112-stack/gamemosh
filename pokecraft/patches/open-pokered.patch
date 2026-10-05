@@ -191,7 +191,7 @@ index 65802e5..4c2b13f 100644
          if let Ok(mut mgr) = self.manager.lock() {
              mgr.update_frame();
 diff --git a/crates/pokered-runner-web/src/lib.rs b/crates/pokered-runner-web/src/lib.rs
-index fa5bec4..67d2246 100644
+index fa5bec4..6fc1e89 100644
 --- a/crates/pokered-runner-web/src/lib.rs
 +++ b/crates/pokered-runner-web/src/lib.rs
 @@ -394,6 +394,70 @@ impl PokeredRunner {
@@ -265,7 +265,7 @@ index fa5bec4..67d2246 100644
      /// The current game screen as a short name (`"Overworld"`, `"Battle"`, …)
      /// for the editor's HUD.
      pub fn screen_name(&self) -> String {
-@@ -464,6 +528,219 @@ impl PokeredRunner {
+@@ -464,6 +528,233 @@ impl PokeredRunner {
          self.game.debug_full_heal();
      }
  
@@ -427,6 +427,20 @@ index fa5bec4..67d2246 100644
 +        out
 +    }
 +
++    /// Pokécraft: party slot `index` gets `amount` HP back (you fed it), up
++    /// to its max. A fainted Pokémon stays fainted, as with a Potion. Returns
++    /// the HP it has now.
++    pub fn heal_mon(&mut self, index: u32, amount: u32) -> u32 {
++        match self.game.save_data.party.get_mut(index as usize) {
++            Some(mon) if mon.hp > 0 => {
++                mon.hp = (mon.hp as u32 + amount).min(mon.max_hp as u32) as u16;
++                mon.hp as u32
++            }
++            Some(_) => 0,
++            None => 0,
++        }
++    }
++
 +    /// Pokécraft: an evolution cutscene is playing (it owns the screen until
 +    /// it ends; the page keys its white out to show it over the world).
 +    pub fn evolving(&self) -> bool {
@@ -485,7 +499,7 @@ index fa5bec4..67d2246 100644
      /// Push the configured text speed (frames between revealed characters) —
      /// 1/3/5, matching the in-game text speed option.
      pub fn set_text_delay_frames(&mut self, frames: u16) {
-@@ -494,6 +771,9 @@ impl PokeredRunner {
+@@ -494,6 +785,9 @@ impl PokeredRunner {
      /// Native/testable boot path (no `JsValue`): every failure is a plain
      /// `String`.
      fn boot(save_json: Option<&str>) -> Result<Self, String> {

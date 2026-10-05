@@ -26,9 +26,25 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
   - Ghost: the undead leave you alone. Poison and Bug: spiders do too.
   - Rock and Ground: you mine faster.
   - Fighting: your hits are harder.
-  - Normal: you get hungry more slowly.
+  - Normal: you get hungry more slowly, and hunting gives more food.
+  - Grass and Bug: sneak through grass and wild Pokémon weaker than your partner stay hidden. Grass also gives bigger harvests.
   - Psychic: it senses monsters coming.
   - Dragon: you take less damage.
+- **Getting around, as in Minecraft.**
+  - Sprint, and sprint underwater to swim fast where you look.
+  - Sneak: slower and lower, you won't walk off an edge, you dive in water, and you halve the chance of a Pokémon jumping out of the grass.
+  - Climb ladders and vines.
+  - Swim into a bank to climb out.
+- **Ride your partner.**
+  - Four-legged Pokémon carry you on land: TAUROS, PONYTA, RAPIDASH, ARCANINE, RHYHORN, DODRIO and others.
+  - Big swimmers surf you over water: LAPRAS, GYARADOS, DEWGONG and others.
+  - Big fliers fly you: PIDGEOT, CHARIZARD, DRAGONITE and others.
+  - Bipedal and small Pokémon can't carry you.
+- **Food.**
+  - A wild Pokémon that faints leaves what fits it: fish Pokémon leave fish, TAUROS beef and leather, birds chicken and feathers, CHANSEY eggs, MEOWTH gold nuggets (PAY DAY), PARAS mushrooms, GRIMER slime.
+  - Gen 1 has no sheep or pig Pokémon, so nothing drops mutton or pork.
+  - Fights make you hungry.
+  - Hold food and USE on your partner to feed it: it gets HP back, and berries and fruit heal most.
 - **One Pokémon, both games.**
   - Your follower fights Minecraft monsters beside you, and their hits come off its real HP; it can faint.
   - Beating monsters with it out, and mining ore, gives it real EXP. Pokémon Red levels it up and teaches it moves, and when it's time it evolves out in the world with Pokémon Red's own cutscene.
@@ -52,6 +68,8 @@ It runs in a phone browser, portrait or landscape. `dist/index.html` is the whol
 | Use / talk / place / eat (hold) | USE, or tap the right side | right-click or F |
 | Mine / attack | hold MINE | hold left-click (or X) |
 | Inventory and crafting | BAG | E or I |
+| Sneak (dive in water) | SNEAK (toggles) | hold C or Ctrl |
+| Ride your partner, or get off | RIDE (shown when your partner can carry you) | V |
 | Throw your Pokémon's ball | BALL | Q or R |
 | Jump / swim up | JUMP | Space |
 | Menu | MENU | Enter or Esc |
@@ -101,7 +119,8 @@ Two Rust rewrites run in one page. One builds the world and the page draws it; t
 | `items.js` | Item names, stack sizes, tools, break times, drops, food, fuel; the POKé recipes |
 | `inventory.js` | The 36-slot inventory and its screen: bag, crafting, furnace, POKé tabs |
 | `survival.js` | Hearts, hunger, breath, fall damage |
-| `perks.js` | What each Pokémon type does for you in the Minecraft world |
+| `perks.js` | What each Pokémon type does for you in the Minecraft world; which Pokémon you can ride |
+| `drops.js` | What each wild Pokémon leaves when it faints |
 | `mobs.js` | Minecraft's mobs as box models in their own skins: spawning from the biome's lists, AI, arrows, creepers, the follower fighting |
 | `view.js` | three.js scene, materials, sky and day/night, sprites |
 | `player.js` | Walking physics: collision, auto-step, swimming, the block ray |
@@ -128,6 +147,7 @@ pokecraft/build.sh                # clones both sources at the pinned commits, p
                                   # builds both wasm modules, bundles dist/index.html
 node pokecraft/tests/play.mjs     # headless phone: walk, START menu, mine and place, wild + trainer battles, Nurse, save/continue
 node pokecraft/tests/more.mjs     # steps and walls, swimming, bed and sleep, merchant shop, waking at your bed, landscape
+node pokecraft/tests/move.mjs     # sneaking at an edge, a ladder, sprint-swimming, faint drops, feeding, repel, riding on land, water and air
 node pokecraft/tests/touch.mjs    # Pokémon's menus and a whole battle by touchscreen taps, no pad
 node pokecraft/tests/merge.mjs    # the merge test: type perks, EXP from ore and monsters, evolving, follower fainting, creeper vs wild Pokémon
 node pokecraft/tests/survive.mjs  # inventory and crafting, tool tiers, POKé crafting, grass encounters, day/night roamers,

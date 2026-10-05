@@ -18,7 +18,8 @@ import { Inventory } from './inventory.js';
 import { Survival } from './survival.js';
 import { Mobs } from './mobs.js';
 import { hiding, fished, levelAt } from './encounters.js';
-import { perksFor, calms } from './perks.js';
+import { perksFor, calms, mountFor } from './perks.js';
+import { faintDrops } from './drops.js';
 import { TouchGB, findCursors } from './touchgb.js';
 
 const ASSETS = window.PC_ASSETS;
@@ -167,6 +168,10 @@ function buildInfo(names) {
 }
 const solidAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return b ? b.h : 1; };
 const waterAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return !!(b && b.water); };
+// Surfing on your partner: the top of the water carries you.
+const playerSolid = (x, y, z) => (S.riding && S.riding.kind === 'surf' && waterAt(x, y, z) && !waterAt(x, y + 1, z) ? 0.9 : solidAt(x, y, z));
+const CLIMB_RE = /^(ladder|vine|scaffolding|twisting_vines|twisting_vines_plant|weeping_vines|weeping_vines_plant|cave_vines|cave_vines_plant)$/;
+const climbAt = (x, y, z) => { const b = blockInfo(S.world.block(x, y, z)); return !!b && CLIMB_RE.test(b.name); };
 
 // ---------------------------------------------------------------- clock
 const isNight = () => S.g.time >= 13000 && S.g.time < 23000;
@@ -229,18 +234,117 @@ function applyPerks(lead) {
   S.perkKey = key;
   S.perks = perksFor(lead ? lead.types : []);
   if (S.surv) S.surv.perks = S.perks;
-  if (S.player) S.player.mods = { swim: S.perks.swim || 1, jump: S.perks.jump || 1, glide: !!S.perks.glide };
+  if (S.player) Object.assign(S.player.mods, { swim: S.perks.swim || 1, jump: S.perks.jump || 1, glide: !!S.perks.glide });
+  if (S.riding && (!lead || lead.species !== S.riding.species)) dismount(lead ? null : 'Your partner fainted; you hop off.');
   if (S.view) {
     S.view.setLightFloor(S.perks.floor || 0.035);
     if (!S.perks.hand) S.view.setHandLight(0, -999, 0, 0);
   }
   $('perk').innerHTML = lead ? S.perks.types.map((t) => `<b class="t-${t.toLowerCase()}">${t.toUpperCase()}</b>`).join('') : '';
   $('perk').title = S.perks.text.join('\n');
+  const mount = lead && mountFor(lead.species);
+  $('perk').innerHTML += mount ? `<b class="t-ride">RIDE${mount.kind === 'fly' ? ': FLY' : mount.kind === 'surf' ? ': SURF' : ''}</b>` : '';
+  const rb = document.querySelector('.act.ride');
+  if (rb) rb.hidden = !mount;
   if (lead && !first) toast(`${lead.species.toUpperCase()} leads. ${S.perks.text.join('. ')}.`, 4200);
 }
 
 /// The lead's party slot: the first Pokémon that hasn't fainted.
 const leadIndex = () => S.party.findIndex((p) => p.hp > 0);
+
+// ---------------------------------------------------------------- riding your partner
+/// Get on your partner (four-legged ones on land, big swimmers on water, big
+/// fliers into the air), or off.
+function toggleRide() {
+  if (S.riding) { dismount('You hop off.'); return; }
+  const lead = S.party[leadIndex()];
+  if (!lead) return;
+  const m = mountFor(lead.species);
+  const name = lead.species.toUpperCase();
+  if (!m) { toast(`${name} can't carry you. Four-legged Pokémon, big swimmers and big fliers can (TAUROS, LAPRAS, PIDGEOT…).`, 3600); return; }
+  const p = S.player;
+  if (m.kind === 'surf') {
+    // Onto the water: you need to be in it or right at its edge.
+    const x = Math.floor(p.pos[0]), z = Math.floor(p.pos[2]);
+    let top = null;
+    for (let y = Math.floor(p.pos[1]) + 1; y >= Math.floor(p.pos[1]) - 3; y--) if (waterAt(x, y, z) && !waterAt(x, y + 1, z)) { top = y; break; }
+    if (top === null) { toast(`${name} can only carry you on water. Get in the water first.`, 3000); return; }
+    p.pos[1] = top + 0.9;
+    p.vel[1] = 0;
+  }
+  S.riding = { species: lead.species, ...m };
+  Object.assign(p.mods, { ride: m.seat, speed: m.speed, rideJump: m.jump || 1, fly: m.kind === 'fly' });
+  if (m.kind === 'fly') p.vel[1] = 6;
+  drawMount(lead.species);
+  toast(m.kind === 'fly' ? `You're flying on ${name}! JUMP climbs, SNEAK descends. RIDE to get off.`
+    : m.kind === 'surf' ? `You're surfing on ${name}! RIDE to get off.` : `You're riding ${name}! RIDE to get off.`, 3200);
+}
+
+function dismount(msg) {
+  if (!S.riding) return;
+  S.riding = null;
+  Object.assign(S.player.mods, { ride: 0, speed: 1, rideJump: 1, fly: false });
+  $('mount').hidden = true;
+  if (S.ents.follower) S.ents.follower.root.visible = true;
+  if (msg) toast(msg, 2200);
+}
+
+/// Your partner's back, under you.
+function drawMount(species) {
+  const pic = S.ents.spritePic(species, true);
+  const c = $('mount');
+  if (!pic) { c.hidden = true; return; }
+  const [x, y, w, h] = pic.cell;
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, w, h);
+  g.drawImage(S.monsImg, x, y, w, h, 0, 0, w, h);
+  c.hidden = false;
+}
+
+/// Rules while riding: land mounts don't swim, swimmers don't walk.
+function rideStep() {
+  const r = S.riding, p = S.player;
+  if (!r) return;
+  if (S.ents.follower) S.ents.follower.root.visible = false;
+  if (r.kind === 'land' && p.inWater) { dismount(`${r.species.toUpperCase()} can't swim. You slide off into the water.`); return; }
+  if (r.kind === 'surf') {
+    const under = waterAt(Math.floor(p.pos[0]), Math.floor(p.pos[1] - 0.2), Math.floor(p.pos[2]));
+    r.dry = p.onGround && !under ? (r.dry || 0) + DT : 0;
+    if (r.dry > 0.4) dismount(`${r.species.toUpperCase()} can't go on land. You step off.`);
+  }
+}
+
+// ---------------------------------------------------------------- feeding your partner
+const BERRY = /^(sweet_berries|glow_berries|apple|golden_apple|melon_slice)$/;
+/// Is your partner right in front of you?
+function lookingAtFollower() {
+  const f = S.ents.follower;
+  if (!f || S.riding) return false;
+  const p = S.player, e = p.eye(), d = p.look();
+  const v = [f.pos[0] - e[0], f.pos[1] + 0.5 - e[1], f.pos[2] - e[2]];
+  const t = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+  if (t < 0 || t > 4.5) return false;
+  const off = Math.hypot(v[0] - d[0] * t, v[1] - d[1] * t, v[2] - d[2] * t);
+  return off < 0.9;
+}
+/// Hold food and USE on your partner: it eats, and gets HP back. Berries and fruit heal most.
+function feedFollower(held) {
+  const i = leadIndex(), mon = S.party[i];
+  if (i < 0) return;
+  const name = mon.species.toUpperCase();
+  if (mon.hp >= mon.max_hp) { toast(`${name} isn't hungry.`, 1400); return; }
+  const pts = S.items.food(held) || 1;
+  const hp = Math.max(2, Math.round((pts * mon.max_hp) / 14 * (BERRY.test(held) ? 2 : 1)));
+  let now = mon.hp;
+  try { now = S.runner.heal_mon(i, hp); } catch { return; }
+  S.inv.useHeld();
+  const f = S.ents.follower;
+  if (f) S.view.burst(f.pos[0], f.pos[1] + 1, f.pos[2], [1, 0.4, 0.55], 10, 1.2, 2);
+  feed(`${name} ate the ${S.items.name(held)} (+${now - mon.hp} HP)`);
+  updateParty();
+}
 
 /// EXP for the lead, earned in the Minecraft world. Pokémon Red levels it up,
 /// teaches it moves, and plays its evolution when one is due.
@@ -444,6 +548,8 @@ function drawLayer(px, screen) {
 function startBattle(kind, ent) {
   if (S.battle || S.mode !== 'world') return;
   const r = S.runner;
+  if (S.riding && S.riding.kind !== 'fly') dismount(null);
+  else if (S.riding) return; // nothing jumps a flier
   try {
     if (kind === 'trainer') r.start_trainer_battle(ent.trainer.cls, ent.trainer.index);
     else r.start_wild_battle(ent.species, ent.level);
@@ -560,6 +666,16 @@ function endBattle(outcome) {
   if (b.enemyRoot && b.enemyRoot !== b.ent.root) view.drop(b.enemyRoot);
   b.ent.inBattle = false;
   S.grace = 3; // a few steps of peace after a fight
+  S.surv.exhaust += 1.5; // fighting makes you hungry
+  if (b.kind === 'wild' && outcome === 'Win') {
+    // It fainted: it leaves behind what fits it (fish, beef, chicken, wool…).
+    const drops = faintDrops(b.ent.species, b.ent.level, !!S.perks.hunt);
+    for (const [item, n] of drops) gain(item, n);
+    if (drops.length) {
+      S.view.burst(b.ent.pos[0], b.ent.pos[1] + 0.5, b.ent.pos[2], [1, 1, 1], 12, 1.5, 2);
+      toast(`The wild ${b.ent.species.toUpperCase()} fainted and left ${drops.map(([i, n]) => `${n} ${S.items.name(i)}`).join(', ')}.`, 2800);
+    }
+  }
   if (b.kind === 'wild') {
     if (outcome === 'Win' || outcome === 'Captured' || b.ent.hidden) S.ents.remove(b.ent);
     else {
@@ -638,6 +754,7 @@ function interact() {
   const ent = S.ents.pick(eye, dir, 4.5);
   if (ent) return talk(ent);
   const held = S.inv.held;
+  if (held && S.items.food(held) && lookingAtFollower()) return feedFollower(held);
   if (held === 'fishing_rod') return fish();
   const hit = targetBlock();
   const name = hit ? S.names[S.world.block(hit.x, hit.y, hit.z)] : null;
@@ -689,6 +806,7 @@ function sleep(hit) {
     toast('You may not rest now; there are monsters nearby.');
     return;
   }
+  dismount(null);
   S.sleep = { t: 0, bed: [hit.x + 0.5, hit.y + 1, hit.z + 0.5] };
 }
 function sleepStep() {
@@ -792,7 +910,9 @@ function mine() {
   // A double plant's other half goes too.
   for (const dy of [1, -1]) if (S.names[S.world.block(hit.x, hit.y + dy, hit.z)] === name && W.blocks[name] && W.blocks[name].s === 'cross') edit(hit.x, hit.y + dy, hit.z, S.names.indexOf('air'));
   if (!bt.drops) { toast(`You need a better pickaxe to get anything from ${S.items.name(name)}.`, 2200); return; }
+  const crop = S.perks.farm && /^(wheat|carrots|potatoes|beetroots|melon|pumpkin|sweet_berry_bush|cocoa)$/.test(name);
   for (const d of S.items.drops(name)) {
+    if (crop && !d.poke) d[1] += 1;
     if (d.poke) {
       if (givePoke(d.poke)) toast(`You found a ${d.poke.replace(/_/g, ' ')}! It's in your POKéMON bag.`, 3000);
     } else gain(d[0], d[1]);
@@ -875,7 +995,8 @@ const HIDE_RE = /^(short_grass|tall_grass|fern|large_fern|bush|short_dry_grass|t
 function terrainHere() {
   const p = S.player;
   const x = Math.floor(p.pos[0]), y = Math.floor(p.pos[1] + 0.05), z = Math.floor(p.pos[2]);
-  if (p.inWater) return 'water';
+  if (S.riding && S.riding.kind === 'fly') return null;
+  if (p.inWater || (S.riding && S.riding.kind === 'surf' && waterAt(x, Math.floor(p.pos[1] - 0.2), z))) return 'water';
   const feet = blockInfo(S.world.block(x, y, z)), under = blockInfo(S.world.block(x, y - 1, z));
   if (feet && HIDE_RE.test(feet.name)) return 'grass';
   if ((feet && /^(snow|powder_snow)$/.test(feet.name)) || (under && /^(snow_block|powder_snow)$/.test(under.name))) return 'snow';
@@ -901,11 +1022,16 @@ function stepEncounters(moved) {
   S.stepDist -= 1;
   if (S.grace > 0) { S.grace--; return; }
   const terrain = terrainHere();
-  const rate = { grass: 1 / 9, snow: 1 / 12, water: 1 / 12, cave: 1 / 22 }[terrain];
+  // Sneaking through it halves the chance, as in Let's Go.
+  const rate = { grass: 1 / 9, snow: 1 / 12, water: 1 / 12, cave: 1 / 22 }[terrain] * (S.player.sneaking ? 0.5 : 1);
   if (!rate || Math.random() >= rate) return;
   const p = S.player;
   const night = isNight();
   const level = levelAt(dist0(), Math.random, night);
+  // A Bug or Grass partner: sneak through grass and wild Pokémon weaker than
+  // it stay hidden (the REPEL rule). Walk normally and they still jump out.
+  const lead = S.party[leadIndex()];
+  if (S.perks.repel && S.player.sneaking && lead && level < lead.level && terrain === 'grass') return;
   const species = hiding(terrain, biomeName(p.pos[0], p.pos[2]) || 'plains', level, Math.random, night);
   const d = p.look(), l = Math.hypot(d[0], d[2]) || 1;
   const x = p.pos[0] + (d[0] / l) * 2.2, z = p.pos[2] + (d[2] / l) * 2.2;
@@ -941,6 +1067,7 @@ function worldStep(first) {
   if (first && c.pressed('start')) { S.startEdge = true; return; }
   if (first && c.pressed('a')) interact();
   if (first && c.pressed('ball')) throwBall();
+  if (first && c.pressed('ride')) toggleRide();
   // Eating: hold USE with food in hand.
   const held = S.inv.held, pts = held ? S.items.food(held) : 0;
   if (pts && c.down('a') && S.surv.food < 20) {
@@ -955,8 +1082,11 @@ function worldStep(first) {
   if (c.down('mine') || c.down('b')) mine();
   else clearCrack();
   const before = [p.pos[0], p.pos[2]];
-  const sprint = (c.down('sprint') || (TOUCH && Math.hypot(...c.stick) > 0.95)) && S.surv.food > 6;
-  p.step(DT, c.move(), c.down('jump'), sprint, solidAt, waterAt);
+  const sneak = c.down('sneak');
+  const sprint = !sneak && (c.down('sprint') || (TOUCH && Math.hypot(...c.stick) > 0.95)) && S.surv.food > 6;
+  p.step(DT, c.move(), c.down('jump'), sprint, playerSolid, waterAt, { sneak, climb: climbAt });
+  S.sprinting = sprint && Math.hypot(p.vel[0], p.vel[2]) > 5;
+  rideStep();
   const moved = Math.hypot(p.pos[0] - before[0], p.pos[2] - before[1]);
   const fx = Math.floor(p.pos[0]), fz = Math.floor(p.pos[2]);
   const head = blockInfo(S.world.block(fx, Math.floor(p.pos[1] + 1.62), fz));
@@ -964,7 +1094,7 @@ function worldStep(first) {
   const sunlit = S.perks.sunHeal && !isNight() && S.frames % 30 === 0 ? skyOpen([p.pos[0], p.pos[1] + 1, p.pos[2]]) : S.sunlit;
   S.sunlit = sunlit;
   S.surv.step(DT, p, { headInWater: !!(head && head.water), inLava: !!(feet && feet.lava), sprinting: sprint && moved > 0.01, moving: moved > 0.01, sunlit: sunlit && !isNight() });
-  if (S.perks.frost) frostWalk();
+  if (S.perks.frost && !S.riding) frostWalk(); // not while surfing: Lapras would freeze its own water
   if (S.frames % 20 === 0) meltFrost();
   if (S.perks.sense && S.frames % 90 === 0) sense();
   stepEncounters(moved);
@@ -1108,6 +1238,8 @@ function frame(now) {
       sign(biome.replace(/_/g, ' ').toUpperCase());
     }
     S.view.skyTime(S.g.time);
+    const cam = S.view.camera, fov = 72 * (S.sprinting || (S.riding && S.riding.kind !== 'surf' && Math.hypot(S.player.vel[0], S.player.vel[2]) > 6) ? 1.12 : 1);
+    if (Math.abs(cam.fov - fov) > 0.05) { cam.fov += (fov - cam.fov) * 0.15; cam.updateProjectionMatrix(); }
     if (S.perks && S.perks.hand && !S.battle) {
       const pp = S.player.pos;
       S.view.setHandLight(pp[0], pp[1] + 1.2, pp[2], 1);
@@ -1225,7 +1357,7 @@ function makeEntities() {
       return { ...g, top: top ? top.name : null };
     },
     edit: (x, y, z, name) => edit(x, y, z, S.names.indexOf(name)),
-    drop: (item, n) => gain(item, n),
+    drop: (item, n) => gain(item, n + (S.perks.hunt && /^(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$/.test(item) ? 1 : 0)),
     say: (t) => toast(t, 2600),
     follower: () => {
       const f = S.ents.follower, lead = S.party.find((p) => p.hp > 0);
@@ -1418,6 +1550,7 @@ window.__pcTest = {
   stepEncounters, fish, landCatch: () => S.fishing && landCatch(S.fishing), revive, givePoke, nearBlock,
   giveExp, followerHurt, frostWalk, findCursors,
   forceLead: (lead) => { S.testLead = lead; applyPerks(lead); },
+  toggleRide, dismount, feedFollower, lookingAtFollower,
 };
 
 async function main() {

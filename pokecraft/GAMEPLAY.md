@@ -84,3 +84,40 @@ Scored after the gameplay pass against `mashup-research/MERGE_EXAMPLES.md` §3. 
 4. Cross-game AI (mobs hunt wild Pokémon; Pokémon flee creepers).
 
 Then write the interaction-matrix test.
+
+## Movement, food and partners pass (2026-10-05)
+
+The user gave examples to think from, not a checklist: swimming in deep water, crouching, sprinting, ladders; food and hunger, with fainted Pokémon dropping the food that fits them; partner boosts (swim and breath for water types, hunting and farming for land types, walking through grass without forced battles, mining for ground types); and riding the right Pokémon (TAUROS on land, swimmers on water, fliers in the air).
+
+**Done:**
+- **Movement:**
+  - Sneak: slower, lower view, edge guard, dive in water, half the grass encounter rate.
+  - Ladders and vines climb. The game has no block facing, so a ladder is a see-through block you stand in.
+  - Sprint-swim underwater, along where you look.
+  - The field of view widens a little when you go fast.
+- **Food:**
+  - Fainted wild Pokémon drop items by species (`drops.js`, about 110 Gen 1 species). A Normal partner adds a food item; level 30+ Pokémon drop one more.
+  - Battles cost hunger.
+  - Feeding your partner heals it through Pokémon's own party (`heal_mon`). Berries and fruit heal twice as much.
+- **Partner perks:**
+  - Normal: hunting bonus, also on Minecraft animals.
+  - Grass: bigger harvests from crops.
+  - Grass and Bug: the Repel rule while sneaking.
+- **Mounts** (`MOUNTS` in `perks.js`):
+  - Land: speed ×1.5–2.4 and a higher jump. They don't swim; you slide off in water.
+  - Surf: the water's surface carries you. You step off on land.
+  - Fly: no gravity; JUMP climbs, sneak descends, no fall damage.
+  - The partner's back shows at the bottom of your view.
+
+**Found by the tests:**
+- Two perks cancelled out. LAPRAS (Water/Ice) froze its own water when you surfed on it, and then dropped you for being "on land". The interaction matrix needs perk×perk cells too, not just game×game.
+- Repel as an always-on Grass perk removed grass encounters for a third of starters (Bulbasaur), which breaks Pokémon's core loop. It became a choice: sneak to avoid, walk to meet them.
+
+**Later:**
+- Shearing (wool from fluffy Pokémon without fainting them).
+- Farmland and planting.
+- Riding animations.
+- Fly to your bed or a village (Gen 1's FLY), and DIG/TELEPORT to your bed.
+- Rain bringing water types onto land.
+- Crawling through one-block gaps.
+

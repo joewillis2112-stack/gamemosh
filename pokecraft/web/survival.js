@@ -58,8 +58,10 @@ export class Survival {
     if (this.dead) return;
     const k = this.perks || {};
     if (this.hurtCool > 0) this.hurtCool -= dt;
-    // Falling: damage on landing for every block past 3.
-    if (!p.onGround && !p.inWater) {
+    // Falling: damage on landing for every block past 3. Not while flying on
+    // your partner or holding a ladder.
+    if ((p.mods && p.mods.fly) || p.climbing) this.fallFrom = null;
+    else if (!p.onGround && !p.inWater) {
       if (this.fallFrom === null || p.pos[1] > this.fallFrom) this.fallFrom = p.pos[1];
     } else {
       if (this.fallFrom !== null && p.onGround) {
