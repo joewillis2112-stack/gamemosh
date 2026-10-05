@@ -186,6 +186,11 @@ A working log for this repo. It records common themes, what has been learned, mi
 - The fix: cancel `touchstart`/`touchend` themselves (`passive: false`) on the play areas only. Pointer events still fire, and buttons outside those areas still get their clicks. Also cancel `dblclick` and `gesturestart`. As a fallback, when `visualViewport.scale > 1`, rewrite the viewport meta tag, which drops Safari back to 1×.
 - Headless Chromium doesn't double-tap-zoom, so check the cancelling (`defaultPrevented` on a dispatched `TouchEvent`) and that pad taps still reach the game. The zoom itself only shows on a real iPhone.
 
+**One game's items in the other's menus (2026-10-05)**
+- open-pokered builds its item enum from `data/items/item_list.json` plus one JSON file per item. Appending an item there gives it a real id, a name and a place in the bag. The battle bag only lists items whose `ItemCategory` is usable in battle, so new items need a category too.
+- The battle copies the bag when it starts and writes it back when it ends. Put lent items in before `start_wild_battle`, or the copy misses them and the write-back deletes them (I lost the player's shears that way).
+- A patch that adds files: `git add -N` the new files before `git diff`, or the patch silently leaves them out. Check it with `git apply --check` on a fresh upstream clone.
+
 **Movement, food and riding (2026-10-05)**
 - Perks interact with each other, not only with the other game: LAPRAS's Ice frost-walk froze the water it was surfing on. Test perk×perk cells, and switch off a perk that fights the current mode (frost-walk while riding).
 - An always-on perk can delete a core loop. A Grass partner repelling weaker grass Pokémon meant Bulbasaur players never met any. Make such perks a choice, here while sneaking.
@@ -311,3 +316,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-05 (out of ponds):** The user couldn't get out of water. Swimming into a bank now climbs it, as in Minecraft. A new test in `more.mjs` failed on the old build and passes on the new one (4 runs). One run failed for no reason I found and didn't recur. All six suites pass.
 - **2026-10-05 (movement, food, riding):** Added sneak, ladders and vines, sprint-swimming, faint drops by species, feeding your partner, hunting and farming perks, Repel while sneaking, and riding on land, water and in the air (new `heal_mon` runner call). New `tests/move.mjs`. All seven suites pass on a clean build.
 - **2026-10-05 (ideas, not a spec):** The user: "YOU DONT HAVE TO INCLUDE ALL OF IT THEY ARE IDEAS". Added to the working agreement (§1).
+- **2026-10-05 (Minecraft items in battle):** At the user's prompt ("do the shears appear in your item list?"), SHEARS, WHEAT, BONE and RAW COD are now real Pokémon items that appear in the battle ITEM list against Pokémon they fit, with Minecraft-like effects. Tested in `merge.mjs`. All seven suites pass on a clean build.
