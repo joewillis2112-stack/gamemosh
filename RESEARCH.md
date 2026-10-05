@@ -185,6 +185,14 @@ A working log for this repo. It records common themes, what has been learned, mi
 - The fix: cancel `touchstart`/`touchend` themselves (`passive: false`) on the play areas only. Pointer events still fire, and buttons outside those areas still get their clicks. Also cancel `dblclick` and `gesturestart`. As a fallback, when `visualViewport.scale > 1`, rewrite the viewport meta tag, which drops Safari back to 1×.
 - Headless Chromium doesn't double-tap-zoom, so check the cancelling (`defaultPrevented` on a dispatched `TouchEvent`) and that pad taps still reach the game. The zoom itself only shows on a real iPhone.
 
+**Touch for a hidden game's menus, without its pad (2026-10-05)**
+- The user's idea: drop the on-screen Game Boy pad and make everything touch.
+- Tapping an option works without knowing any menu's layout. Find the game's own ▶ cursor in its frame by shape: in this runner's font it is a filled arrow with rows 4, 5, 6, 5 and 4 pixels long. Then press up or down, re-finding the cursor after each press (about 10 frames), until it sits on the tapped line, and press A.
+- Stop at an overshoot, for options two lines apart. Undo a wrap-around. For grids like FIGHT/PKMN/ITEM/RUN, try one press right and step back if the cursor lands past the tap.
+- The open-pokered runner draws its own font, not the 8×8 tile grid, so a tile-template match found nothing. Dump a real frame before writing a matcher.
+- A tap with no cursor on screen presses A to move the text on. Drags scroll, a long press is SELECT, and one BACK button is B.
+- `tests/touch.mjs` plays a whole battle with real touchscreen taps.
+
 **Pokécraft merge pass (2026-10-05)**
 - A hidden game's party can be edited from outside its battles by calling its own functions: `process_level_up`, `check_level_evolution`, `finalize_evolution` (through the game's evolution cutscene state). Then levels, moves and evolutions behave exactly as in a battle. Don't reimplement EXP curves on the page.
 - A full-screen cutscene from the hidden game (evolution) can play over the 3D world: key its white backdrop out and put pale panels only behind its text, as with battles.
@@ -285,3 +293,4 @@ A working log for this repo. It records common themes, what has been learned, mi
   - New runner calls: `give_exp`, `hurt_party`, `evolving`.
   - New `tests/merge.mjs`. All five suites pass on a clean build. Republished the artifact and merged to `main`.
 - **2026-10-05 (pad zoom fix):** The user reported that double-tapping the on-screen pad zoomed the game in and it couldn't zoom back out (iOS Safari). Touches on the play areas are now cancelled, with a reset fallback. Smoke, play and more pass.
+- **2026-10-05 (touch instead of the pad):** At the user's suggestion I removed the Game Boy pad on phones. Taps choose options by steering Pokémon's ▶ cursor, tapping text moves it on, drags scroll, a long press is SELECT, and BACK is B. All six suites pass; the new touch suite passed three runs in a row.

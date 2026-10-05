@@ -115,36 +115,21 @@ body.gb-on #gb { display: block; }
   #hotbar .slot { width: 26px; height: 26px; }
 }
 
-/* ---------- Game Boy pad (Pokémon's screens) */
-#gb-pad {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; touch-action: none;
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px;
-  padding: 10px 16px max(22px, env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0,0,0,.55) 30%);
+/* ---------- Pokémon's screens by touch: the whole screen is the input, plus BACK */
+#gb-pad { position: absolute; inset: 0; z-index: 5; touch-action: none; }
+#gb-pad .back {
+  position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 16px; font-size: 10px; color: var(--paper-ink); background: var(--paper);
+  border: 3px solid var(--paper-ink); box-shadow: 0 0 0 2px var(--paper);
 }
-#dpad { position: relative; width: var(--pad); height: var(--pad); justify-self: start; }
-#dpad .arm, #dpad .hub { position: absolute; background: #3c4050; }
-#dpad .up, #dpad .down { left: 33.4%; width: 33.3%; height: 34.7%; }
-#dpad .left, #dpad .right { top: 33.4%; width: 34.7%; height: 33.3%; }
-#dpad .up { top: 0; border-radius: 8px 8px 0 0; }
-#dpad .down { bottom: 0; border-radius: 0 0 8px 8px; }
-#dpad .left { left: 0; border-radius: 8px 0 0 8px; }
-#dpad .right { right: 0; border-radius: 0 8px 8px 0; }
-#dpad .hub { left: 33.4%; top: 33.4%; width: 33.3%; height: 33.3%; }
-#dpad.up .up, #dpad.down .down, #dpad.left .left, #dpad.right .right { background: #222530; }
-#mid { display: flex; flex-direction: column; gap: 14px; align-items: center; }
-.pill { background: #3c4050; border: none; border-radius: 12px; padding: 8px 10px; font-size: 7px; color: var(--dim); transform: rotate(-20deg); }
-#face { position: relative; width: var(--pad); height: calc(var(--pad) * .87); justify-self: end; }
-.round { position: absolute; width: calc(var(--pad) * .44); height: calc(var(--pad) * .44); border-radius: 50%; border: none; background: #c8285a; color: #fff; font-size: 14px; box-shadow: 0 4px 0 #6d1530; }
-.round.a { right: 0; top: 0; }
-.round.b { left: 0; bottom: 0; }
-.pill.down, .round.down { filter: brightness(.7); }
+#gb-pad .back.down { background: var(--gold); }
+#gb-pad .gbhint {
+  position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  margin: 0; max-width: 46vw; font-size: 7px; line-height: 1.7; text-align: right; color: var(--ink); text-shadow: 1px 1px 0 #000; pointer-events: none;
+}
 @media (pointer: fine) { #gb-pad { display: none !important; } #gb { bottom: 8px; } }
-@media (orientation: landscape) and (pointer: coarse) {
-  #gb-pad { inset: 0; background: none; display: block; pointer-events: none; }
-  #dpad, #face, #mid { position: absolute; pointer-events: auto; }
-  #dpad { left: max(16px, env(safe-area-inset-left)); bottom: 24px; }
-  #face { right: max(16px, env(safe-area-inset-right)); bottom: 30px; }
-  #mid { left: 50%; transform: translateX(-50%); bottom: 6px; flex-direction: row; }
+@media (orientation: portrait) and (pointer: coarse) {
+  #gb { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ---------- title */

@@ -19,6 +19,7 @@ import { Survival } from './survival.js';
 import { Mobs } from './mobs.js';
 import { hiding, fished, levelAt } from './encounters.js';
 import { perksFor, calms } from './perks.js';
+import { TouchGB, findCursors } from './touchgb.js';
 
 const ASSETS = window.PC_ASSETS;
 const W = ASSETS.world;
@@ -1004,6 +1005,8 @@ function tickOnce(first) {
     mask = S.startEdge ? GB.START : 0;
   } else {
     if (S.sleep) sleepStep();
+    // A tap on Pokémon's screen steers its ▶ to the tapped option (touchgb.js).
+    if (S.touchGb.goal) S.touchGb.step(S.lastPx);
     mask = c.gbMask();
   }
   updateBall();
@@ -1011,6 +1014,7 @@ function tickOnce(first) {
   S.ents.update(DT, frozen);
   S.mobs.update(DT, frozen);
   const px = r.tick_layers(mask);
+  S.lastPx = px;
   let opaque = 0;
   for (let i = 3; i < px.length; i += 4) if (px[i]) opaque++;
   S.opaque = opaque;
@@ -1412,12 +1416,19 @@ window.__pcTest = {
   startBattle: (kind, e) => startBattle(kind, e), saveAll, updateParty, throwBall, interact, edit,
   solidAt, blockAt: (x, y, z) => S.names[S.world.block(x, y, z)], targetBlock, mine, terrainHere,
   stepEncounters, fish, landCatch: () => S.fishing && landCatch(S.fishing), revive, givePoke, nearBlock,
-  giveExp, followerHurt, frostWalk,
+  giveExp, followerHurt, frostWalk, findCursors,
   forceLead: (lead) => { S.testLead = lead; applyPerks(lead); },
 };
 
 async function main() {
   S.controls = new Controls(unlockAudio);
+  S.touchGb = new TouchGB((b) => S.controls.latched.add('gb-' + b));
+  // Taps on Pokémon's screen, in Game Boy pixels; elsewhere they mean "go on".
+  S.controls.onGbTap = (x, y) => {
+    const r = $('gb').getBoundingClientRect();
+    const gx = ((x - r.left) / r.width) * 160, gy = ((y - r.top) / r.height) * 144;
+    S.touchGb.tap(gx >= 0 && gx < 160 && gy >= 0 && gy < 144 ? gx : null, gy);
+  };
   $('mute').addEventListener('click', () => { unlockAudio(); audio.setMuted(!audio.muted); });
   audio.setMuted(audio.muted);
   $('btn-continue').addEventListener('click', () => continueGame().catch(fail));
