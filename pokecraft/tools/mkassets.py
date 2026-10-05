@@ -1,143 +1,248 @@
-# Builds the page's world assets from the Minecraft client jar:
-#   atlas.png  - every block texture the top-down view needs, 16x16 each
-#                (water and lava keep their animation frames), then mob faces
-#                and the player sprites
-#   world.json - block name -> [tile, frames, tint], biome name -> colours and
-#                Minecraft's own spawn lists, mob name -> tile
-# Usage: python3 mkassets.py client.jar blocks.json biomes.json pokered/gfx/sprites out/
-import io, json, sys, zipfile
+# Builds Pokécraft's art from the Minecraft client jar and Pokémon's graphics:
+#   blocks.png - every block face texture the 3D world needs (16x16 tiles)
+#   mons.png   - every Pokémon's front and back picture, coloured with its
+#                Super Game Boy palette, plus the NPCs (Nurse, Clerk, trainers)
+#   world.json - block name -> shape, face tiles, tint, collision;
+#                biome name -> colours and Minecraft's spawn lists;
+#                species -> picture cells and sizes; NPC sprites
+# Usage: python3 mkassets.py client.jar blocks.json biomes.json open-pokered/ out/
+import io, json, re, sys, zipfile
 from PIL import Image
 
 jar = zipfile.ZipFile(sys.argv[1])
 block_names = json.load(open(sys.argv[2]))
 biome_names = json.load(open(sys.argv[3]))
-sprites_dir = sys.argv[4]
+pokered = sys.argv[4]
 out = sys.argv[5]
 
 TEX = 'assets/minecraft/textures/'
-DATA = 'data/minecraft/worldgen/biome/'
 have = {n[len(TEX) + 6:-4] for n in jar.namelist() if n.startswith(TEX + 'block/') and n.endswith('.png')}
+
 
 def png(path):
     return Image.open(io.BytesIO(jar.read(path))).convert('RGBA')
 
-# ---------- block -> texture
+
+def block_png(name):
+    return png(TEX + 'block/' + name + '.png')
+
+
+# ---------------------------------------------------------------- shapes
+# Shapes the mesher knows:
+#   cube   full block            cross  two crossed quads (plants)
+#   slab   lower half            flat   a thin layer (snow, carpet, lily pad)
+#   liquid water/lava surface    post   a thin pillar (fences, walls, bars)
+#   small  a small centred cube  (lanterns, bells, chests, beds, heads)
+CROSS_RE = re.compile(r'^(short_grass|tall_grass|fern|large_fern|dead_bush|bush|firefly_bush|short_dry_grass|tall_dry_grass'
+                      r'|.*_sapling|dandelion|poppy|blue_orchid|allium|azure_bluet|.*_tulip|oxeye_daisy|cornflower'
+                      r'|lily_of_the_valley|wither_rose|sunflower|lilac|rose_bush|peony|torchflower|pitcher_plant|open_eyeblossom|closed_eyeblossom'
+                      r'|sweet_berry_bush|sugar_cane|kelp|kelp_plant|seagrass|tall_seagrass|brown_mushroom|red_mushroom'
+                      r'|wheat|carrots|potatoes|beetroots|.*_stem|attached_.*_stem|cave_vines|cave_vines_plant|hanging_roots'
+                      r'|cobweb|torch|wall_torch|soul_torch|soul_wall_torch|redstone_torch|redstone_wall_torch|vine|glow_lichen'
+                      r'|weeping_vines|weeping_vines_plant|twisting_vines|twisting_vines_plant|spore_blossom|mangrove_propagule'
+                      r'|pale_hanging_moss|small_dripleaf|cactus_flower|resin_clump|sea_pickle|fire|soul_fire|bamboo_sapling|pink_petals_x)$')
+FLAT_RE = re.compile(r'^(snow|.*_carpet|moss_carpet|pale_moss_carpet|lily_pad|rail|powered_rail|detector_rail|activator_rail'
+                     r'|pink_petals|wildflowers|leaf_litter|.*_pressure_plate|redstone_wire|frogspawn)$')
+POST_RE = re.compile(r'(_fence|_wall|_pane|^iron_bars|^chain|^lightning_rod|^end_rod|^bamboo)$')
+SMALL_RE = re.compile(r'(^lantern|^soul_lantern|^bell|chest$|_bed$|_skull$|_head$|^flower_pot|^potted_.*|_banner$|^campfire|^soul_campfire'
+                      r'|^decorated_pot|^brewing_stand|_candle$|^candle|^turtle_egg|^sniffer_egg|^dried_ghast|^conduit|_sign$|_hanging_sign$)')
+LIQUID = {'water': 'water_still', 'bubble_column': 'water_still', 'lava': 'lava_still'}
+AIR = {'air', 'cave_air', 'void_air', 'structure_void', 'light', 'barrier', 'moving_piston'}
+NONSOLID_CUBE_RE = re.compile(r'(_door$|^scaffolding$|^powder_snow$)')
+CUTOUT_RE = re.compile(r'(_leaves$|glass|^ice$|_door$|_trapdoor$|^spawner$|^scaffolding$|^mangrove_roots$|^azalea$|^flowering_azalea$|^cobweb$|^honey_block$|^slime_block$)')
+
 SPECIAL = {
-    'grass_block': 'grass_block_top', 'water': 'water_still', 'bubble_column': 'water_still',
-    'lava': 'lava_still', 'snow': 'snow', 'snow_block': 'snow', 'dirt_path': 'dirt_path_top',
-    'farmland': 'farmland_moist', 'tall_grass': 'tall_grass_top', 'large_fern': 'large_fern_top',
-    'sunflower': 'sunflower_front', 'lilac': 'lilac_top', 'rose_bush': 'rose_bush_top',
-    'peony': 'peony_top', 'tall_seagrass': 'tall_seagrass_top', 'kelp': 'kelp_plant',
-    'wheat': 'wheat_stage7', 'carrots': 'carrots_stage3', 'potatoes': 'potatoes_stage3',
-    'beetroots': 'beetroots_stage3', 'bell': 'gold_block', 'cactus': 'cactus_top',
-    'bamboo': 'bamboo_stalk', 'sweet_berry_bush': 'sweet_berry_bush_stage3',
-    'wall_torch': 'torch', 'chest': 'oak_planks', 'trapped_chest': 'oak_planks', 'barrel': 'barrel_top',
-    'cave_air': None, 'void_air': None, 'air': None, 'frosted_ice': 'ice', 'magma_block': 'magma',
-    'dried_kelp_block': 'dried_kelp_top', 'mushroom_stem': 'mushroom_stem', 'campfire': 'campfire_log_lit',
+    'snow': 'snow', 'snow_block': 'snow', 'dirt_path': 'dirt_path_top', 'farmland': 'farmland_moist',
+    'wheat': 'wheat_stage7', 'carrots': 'carrots_stage3', 'potatoes': 'potatoes_stage3', 'beetroots': 'beetroots_stage3',
+    'bell': 'gold_block', 'bamboo': 'bamboo_stalk', 'sweet_berry_bush': 'sweet_berry_bush_stage3',
+    'wall_torch': 'torch', 'soul_wall_torch': 'soul_torch', 'redstone_wall_torch': 'redstone_torch',
+    'chest': 'oak_planks', 'trapped_chest': 'oak_planks', 'ender_chest': 'obsidian', 'frosted_ice': 'ice',
+    'magma_block': 'magma', 'mushroom_stem': 'mushroom_stem', 'campfire': 'campfire_log_lit', 'soul_campfire': 'campfire_log_lit',
     'big_dripleaf': 'big_dripleaf_top', 'pointed_dripstone': 'dripstone_block', 'cocoa': 'cocoa_stage2',
-    'pitcher_plant': 'pitcher_plant_top', 'smooth_stone_slab': 'smooth_stone', 'glass_pane': 'glass',
-    'iron_bars': 'iron_bars', 'ladder': 'ladder', 'lectern': 'lectern_top', 'smoker': 'smoker_top',
-    'blast_furnace': 'blast_furnace_top', 'furnace': 'furnace_top', 'cartography_table': 'cartography_table_top',
-    'fletching_table': 'fletching_table_top', 'smithing_table': 'smithing_table_top',
-    'stonecutter': 'stonecutter_top', 'grindstone': 'grindstone_side', 'loom': 'loom_top',
-    'brewing_stand': 'brewing_stand_base', 'cauldron': 'cauldron_top', 'water_cauldron': 'cauldron_top',
-    'anvil': 'anvil_top', 'flower_pot': 'flower_pot', 'hopper': 'hopper_top', 'leaf_litter': 'leaf_litter',
-    'seagrass': 'seagrass', 'sea_pickle': 'sea_pickle', 'mangrove_roots': 'mangrove_roots_top',
-    'muddy_mangrove_roots': 'muddy_mangrove_roots_top', 'bee_nest': 'bee_nest_top',
-    'suspicious_sand': 'suspicious_sand_0', 'suspicious_gravel': 'suspicious_gravel_0',
-    'quartz_block': 'quartz_block_top', 'sandstone': 'sandstone_top', 'red_sandstone': 'red_sandstone_top',
-    'smooth_sandstone': 'sandstone_top', 'smooth_red_sandstone': 'red_sandstone_top',
-    'cut_sandstone': 'cut_sandstone', 'chiseled_sandstone': 'sandstone_top', 'tnt': 'tnt_top',
-    'crafting_table': 'crafting_table_top', 'jack_o_lantern': 'pumpkin_top', 'carved_pumpkin': 'pumpkin_top',
-    'bookshelf': 'oak_planks', 'scaffolding': 'scaffolding_top', 'target': 'target_top',
+    'glass_pane': 'glass', 'kelp': 'kelp_plant', 'cave_vines': 'cave_vines', 'cave_vines_plant': 'cave_vines_plant',
+    'lantern': 'lantern', 'flower_pot': 'flower_pot', 'leaf_litter': 'leaf_litter', 'seagrass': 'seagrass',
+    'lily_pad': 'lily_pad', 'cobweb': 'cobweb', 'decorated_pot': 'terracotta', 'brewing_stand': 'brewing_stand_base',
+    'pink_petals': 'pink_petals', 'wildflowers': 'wildflowers', 'small_dripleaf': 'small_dripleaf_top',
+    'pitcher_plant': 'pitcher_plant_top', 'bubble_column': 'water_still', 'water': 'water_still', 'lava': 'lava_still',
+    'powder_snow': 'powder_snow', 'fire': 'fire_0', 'soul_fire': 'soul_fire_0', 'sea_pickle': 'sea_pickle',
+    'dried_ghast': 'dried_ghast_hydration_0_top', 'smooth_sandstone': 'sandstone_top', 'smooth_red_sandstone': 'red_sandstone_top',
+    'smooth_quartz': 'quartz_block_bottom', 'quartz_block': 'quartz_block_side', 'dried_kelp_block': 'dried_kelp_top', 'petrified_oak': 'oak_planks', 'quartz': 'quartz_block_side', 'chain': 'iron_chain', 'iron_bars': 'iron_bars',
 }
 SHAPES = ['_stairs', '_slab', '_wall', '_fence_gate', '_fence', '_pressure_plate', '_button',
-          '_wall_hanging_sign', '_hanging_sign', '_wall_sign', '_sign']
+          '_wall_hanging_sign', '_hanging_sign', '_wall_sign', '_sign', '_pane']
 
-def resolve(name):
+
+def base_texture(name):
+    """The texture for a block's sides (or its only texture)."""
     if name in SPECIAL:
         return SPECIAL[name]
-    for prefix in ('waxed_', 'infested_', 'potted_'):
+    for prefix in ('waxed_', 'infested_'):
         if name.startswith(prefix):
-            return 'flower_pot' if prefix == 'potted_' else resolve(name[len(prefix):])
-    for cand in (name + '_top', name):
-        if cand in have:
-            return cand
+            return base_texture(name[len(prefix):])
+    if name.startswith('potted_'):
+        return 'flower_pot'
+    if name in have:
+        return name
     if name.endswith('_wood'):
-        return resolve(name[:-5] + '_log')
+        return base_texture(name[:-5] + '_log')
+    if name.endswith('_hyphae'):
+        return base_texture(name[:-7] + '_stem')
     if name.endswith('_carpet'):
-        return resolve(name[:-7] + '_wool')
+        return base_texture(name[:-7] + '_wool')
     if name.endswith('_bed'):
-        return resolve(name[:-4] + '_wool')
+        return base_texture(name[:-4] + '_wool')
+    if name.endswith('_banner'):
+        return base_texture(name.replace('_wall_banner', '_wool').replace('_banner', '_wool'))
+    if name.endswith('_candle') or name == 'candle':
+        return 'white_wool'
     if name.endswith('_door'):
-        return name + '_top' if name + '_top' in have else None
-    if name.endswith('_banner') or name.endswith('_skull') or name.endswith('_head'):
-        return None
+        return name + '_top' if name + '_top' in have else 'oak_planks'
+    if name.endswith('_skull') or name.endswith('_head'):
+        return 'bone_block_side' if 'skeleton' in name else 'soul_sand'
+    for suffix in ('_top', '_front', '_side', '_0', '_stage0', '_stage_0', '_on'):
+        if name + suffix in have:
+            return name + suffix
     for s in SHAPES:
         if name.endswith(s):
             base = name[:-len(s)]
             for cand in (base, base + 's', base + '_planks', base + '_block', base + '_top'):
                 if cand in have:
                     return cand
-            return resolve(base) if base != name else None
+            if base.endswith('_brick'):
+                return base_texture(base + 's')
+            return base_texture(base) if base != name else None
     if name.endswith('_wall_torch'):
-        return resolve(name.replace('_wall_torch', '_torch'))
+        return base_texture(name.replace('_wall_torch', '_torch'))
     if name.endswith('_wall_fan'):
-        return resolve(name.replace('_wall_fan', '_fan'))
+        return base_texture(name.replace('_wall_fan', '_fan'))
     return None
+
+
+def face_textures(name, side):
+    """(top, side, bottom) texture names."""
+    top = bottom = side
+    for t in (name + '_top',):
+        if t in have:
+            top = t
+    for b in (name + '_bottom',):
+        if b in have:
+            bottom = b
+    if name + '_side' in have:
+        side = name + '_side'
+    if name.endswith('_log') or name.endswith('_stem') and name + '_top' in have:
+        top = bottom = name + '_top'
+    if name.endswith('_wood') or name.endswith('_hyphae'):
+        top = bottom = side
+    if name in ('grass_block', 'podzol', 'mycelium', 'dirt_path', 'crimson_nylium', 'warped_nylium'):
+        bottom = 'dirt' if name != 'crimson_nylium' and name != 'warped_nylium' else 'netherrack'
+    if name == 'farmland':
+        top, side, bottom = 'farmland_moist', 'dirt', 'dirt'
+    if name in ('snow_block', 'snow'):
+        top = side = bottom = 'snow'
+    if name in ('sandstone', 'red_sandstone'):
+        top, bottom = name + '_top', name + '_bottom'
+    if name in ('pumpkin', 'melon', 'cactus', 'hay_block', 'tnt', 'crafting_table', 'bee_nest', 'barrel', 'bone_block', 'quartz_pillar', 'purpur_pillar', 'basalt', 'polished_basalt'):
+        top = name + '_top' if name + '_top' in have else top
+    return top, side, bottom
+
 
 GRASS = {'grass_block', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'sugar_cane', 'bush', 'potted_fern'}
 FOLIAGE = {'oak_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves', 'vine'}
 FIXED = {'spruce_leaves': '#619961', 'birch_leaves': '#80a755', 'lily_pad': '#208030',
-         'attached_melon_stem': '#e0c71c', 'attached_pumpkin_stem': '#e0c71c'}
+         'attached_melon_stem': '#e0c71c', 'attached_pumpkin_stem': '#e0c71c', 'melon_stem': '#e0c71c', 'pumpkin_stem': '#e0c71c'}
 WATER = {'water', 'bubble_column'}
 
-tiles = []          # list of 16x16 images
-tile_of = {}        # texture name -> (first tile, frames)
+tiles, tile_of = [], {}
 
-def add_texture(tex):
+
+def add_tile(key, img):
+    if key not in tile_of:
+        tile_of[key] = len(tiles)
+        tiles.append(img)
+    return tile_of[key]
+
+
+def tex_tile(tex):
     if tex in tile_of:
         return tile_of[tex]
-    img = png(TEX + 'block/' + tex + '.png')
-    w, h = img.size
-    frames = h // w if tex in ('water_still', 'lava_still') else 1
-    first = len(tiles)
-    for f in range(frames):
-        tiles.append(img.crop((0, f * w, w, f * w + w)).resize((16, 16), Image.NEAREST))
-    tile_of[tex] = (first, frames)
-    return tile_of[tex]
+    img = block_png(tex)
+    w = img.width
+    img = img.crop((0, 0, w, w)).resize((16, 16), Image.NEAREST)
+    return add_tile(tex, img)
+
+
+# The grass block's side: dirt with its grass fringe, the fringe coloured
+# like plains grass (sides don't vary by biome here; tops do).
+side = block_png('grass_block_side')
+overlay = block_png('grass_block_side_overlay')
+tinted = Image.new('RGBA', (16, 16))
+for y in range(16):
+    for x in range(16):
+        r, g, b, a = overlay.getpixel((x, y))
+        if a:
+            tinted.putpixel((x, y), (r * 0x91 // 255, g * 0xbd // 255, b * 0x59 // 255, 255))
+side.alpha_composite(tinted)
+add_tile('grass_block_side', side)
 
 blocks, missing = {}, []
 for name in block_names:
-    tex = resolve(name)
-    if tex is None or tex not in have:
-        if name not in ('air', 'cave_air', 'void_air'):
-            missing.append(name)
+    if name in AIR:
         continue
-    first, frames = add_texture(tex)
+    tex = base_texture(name)
+    if tex is None or (tex not in have and tex not in tile_of):
+        missing.append(name)
+        tex = 'stone'
+    if name in LIQUID:
+        shape = 'liquid'
+    elif CROSS_RE.match(name):
+        shape = 'cross'
+    elif FLAT_RE.match(name):
+        shape = 'flat'
+    elif name.endswith('_slab'):
+        shape = 'slab'
+    elif SMALL_RE.search(name):
+        shape = 'small'
+    elif POST_RE.search(name):
+        shape = 'post'
+    else:
+        shape = 'cube'
+    if shape == 'cross':
+        # Double plants: lower and upper halves (the mesher picks by what's below).
+        lower = name + '_bottom' if name + '_bottom' in have else tex
+        upper = name + '_top' if name + '_top' in have else tex
+        if name == 'sunflower':
+            lower, upper = 'sunflower_bottom', 'sunflower_front'
+        faces = [tex_tile(lower), tex_tile(upper), tex_tile(lower)]
+    elif shape == 'cube' or shape == 'slab':
+        t, s, b = face_textures(name, tex)
+        faces = [tex_tile(t if t in have or t in tile_of else tex), tex_tile(s if s in have or s in tile_of else tex),
+                 tex_tile(b if b in have or b in tile_of else tex)]
+    else:
+        faces = [tex_tile(tex)] * 3
     tint = 'g' if name in GRASS else 'f' if name in FOLIAGE else 'w' if name in WATER else FIXED.get(name, '')
-    blocks[name] = [first, frames, tint]
+    solid = shape in ('cube', 'slab', 'post', 'small') and not NONSOLID_CUBE_RE.search(name)
+    layer = 'water' if name in WATER else 'cutout' if (shape in ('cross', 'flat', 'post', 'small') or CUTOUT_RE.search(name)) else 'opaque'
+    entry = {'s': shape, 'f': faces, 'c': 1 if solid else 0, 'l': layer}
+    if tint:
+        entry['t'] = tint
+    if name == 'lava' or name == 'magma_block' or name.endswith('lantern') or 'torch' in name or name == 'glowstone' or name == 'sea_lantern' or name == 'jack_o_lantern' or name.endswith('campfire') or name == 'shroomlight':
+        entry['e'] = 1  # glows: stays lit at night
+    blocks[name] = entry
 
-# ---------- biomes: colours from the colormaps, spawns from the datapack
-def colormap(file):
-    return png(TEX + 'colormap/' + file)
-grass_map, foliage_map = colormap('grass.png'), colormap('foliage.png')
+# ---------------------------------------------------------------- biomes
+grass_map, foliage_map = png(TEX + 'colormap/grass.png'), png(TEX + 'colormap/foliage.png')
+
 
 def sample(img, temp, down):
     t = min(max(temp, 0.0), 1.0)
     d = min(max(down, 0.0), 1.0) * t
-    x, y = int((1 - t) * 255), int((1 - d) * 255)
-    r, g, b, _ = img.getpixel((x, y))
+    r, g, b, _ = img.getpixel((int((1 - t) * 255), int((1 - d) * 255)))
     return '#%02x%02x%02x' % (r, g, b)
 
-def mix_dark_forest(hexc):
-    c = int(hexc[1:], 16)
-    c = ((c & 0xfefefe) + 0x28340a) >> 1
-    return '#%06x' % c
 
 biomes = {}
 for name in biome_names:
-    path = DATA + name + '.json'
+    path = 'data/minecraft/worldgen/biome/' + name + '.json'
     if path not in jar.namelist():
         continue
     d = json.loads(jar.read(path))
@@ -145,80 +250,138 @@ for name in biome_names:
     temp, down = d.get('temperature', 0.5), d.get('downfall', 0.5)
     grass = fx.get('grass_color') or sample(grass_map, temp, down)
     foliage = fx.get('foliage_color') or sample(foliage_map, temp, down)
-    mod = fx.get('grass_color_modifier')
-    if mod == 'swamp':
+    if fx.get('grass_color_modifier') == 'swamp':
         grass = '#6a7039'
-    elif mod == 'dark_forest':
-        grass = mix_dark_forest(grass)
-    spawns = {}
-    nat = d.get('attributes', {}).get('minecraft:gameplay/natural_mob_spawns', {})
-    for cat, lst in nat.get('argument', {}).get('spawns_by_category', {}).items():
-        if cat in ('creature', 'monster'):
-            spawns[cat] = [[e['type'].split(':')[1], e['weight']] for e in lst]
+    elif fx.get('grass_color_modifier') == 'dark_forest':
+        c = int(grass[1:], 16)
+        grass = '#%06x' % (((c & 0xfefefe) + 0x28340a) >> 1)
+    sky = d.get('attributes', {}).get('minecraft:visual/sky_color')
     biomes[name] = {'grass': grass, 'foliage': foliage, 'water': fx.get('water_color', '#3f76e4'),
-                    'temp': temp, 'snow': temp < 0.15, 'spawns': spawns}
+                    'temp': temp, 'sky': ('#%06x' % sky) if isinstance(sky, int) else '#78a7ff'}
 
-# ---------- mobs: the front of the head, 8x8 (or smaller) scaled to 16x16
-# (texture, u, v, w, h): u, v of the head's front face in the entity texture.
-MOBS = {
-    'zombie': ('zombie/zombie', 8, 8, 8, 8), 'husk': ('zombie/husk', 8, 8, 8, 8),
-    'drowned': ('zombie/drowned', 8, 8, 8, 8), 'skeleton': ('skeleton/skeleton', 8, 8, 8, 8),
-    'stray': ('skeleton/stray', 8, 8, 8, 8), 'creeper': ('creeper/creeper', 8, 8, 8, 8),
-    'spider': ('spider/spider', 40, 12, 8, 8), 'enderman': ('enderman/enderman', 8, 8, 8, 8),
-    'slime': ('slime/slime', 6, 6, 6, 6), 'witch': ('witch', 10, 10, 10, 10),
-    'pig': ('pig/pig_temperate', 8, 8, 8, 8), 'cow': ('cow/cow_temperate', 6, 6, 8, 8),
-    'sheep': ('sheep/sheep', 8, 8, 6, 6), 'chicken': ('chicken/chicken_temperate', 3, 3, 4, 6),
-    'wolf': ('wolf/wolf', 4, 4, 6, 6), 'rabbit': ('rabbit/rabbit_brown', 7, 7, 5, 4),
-    'fox': ('fox/fox', 7, 13, 8, 6), 'horse': ('horse/horse_brown', 7, 25, 5, 5),
-    'goat': ('goat/goat', 2, 52, 5, 7), 'frog': ('frog/frog_temperate', 3, 3, 7, 3),
-    'cat': ('cat/cat_tabby', 5, 5, 5, 4), 'ocelot': ('cat/ocelot', 5, 5, 5, 4),
-    'parrot': ('parrot/parrot_red_blue', 2, 2, 2, 3), 'llama': ('llama/llama_creamy', 6, 20, 8, 10),
-    'panda': ('panda/panda', 9, 15, 13, 10), 'polar_bear': ('bear/polar_bear', 7, 7, 7, 7),
-    'armadillo': ('armadillo/armadillo', 2, 2, 4, 6), 'mooshroom': ('cow/mooshroom_red', 6, 6, 8, 8),
-    'donkey': ('horse/donkey', 7, 25, 5, 5), 'turtle': ('turtle/big_sea_turtle', 3, 3, 6, 5),
-    'bee': ('bee/bee', 7, 7, 7, 7), 'camel': ('camel/camel', 7, 7, 7, 7), 'villager': ('villager/villager', 8, 8, 8, 10),
-    'wandering_trader': ('wandering_trader/wandering_trader', 8, 8, 8, 10),
-}
-mobs, mob_missing = {}, []
-names = set(jar.namelist())
-for mob, (tex, u, v, w, h) in MOBS.items():
-    p = TEX + 'entity/' + tex + '.png'
-    if p not in names:
-        mob_missing.append(mob)
-        continue
-    face = png(p).crop((u, v, u + w, v + h))
-    scale = max(1, min(16 // w, 16 // h))
-    face = face.resize((w * scale, h * scale), Image.NEAREST)
-    tile = Image.new('RGBA', (16, 16))
-    tile.paste(face, ((16 - face.width) // 2, 16 - face.height))
-    mobs[mob] = len(tiles)
-    tiles.append(tile)
+# ---------------------------------------------------------------- Pokémon pictures
+# Super Game Boy palettes from open-pokered's own transcription of the ROM.
+src = open(f'{pokered}/crates/pokered-data/src/sgb_palettes.rs').read()
+red = src[src.index('SUPER_PALETTES_RED'):]
+red = red[:red.index('];')]
+pals = {}
+for m in re.finditer(r'sgb_pal\(([\d,\s]+)\),\s*//\s*(PAL_\w+)', red):
+    v = [int(x) for x in m.group(1).replace(' ', '').split(',')]
+    pals[m.group(2)] = [tuple(round(c * 255 / 31) for c in v[i:i + 3]) for i in range(0, 12, 3)]
+ID2PAL = {'PaleMon': 'PAL_MEWMON', 'BlueMon': 'PAL_BLUEMON', 'RedMon': 'PAL_REDMON', 'CyanMon': 'PAL_CYANMON',
+          'PurpleMon': 'PAL_PURPLEMON', 'BrownMon': 'PAL_BROWNMON', 'GreenMon': 'PAL_GREENMON', 'PinkMon': 'PAL_PINKMON',
+          'YellowMon': 'PAL_YELLOWMON', 'GrayMon': 'PAL_GRAYMON'}
+mons = src[src.index('pub const MONSTER_PALETTES'):]
+mons = mons[:mons.index('];')]
+species = []  # (dex, NAME, palette)
+for m in re.finditer(r'SgbPaletteId::(\w+),\s*//\s*(\d+):\s*([A-Z0-9_.\'♀♂ -]+)', mons):
+    dex = int(m.group(2))
+    if dex:
+        species.append((dex, m.group(3).strip(), pals[ID2PAL[m.group(1)]]))
 
-# ---------- player (pokered's Red and the surfing Seel, 16x96: 6 frames), GB shades -> colours
-PALETTES = {
-    'red': {0xff: (0, 0, 0, 0), 0xaa: (248, 176, 136, 255), 0x55: (200, 48, 40, 255), 0x00: (24, 24, 32, 255)},
-    'seel': {0xff: (0, 0, 0, 0), 0xaa: (232, 240, 248, 255), 0x55: (120, 150, 200, 255), 0x00: (24, 24, 40, 255)},
-}
-player = {}
-for sheet, SHADES in PALETTES.items():
-    img = Image.open(f'{sprites_dir}/{sheet}.png').convert('L')
-    player[sheet] = len(tiles)
-    for f in range(img.height // 16):
-        tile = Image.new('RGBA', (16, 16))
-        for y in range(16):
-            for x in range(16):
-                g = img.getpixel((x, f * 16 + y))
-                tile.putpixel((x, y), SHADES[min(SHADES, key=lambda s: abs(s - g))])
-        tiles.append(tile)
+FILE = {'MR. MIME': 'mr.mime', 'NIDORAN♀': 'nidoranf', 'NIDORAN♂': 'nidoranm', 'NIDORAN_F': 'nidoranf', 'NIDORAN_M': 'nidoranm', 'MR_MIME': 'mr.mime', 'FARFETCHD': 'farfetchd', "FARFETCH'D": 'farfetchd', 'MR.MIME': 'mr.mime'}
+PASCAL = {'nidoranf': 'NidoranF', 'nidoranm': 'NidoranM', 'mr.mime': 'MrMime', 'farfetchd': 'Farfetchd'}
+CELL = 56
+
+
+def colour_pic(path, pal):
+    """A 4-shade picture coloured with an SGB palette. White touching the
+    edge is background (transparent); white inside stays white."""
+    im = Image.open(path).convert('L')
+    w, h = im.size
+    shade = lambda v: 0 if v > 212 else 1 if v > 127 else 2 if v > 42 else 3
+    px = [[shade(im.getpixel((x, y))) for x in range(w)] for y in range(h)]
+    outside = [[False] * w for _ in range(h)]
+    stack = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
+    while stack:
+        x, y = stack.pop()
+        if 0 <= x < w and 0 <= y < h and not outside[y][x] and px[y][x] == 0:
+            outside[y][x] = True
+            stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    pic = Image.new('RGBA', (w, h))
+    for y in range(h):
+        for x in range(w):
+            if not outside[y][x]:
+                pic.putpixel((x, y), pal[px[y][x]] + (255,))
+    return pic
+
+
+pics, pokemon = [], {}
+for dex, NAME, pal in species:
+    f = FILE.get(NAME, NAME.lower())
+    pascal = PASCAL.get(f, f.capitalize())
+    front = colour_pic(f'{pokered}/gfx/pokemon/front/{f}.png', pal)
+    back = colour_pic(f'{pokered}/gfx/pokemon/back/{f}b.png', pal).resize((64, 64), Image.NEAREST).crop((4, 4, 60, 60))
+    entry = {'dex': dex}
+    for key, img in (('f', front), ('b', back)):
+        box = img.getbbox() or (0, 0, 1, 1)
+        img = img.crop(box)
+        entry[key] = len(pics)
+        entry[key + 'w'], entry[key + 'h'] = img.size
+        pics.append(img)
+    # Height in metres from its Pokédex entry: sets its size in the world.
+    try:
+        dexd = json.load(open(f'{pokered}/crates/pokered-data/pokemon/{pascal}.json'))['pokedex']
+        entry['m'] = round((dexd['heightFeet'] * 12 + dexd['heightInches']) * 0.0254, 2)
+    except (OSError, KeyError):
+        entry['m'] = 1.0
+    pokemon[pascal] = entry
+
+# NPCs: pokered's overworld people, facing the camera (frame 0), in a few colours.
+NPC_COLOURS = {'nurse': [(255, 160, 170), (200, 60, 90)], 'clerk': [(140, 190, 255), (40, 80, 170)],
+               'youngster': [(250, 200, 120), (60, 120, 200)], 'hiker': [(220, 170, 110), (130, 80, 40)],
+               'lass': [(255, 200, 150), (220, 70, 70)] , 'bug_catcher': [(255, 220, 120), (60, 150, 60)],
+               'cooltrainer_m': [(250, 190, 140), (60, 90, 160)], 'cooltrainer_f': [(250, 190, 140), (190, 60, 120)],
+               'fisher': [(240, 200, 150), (50, 120, 170)], 'super_nerd': [(250, 200, 160), (120, 120, 140)],
+               'gentleman': [(240, 200, 160), (80, 60, 60)], 'beauty': [(255, 200, 170), (200, 80, 160)],
+               'oak': [(240, 210, 180), (120, 120, 120)], 'blue': [(250, 200, 160), (110, 80, 50)]}
+FILES = {'lass': 'brunette_girl', 'bug_catcher': 'youngster'}
+npcs = {}
+for npc, (light, dark) in NPC_COLOURS.items():
+    path = f'{pokered}/gfx/sprites/{FILES.get(npc, npc)}.png'
+    im = Image.open(path).convert('L')
+    frame = im.crop((0, 0, 16, 16))
+    person = Image.new('RGBA', (16, 16))
+    for y in range(16):
+        for x in range(16):
+            v = frame.getpixel((x, y))
+            if v > 212:
+                continue
+            person.putpixel((x, y), (light if v > 127 else dark if v > 42 else (24, 24, 32)) + (255,))
+    npcs[npc] = len(pics)
+    pics.append(person)
+
+# Trainers who roam the world: their real Gen 1 parties, with the top level
+# of each, so the page can pick a fair fight for the distance travelled.
+TRAINERS = {'Youngster': 'youngster', 'BugCatcher': 'bug_catcher', 'Lass': 'lass', 'Hiker': 'hiker',
+            'CooltrainerM': 'cooltrainer_m', 'CooltrainerF': 'cooltrainer_f', 'Fisher': 'fisher',
+            'SuperNerd': 'super_nerd', 'Gentleman': 'gentleman', 'Beauty': 'beauty'}
+trainers = {}
+for cls, sprite in TRAINERS.items():
+    d = json.load(open(f'{pokered}/crates/pokered-data/trainers/{cls}.json'))
+    trainers[cls] = {'npc': sprite, 'parties': [[i, max(m['level'] for m in p['pokemon']), len(p['pokemon'])]
+                                                 for i, p in enumerate(d['parties']) if p['pokemon']]}
 
 COLS = 32
 rows = (len(tiles) + COLS - 1) // COLS
 atlas = Image.new('RGBA', (COLS * 16, rows * 16))
 for i, t in enumerate(tiles):
     atlas.paste(t, ((i % COLS) * 16, (i // COLS) * 16))
-atlas.save(f'{out}/atlas.png', optimize=True)
-json.dump({'cols': COLS, 'blocks': blocks, 'biomes': biomes, 'mobs': mobs, 'player': player},
+atlas.save(f'{out}/blocks.png', optimize=True)
+
+PCOLS = 16
+prow = (len(pics) + PCOLS - 1) // PCOLS
+mon_atlas = Image.new('RGBA', (PCOLS * CELL, prow * CELL))
+cells = []
+for i, img in enumerate(pics):
+    x, y = (i % PCOLS) * CELL, (i // PCOLS) * CELL
+    mon_atlas.paste(img, (x, y))
+    cells.append([x, y, img.width, img.height])
+mon_atlas.save(f'{out}/mons.png', optimize=True)
+
+json.dump({'cols': COLS, 'blocks': blocks, 'biomes': biomes, 'pokemon': pokemon, 'npcs': npcs, 'cells': cells, 'trainers': trainers,
+           'monsSize': [mon_atlas.width, mon_atlas.height]},
           open(f'{out}/world.json', 'w'), separators=(',', ':'))
-print(f'{len(tiles)} tiles, {len(blocks)} blocks textured, {len(missing)} without a texture, '
-      f'{len(biomes)} biomes, {len(mobs)} mobs (missing: {mob_missing})')
 open(f'{out}/untextured.txt', 'w').write('\n'.join(missing) + '\n')
+print(f'{len(tiles)} block tiles, {len(blocks)} blocks ({len(missing)} untextured), {len(biomes)} biomes, '
+      f'{len(pokemon)} Pokémon, {len(npcs)} NPCs')

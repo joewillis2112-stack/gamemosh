@@ -19,6 +19,8 @@ const ROOT: &str = "/mc";
 const COLUMN: usize = 12;
 /// "No block" in `mc_chunk` output.
 const NONE: u16 = 0xffff;
+/// How far below the lowest ground `mc_volume` reaches.
+const DIG_DEPTH: i32 = 12;
 
 struct Gen {
     registries: Arc<Registries>,
@@ -26,6 +28,7 @@ struct Gen {
     out: Vec<u8>,
     text: String,
     air: u16,
+    vol: Vec<u8>,
 }
 
 static mut GEN: Option<Gen> = None;
@@ -83,7 +86,7 @@ fn init(bundle: &[u8], seed: i64) -> Result<Gen, String> {
     let worldgen = Arc::new(WorldGen::new(terrain)?);
     let map = ChunkMap::with_worldgen(worldgen, 2, 0);
     let air = registries.blocks.blocks().find(|(_, b)| b.name.path() == "air").map(|(id, _)| id.0).ok_or("no air block")?;
-    Ok(Gen { registries, map, out: vec![0; 256 * COLUMN], text: String::new(), air })
+    Ok(Gen { registries, map, out: vec![0; 256 * COLUMN], text: String::new(), air, vol: Vec::new() })
 }
 
 /// Load the gzipped bundle and set up the world for `seed`. 0 on success;
@@ -147,6 +150,40 @@ pub extern "C" fn mc_chunk(cx: i32, cz: i32) -> *const u8 {
         }
     }
     g.out.as_ptr()
+}
+
+/// The blocks of chunk (cx, cz) for a first-person view: from a little
+/// below its lowest ground (so you can dig down a way) to its highest block.
+/// Returns a pointer to `i32 lo, i32 hi`, then `(hi - lo + 1) * 256` u16
+/// block ids ordered by y, then z, then x. Below `lo` counts as solid stone.
+#[no_mangle]
+pub extern "C" fn mc_volume(cx: i32, cz: i32) -> *const u8 {
+    let Some(g) = gen() else { return std::ptr::null() };
+    let chunk = g.map.load_now(ChunkPos::new(cx, cz));
+    let reg = &g.registries;
+    let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+    for z in 0..16usize {
+        for x in 0..16usize {
+            lo = lo.min(chunk.heightmaps.get(HeightmapKind::OceanFloor, x, z) - 1);
+            hi = hi.max(chunk.heightmaps.get(HeightmapKind::WorldSurface, x, z) - 1);
+        }
+    }
+    let lo = (lo - DIG_DEPTH).max(chunk.min_y());
+    let hi = hi.max(lo);
+    let n = ((hi - lo + 1) as usize) * 256;
+    g.vol.clear();
+    g.vol.extend_from_slice(&lo.to_le_bytes());
+    g.vol.extend_from_slice(&hi.to_le_bytes());
+    g.vol.reserve(n * 2);
+    for y in lo..=hi {
+        for z in 0..16usize {
+            for x in 0..16usize {
+                let id = reg.blocks.block_of(chunk.block(x, y, z)).0;
+                g.vol.extend_from_slice(&id.to_le_bytes());
+            }
+        }
+    }
+    g.vol.as_ptr()
 }
 
 /// Forget generated chunks farther than `keep` chunks from (cx, cz).

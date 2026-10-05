@@ -31,6 +31,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 | 8 | Game Corner v1: GO TO THE GAME CORNER wiped an existing save with no confirmation, and the portrait layout was 410 px wide on a 390 px phone | Guarded only one of two destructive buttons. Tested only with the fallback font (the real pixel font is wider and Google Fonts is unreachable in this sandbox) | Guard every action that replaces a save. Test layout with the real web font served locally (route fonts.googleapis.com in Playwright) at 390, 360 and 320 px |
 | 9 | The playtest agent was cut off by a usage limit and could not write its report file | Long sub-agent runs can die partway, and sub-agents may be refused file writes | Tell sub-agents to report incrementally, and to put the full report in their final message. Resume a stopped agent with SendMessage instead of respawning it |
 | 10 | Game Corner Arcade was a menu between two games (walk up to a slot, pick a PICO-8 cabinet, coins carry back). The user: "it feels like an arcade menu where I get to choose which game". Released moshes are two games as one | I designed from the word "mashup" and never looked at what released moshes look like | Before designing a mosh, look at real ones (images, video). Test the design against the definition: one world, both games running in it at once. See INSTRUCTIONS.md §0 |
+| 11 | Pokécraft v1 was top-down 2D. The user: "a dumbed down version of the old Pokémon games inside a world with Minecraft textures… in a 2D game you can't see what's a hill, you can't tell if you can walk under something". They wanted the Pixelmon approach, in first person | I picked the cheapest view (reusing the Game Boy look) over the experience the user already knows from the reference mod | When a mosh has a famous reference (Pixelmon, SkyCraft), match its viewpoint and core loop first, and ask what it looks like before choosing a renderer. Minecraft without 3D isn't Minecraft |
 
 ## 3. Domain knowledge: game mashups
 
@@ -140,6 +141,19 @@ A working log for this repo. It records common themes, what has been learned, mi
 - `git apply` run inside a folder that is under another git repo resolves paths against the outer repo and skips the patch without error. Run `git init` in the target folder first.
 - In Gen 1 a fast wild Pokémon (Voltorb) can block RUN for many turns. Test flows that run away should use a slow species, or end the battle another way.
 
+**Pokécraft in first person (2026-10-05)**
+- `mc_volume` exports each chunk's blocks from 12 below its lowest ocean-floor height up to its highest block. That's usually 20–70 rows, 10–35 KB. Below the volume counts as stone.
+- Meshing in the same worker as generation: faces culled, per-vertex AO, a sky-height "shadow" (anything under leaves, overhangs or in caves is darker), and three layers (opaque, cutout with alphaTest, water). It produces 2–3k triangles per chunk in 5–20 ms. A radius-3 view is about 31k triangles in about 30 draw calls.
+- Turn off three.js colour management (`ColorManagement.enabled = false`, linear output, `NoColorSpace` textures), or the baked vertex colours get converted twice and wash out.
+- A second esbuild bundle for the worker, embedded with `define` as a string and started from a blob URL, keeps the game one file. A fallback runs the same module on the page.
+- **Battles in a 3D world: keep the camera at the player's eyes.** Over-the-shoulder cameras clip into trees and hills, and pulling them in makes your Pokémon fill the screen. Pixelmon's own answer (you watch from where you stand, your Pokémon steps out ahead) can't clip. Pick the opponent's spot with a line-of-sight test, and make leaves see-through during the fight.
+- A hidden game's battle screen: skip its Pokémon pictures (a static flag in the renderer) and key its white background out. Read which side is showing and its slide or shake offsets from the renderer's own state, to drive the 3D sprites. Put pale panels behind the HUD rows so the text reads over the world.
+- Pokémon's black battle wipe drawn inside a part-screen layer looks like a broken black box. Detect "only black, over 30% of pixels" and fade the whole view instead. A lower threshold also swallows the black-text-only intro frames.
+- Pokémon must stand on real ground: treat leaves as non-standable for spawns and NPCs, or they appear on tree tops and throw off the battle staging.
+- Collision zeroes the velocity, so compare the distance moved with the wanted speed when deciding to auto-step, not with the velocity after the move.
+- When picking along a pitched view ray, normalise the horizontal direction first, or the hit point falls short by cos²(pitch).
+- Headless Chromium renders WebGL in software (SwiftShader). There the game logic held 56–58 ticks/s even at a 4× CPU throttle, but the frame rate was 27–37 fps, limited by the software renderer. Real-device fps is still unmeasured.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -171,9 +185,9 @@ A working log for this repo. It records common themes, what has been learned, mi
   - What frame rate does it get on the user's phone? Not yet run on a real device.
 - pico-r and Iron Wolf have no touch input, so a phone build needs an on-screen overlay.
 - Pokécraft (https://claude.ai/artifact/QrvL2FGDYSDADfnMwZaY3K):
-  - Does the artifact sandbox allow a Worker from a `blob:` URL? If not, world generation falls back to the page, with a 40–90 ms stall per new chunk.
-  - How fast is chunk generation on the user's phone? Headless with a 4× CPU throttle held 60 fps and about 43 ms per chunk, but it has not been tested on a real device.
-  - Villages: the generator builds them, but houses are roofed, so only the bell is reachable from above. Showing interiors would need per-column floor scanning.
+  - The artifact page's rules say Workers from `blob:` URLs work, but it's unconfirmed on a phone. If the worker fails, the world runs on the page and stutters on each new chunk.
+  - What is the frame rate on the user's phone in first person? Untested on a real GPU.
+  - Next ideas: badges and gyms, a PC outside the START menu, riding and surfing on Pokémon, torches lighting the night, villagers in the houses.
 
 ## 7. Session log
 
@@ -195,3 +209,14 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Built `pokecraft/`: top-down Minecraft textures; biome encounters; mobs as Pokémon; distance-based levels; day and night with sleep; bells and a Wandering Trader that run a Poké Mart; SURF; B to sprint.
   - `build.sh` reproduces it from scratch, downloading Mojang's client jar. Two headless phone suites pass.
   - Published at https://claude.ai/artifact/QrvL2FGDYSDADfnMwZaY3K and merged to `main`.
+- **2026-10-05 (Pokécraft in first person):**
+  - The user said v1 was "a dumbed down" 2D Pokémon with Minecraft textures, and asked for the Pixelmon approach in first person (mistake 11).
+  - Rebuilt Pokécraft as a first-person voxel world: MinecraftOSS 3D chunk volumes, a mesher in the world worker, three.js.
+  - Gameplay:
+    - Wild Pokémon live in the world as SGB-coloured sprites, by biome and time of day; some are aggressive.
+    - Throw your Pokémon's ball to start a battle on the spot. Pokémon Red's HUD sits over the world, with the two Pokémon standing in it.
+    - Roaming trainers with real Gen 1 parties.
+    - Your lead Pokémon follows you.
+    - A Nurse and a Clerk at village bells, and a travelling merchant.
+    - Mining, placing and a hotbar; beds and sleep; swimming; touch, keyboard and gamepad controls.
+  - Two headless suites pass. Updated the artifact in place and merged to `main`.

@@ -55,9 +55,9 @@ fi
 "$WB" --target web --no-typescript --out-dir "$WORK/pk" \
   "$WORK/open-pokered/target/wasm32-unknown-unknown/release/pokered_runner_web.wasm"
 
-# --- Textures, biome colours, mob faces, Red's sprites; then one HTML file.
+# --- Block textures, biome colours, Pokémon and NPC pictures; then one HTML file.
 node tools/names.mjs "$WORK"
 mkdir -p "$WORK/assets"
 python3 tools/mkassets.py "$WORK/client.jar" "$WORK/blocks.json" "$WORK/biomes.json" \
-  "$WORK/open-pokered/gfx/sprites" "$WORK/assets"
+  "$WORK/open-pokered" "$WORK/assets"
 node tools/bundle.mjs "$WORK"

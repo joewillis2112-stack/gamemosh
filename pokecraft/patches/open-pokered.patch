@@ -54,10 +54,75 @@ index d73681f..3f8bb48 100644
  const BLACK_SCREEN_DURATION: u32 = 30;
  
  /// Frames A+B+Start+Select must be held to trigger a soft reset
+diff --git a/crates/pokered-app/src/render/battle.rs b/crates/pokered-app/src/render/battle.rs
+index a37dfd9..08ee998 100644
+--- a/crates/pokered-app/src/render/battle.rs
++++ b/crates/pokered-app/src/render/battle.rs
+@@ -3807,6 +3807,29 @@ fn draw_pokeball_tile(
+ // Main battle rendering
+ // ---------------------------------------------------------------------------
+ 
++/// Pokécraft: when set, the battle draws no Pokémon or trainer pictures, so a
++/// page can show the two Pokémon in its own world behind the HUD and text.
++static HIDDEN_BATTLE_PICS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
++
++pub fn set_hidden_battle_pics(on: bool) {
++    HIDDEN_BATTLE_PICS.store(on, core::sync::atomic::Ordering::Relaxed);
++}
++
++impl BattleVisualEffects {
++    /// Pokécraft: whether each side's picture would be drawn this frame
++    /// (hits blink it, fainting and recalls hide it) and how far it is offset
++    /// (slides, shakes): `(enemy, player, enemy_dx, enemy_dy, player_dx, player_dy)`.
++    pub fn mosh_pics(&self) -> (bool, bool, i32, i32, i32, i32) {
++        let (edx, edy) = self.enemy_offset();
++        let (pdx, pdy) = self.player_offset();
++        (
++            self.enemy_visible_now() || self.squish_visible(MonSide::Enemy),
++            self.player_visible_now() || self.squish_visible(MonSide::Player),
++            edx, edy, pdx, pdy,
++        )
++    }
++}
++
+ pub fn draw_battle(
+     screen: &BattleScreen,
+     res: &mut Option<ResourceManager>,
+@@ -4242,8 +4265,10 @@ pub fn draw_battle(
+             _ => false,
+         };
+ 
++        let hide_pics = HIDDEN_BATTLE_PICS.load(core::sync::atomic::Ordering::Relaxed);
+         let (enemy_dx, enemy_dy) = effects.enemy_offset();
+-        if effects.enemy_visible_now()
++        if hide_pics {
++        } else if effects.enemy_visible_now()
+             || effects.hide_mon_one_frame == Some(MonSide::Enemy)
+             || effects.squish_visible(MonSide::Enemy)
+         {
+@@ -4454,7 +4479,8 @@ pub fn draw_battle(
+         };
+ 
+         let (player_dx, player_dy) = effects.player_offset();
+-        if effects.player_visible_now()
++        if hide_pics {
++        } else if effects.player_visible_now()
+             || effects.hide_mon_one_frame == Some(MonSide::Player)
+             || effects.squish_visible(MonSide::Player)
+         {
 diff --git a/crates/pokered-app/src/render/mod.rs b/crates/pokered-app/src/render/mod.rs
-index e69eabf..f12af85 100644
+index e69eabf..2bbc45e 100644
 --- a/crates/pokered-app/src/render/mod.rs
 +++ b/crates/pokered-app/src/render/mod.rs
+@@ -23,7 +23,7 @@ mod town_map;
+ mod trade;
+ mod trainer_card;
+ 
+-pub use battle::{draw_battle, BattleVisualEffects};
++pub use battle::{draw_battle, set_hidden_battle_pics, BattleVisualEffects};
+ pub use battle::{
+     redraw_battle_bag_menu_cursor, redraw_battle_main_menu_cursor,
+     redraw_battle_move_menu_selection, redraw_battle_party_menu_cursor,
 @@ -49,7 +49,7 @@ pub use menu::{
      draw_start_menu, draw_stats_screen,
  };
@@ -126,7 +191,7 @@ index 65802e5..4c2b13f 100644
          if let Ok(mut mgr) = self.manager.lock() {
              mgr.update_frame();
 diff --git a/crates/pokered-runner-web/src/lib.rs b/crates/pokered-runner-web/src/lib.rs
-index fa5bec4..442a4a1 100644
+index fa5bec4..5cff16a 100644
 --- a/crates/pokered-runner-web/src/lib.rs
 +++ b/crates/pokered-runner-web/src/lib.rs
 @@ -394,6 +394,70 @@ impl PokeredRunner {
@@ -200,7 +265,7 @@ index fa5bec4..442a4a1 100644
      /// The current game screen as a short name (`"Overworld"`, `"Battle"`, …)
      /// for the editor's HUD.
      pub fn screen_name(&self) -> String {
-@@ -464,6 +528,133 @@ impl PokeredRunner {
+@@ -464,6 +528,156 @@ impl PokeredRunner {
          self.game.debug_full_heal();
      }
  
@@ -251,14 +316,22 @@ index fa5bec4..442a4a1 100644
 +                    ..
 +                }
 +            );
++        let in_battle = matches!(self.game.state.screen, GameScreen::Battle)
++            && self.game.evolution_anim.is_none();
 +        if intro {
 +            // The opening snapshot of the overworld is taken now: blank white.
 +            set_hidden_world(Some(0));
 +        }
++        if in_battle {
++            // The page draws both Pokémon in its own world; the battle's
++            // white background is keyed out below.
++            pokered_app::render::set_hidden_battle_pics(true);
++        }
 +        self.game.draw(&mut self.fb);
 +        set_hidden_world(None);
++        pokered_app::render::set_hidden_battle_pics(false);
 +        self.fb.to_rgba(&mut out);
-+        if intro {
++        if intro || in_battle {
 +            for px in out.chunks_exact_mut(4) {
 +                if px[0] == 0xff && px[1] == 0xff && px[2] == 0xff {
 +                    px[3] = 0;
@@ -266,6 +339,21 @@ index fa5bec4..442a4a1 100644
 +            }
 +        }
 +        out
++    }
++
++    /// The battle as the page needs it to draw the two Pokémon itself, as
++    /// JSON: `{enemy, player, enemy_level, enemy_shown, player_shown,
++    /// enemy_dx, enemy_dy, player_dx, player_dy, wild}`; `"null"` outside a battle.
++    pub fn battle_view(&self) -> String {
++        if !matches!(self.game.state.screen, GameScreen::Battle) {
++            return "null".into();
++        }
++        let b = &self.game.battle;
++        let (es, ps, edx, edy, pdx, pdy) = self.game.battle_vfx.mosh_pics();
++        format!(
++            "{{\"enemy\":\"{:?}\",\"player\":\"{:?}\",\"enemy_level\":{},\"enemy_shown\":{},\"player_shown\":{},\"enemy_dx\":{},\"enemy_dy\":{},\"player_dx\":{},\"player_dy\":{},\"wild\":{}}}",
++            b.enemy_species, b.player_species, b.enemy_level, es, ps, edx, edy, pdx, pdy, b.is_wild
++        )
 +    }
 +
 +    /// Give the player `species_name` at `level` the way an in-game gift does:
@@ -334,7 +422,7 @@ index fa5bec4..442a4a1 100644
      /// Push the configured text speed (frames between revealed characters) —
      /// 1/3/5, matching the in-game text speed option.
      pub fn set_text_delay_frames(&mut self, frames: u16) {
-@@ -494,6 +685,9 @@ impl PokeredRunner {
+@@ -494,6 +708,9 @@ impl PokeredRunner {
      /// Native/testable boot path (no `JsValue`): every failure is a plain
      /// `String`.
      fn boot(save_json: Option<&str>) -> Result<Self, String> {
