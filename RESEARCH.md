@@ -185,6 +185,11 @@ A working log for this repo. It records common themes, what has been learned, mi
 - The fix: cancel `touchstart`/`touchend` themselves (`passive: false`) on the play areas only. Pointer events still fire, and buttons outside those areas still get their clicks. Also cancel `dblclick` and `gesturestart`. As a fallback, when `visualViewport.scale > 1`, rewrite the viewport meta tag, which drops Safari back to 1×.
 - Headless Chromium doesn't double-tap-zoom, so check the cancelling (`defaultPrevented` on a dispatched `TouchEvent`) and that pad taps still reach the game. The zoom itself only shows on a real iPhone.
 
+**Getting out of water (2026-10-05)**
+- The user got stuck in ponds. Swimming up was capped at the surface, the step-up assist was off in water, and once the feet left the water normal gravity pulled the player back in, so the bank was always just out of reach.
+- Minecraft's rule fixes it: swimming into a wall rises you while there's standing room within 2 blocks above your feet. `player.js` now does this while in the water or bobbing just above it. You can climb onto a bank level with the water or one block higher.
+- Write the test so it stops when the condition is met (out of the water and over the bank), not after a fixed hold. A fixed hold kept jumping and walked off the test pad into natural terrain. Reproduce on the old build first: it failed there, stuck against the bank.
+
 **Touch for a hidden game's menus, without its pad (2026-10-05)**
 - The user's idea: drop the on-screen Game Boy pad and make everything touch.
 - Tapping an option works without knowing any menu's layout. Find the game's own ▶ cursor in its frame by shape: in this runner's font it is a filled arrow with rows 4, 5, 6, 5 and 4 pixels long. Then press up or down, re-finding the cursor after each press (about 10 frames), until it sits on the tapped line, and press A.
@@ -294,3 +299,4 @@ A working log for this repo. It records common themes, what has been learned, mi
   - New `tests/merge.mjs`. All five suites pass on a clean build. Republished the artifact and merged to `main`.
 - **2026-10-05 (pad zoom fix):** The user reported that double-tapping the on-screen pad zoomed the game in and it couldn't zoom back out (iOS Safari). Touches on the play areas are now cancelled, with a reset fallback. Smoke, play and more pass.
 - **2026-10-05 (touch instead of the pad):** At the user's suggestion I removed the Game Boy pad on phones. Taps choose options by steering Pokémon's ▶ cursor, tapping text moves it on, drags scroll, a long press is SELECT, and BACK is B. All six suites pass; the new touch suite passed three runs in a row.
+- **2026-10-05 (out of ponds):** The user couldn't get out of water. Swimming into a bank now climbs it, as in Minecraft. A new test in `more.mjs` failed on the old build and passes on the new one (4 runs). One run failed for no reason I found and didn't recur. All six suites pass.

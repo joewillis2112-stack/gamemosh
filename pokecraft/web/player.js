@@ -57,8 +57,28 @@ export class Player {
     // Bumped into a one-block step while walking: hop it.
     const blocked = Math.hypot(this.pos[0] - before[0], this.pos[2] - before[1]) < Math.hypot(wx, wz) * dt * 0.3;
     if (blocked && wasOnGround && Math.hypot(wx, wz) > 0.5 && !this.inWater && this.canStepUp(wx, wz, solid)) this.vel[1] = JUMP;
+    // Swimming into a bank: climb out, as in Minecraft (swim against a wall
+    // and you rise). Without this, swimming up stops at the surface and the
+    // edge of a pond is always just out of reach.
+    else if (blocked && Math.hypot(wx, wz) > 0.5 && this.wet(water) && this.canClimbOut(wx, wz, solid)) this.vel[1] = Math.max(this.vel[1], 6.5);
     this.onGround = false;
     this.moveAxis(1, this.vel[1] * dt, solid);
+  }
+
+  /// In the water, or bobbing just above it.
+  wet(water) {
+    const x = Math.floor(this.pos[0]), z = Math.floor(this.pos[2]);
+    return this.inWater || water(x, Math.floor(this.pos[1] - 0.3), z);
+  }
+
+  /// Is there room to stand within two blocks above your feet, on the far side of what you're swimming into?
+  canClimbOut(wx, wz, solid) {
+    const l = Math.hypot(wx, wz);
+    const ax = Math.floor(this.pos[0] + (wx / l) * (WIDTH + 0.3)), az = Math.floor(this.pos[2] + (wz / l) * (WIDTH + 0.3));
+    const y = Math.floor(this.pos[1] + 0.01), x = Math.floor(this.pos[0]), z = Math.floor(this.pos[2]);
+    if (solid(x, y + 2, z) > 0) return false; // no headroom
+    for (let yy = y; yy <= y + 2; yy++) if (solid(ax, yy, az) === 0 && solid(ax, yy + 1, az) === 0) return true;
+    return false;
   }
 
   canStepUp(wx, wz, solid) {
