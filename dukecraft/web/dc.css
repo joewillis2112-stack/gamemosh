@@ -1,0 +1,10 @@
+/* Dukecraft additions on top of Pokécraft's styles. */
+#title h1 span { color: #e8302c; }
+#gun { position: absolute; left: 50%; bottom: calc(52px + env(safe-area-inset-bottom, 0px)); transform: translateX(-30%); height: min(34vh, 230px); width: auto; image-rendering: pixelated; pointer-events: none; z-index: 1; }
+#ammo { position: absolute; right: 12px; bottom: calc(236px + env(safe-area-inset-bottom, 0px)); font-size: 14px; color: #f8d800; text-shadow: 2px 2px 0 #000; }
+#ammo::after { content: ' AMMO'; font-size: 8px; color: #f8f8f0; }
+#tint { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 2; }
+#tint.on { animation: tintflash .6s ease-out; }
+@keyframes tintflash { from { opacity: 1; } to { opacity: 0; } }
+@media (orientation: landscape) { #gun { height: min(42vh, 200px); bottom: 40px; } #ammo { bottom: 120px; right: 112px; } }
+@media (pointer: fine) { #ammo { bottom: 80px; } }
