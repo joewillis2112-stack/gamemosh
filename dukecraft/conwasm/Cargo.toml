@@ -1,0 +1,18 @@
+[package]
+name = "conwasm"
+version = "0.1.0"
+edition = "2021"
+description = "Dukecraft: Duke Nukem 3D's CON VM behind a small C ABI for the page (wasm32)."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dukecon = { path = "../con" }
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+
+[workspace]
