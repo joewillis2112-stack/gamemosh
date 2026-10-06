@@ -164,6 +164,16 @@ fn spawn_actor(wd: &mut World, picnum: i16, x: i32, y: i32, z: i32, ang: i16, by
         if bc[p + 2] != 0 { a.regs.move_ptr = Some(bc[p + 2] as usize); }
         a.hitag = bc[p + 3] as i16;
     }
+    // Duke's spawn() (game.c): enemies are drawn at 40×40 (bosses 80, the
+    // shark 60), and troopers wear palette 22.
+    if wd.badguy.get(picnum as usize).copied().unwrap_or(false) {
+        let name = |n: &str| wd.sym.get(n).copied().unwrap_or(-1) as i16;
+        let boss = ["BOSS1", "BOSS2", "BOSS3", "BOSS4"].iter().any(|b| name(b) == picnum);
+        let r = if boss { 80 } else if picnum == name("SHARK") { 60 } else { 40 };
+        a.xrepeat = r; a.yrepeat = r;
+        a.clipdist = if boss { 164 } else if r == 60 { 40 } else { 80 };
+        if ["LIZTROOP", "LIZTROOPSHOOT", "LIZTROOPJETPACK", "LIZTROOPDUCKING", "LIZTROOPRUNNING", "LIZTROOPSTAYPUT", "LIZTROOPONTOILET", "LIZTROOPJUSTSIT"].iter().any(|t| name(t) == picnum) { a.pal = 22; }
+    }
     // Reuse a dead slot.
     if let Some(i) = wd.actors.iter().position(|a| !a.alive) { wd.actors[i] = a; return i as i32; }
     wd.actors.push(a);
@@ -361,3 +371,24 @@ pub extern "C" fn con_output() -> *const u8 { unsafe { INPUT.as_ptr() } }
 #[no_mangle]
 #[allow(static_mut_refs)]
 pub extern "C" fn con_output_len() -> usize { unsafe { INPUT.len() } }
+
+/// The script's sound table and quotes as JSON, into the output buffer:
+/// {"sounds":{"id":"FILE.VOC",...},"quotes":{"id":"text",...}}. Returns its length.
+#[no_mangle]
+#[allow(static_mut_refs)]
+pub extern "C" fn con_meta() -> usize {
+    let wd = w();
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut j = String::from("{\"sounds\":{");
+    for (k, snd) in wd.script.sounds.iter().enumerate() {
+        if k > 0 { j.push(','); }
+        j.push_str(&format!("\"{}\":\"{}\"", snd.sound_id, esc(&snd.filename)));
+    }
+    j.push_str("},\"quotes\":{");
+    for (k, (id, q)) in wd.script.quotes.iter().enumerate() {
+        if k > 0 { j.push(','); }
+        j.push_str(&format!("\"{}\":\"{}\"", id, esc(q)));
+    }
+    j.push_str("}}");
+    unsafe { INPUT = j.into_bytes(); INPUT.len() }
+}

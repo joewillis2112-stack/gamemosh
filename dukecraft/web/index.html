@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0e1310">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Dukecraft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>/*STYLE*/</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+  <div id="fade"></div>
+  <div id="tint"></div>
+
+  <div id="hud">
+    <div id="topbar">
+      <span id="brand">DUKECRAFT</span>
+      <span id="clock">DAY 07:00</span>
+      <span id="zone">KILLS 0</span>
+      <button id="mute" type="button">SOUND ON</button>
+    </div>
+    <div id="crosshair"></div>
+    <div id="ctx" hidden></div>
+    <div id="crack" hidden></div>
+    <div id="sign" hidden></div>
+    <div id="feed"></div>
+    <div id="itemname" hidden></div>
+    <div id="eatbar" hidden></div>
+    <canvas id="gun" hidden></canvas>
+    <div id="ammo" hidden>0</div>
+    <div id="stats">
+      <div id="air" hidden></div>
+      <div class="statrow"><div id="hearts"></div><div id="food"></div></div>
+    </div>
+  </div>
+  <div id="hurt"></div>
+  <div id="toast" hidden></div>
+
+  <div id="fps-pad">
+    <div id="stick" hidden><div id="knob"></div></div>
+    <div id="topbtns">
+      <button type="button" class="act menubtn" data-act="inv">BAG</button>
+    </div>
+    <div id="hotbar"></div>
+    <div id="acts">
+      <button type="button" class="act sneak" data-act="sneak">SNEAK</button>
+      <button type="button" class="act jump" data-act="jump">JUMP</button>
+    </div>
+  </div>
+  <div id="gb-pad" hidden></div>
+
+  <section id="inv" hidden>
+    <div class="ipanel">
+      <div id="inv-tabs">
+        <button type="button" data-tab="bag">BAG</button>
+        <button type="button" data-tab="craft">CRAFT</button>
+        <button type="button" data-tab="furnace">FURNACE</button>
+        <button type="button" id="inv-close" aria-label="close">✕</button>
+      </div>
+      <div id="inv-body"></div>
+      <div class="ifoot"><p id="inv-info"></p><button type="button" id="inv-drop" hidden>DROP</button></div>
+    </div>
+  </section>
+
+  <section id="dead" hidden>
+    <h2>YOU DIED!</h2>
+    <p id="dead-why"></p>
+    <p class="keep">You keep your things.</p>
+    <button type="button" id="respawn">RESPAWN</button>
+  </section>
+
+  <section id="title" class="panel">
+    <h1>DUKE<span>CRAFT</span></h1>
+    <p class="sub">DUKE NUKEM 3D × MINECRAFT</p>
+    <p id="loading">LOADING…</p>
+    <div class="menu" hidden>
+      <button id="btn-continue" type="button" hidden>CONTINUE</button>
+      <button id="btn-new" type="button">NEW WORLD</button>
+    </div>
+    <p id="nosave" hidden>SAVING IS OFF IN THIS BROWSER. PROGRESS ENDS WHEN YOU CLOSE THE PAGE.</p>
+    <p class="hint">An endless Minecraft world, made by Minecraft's own generator. At night Duke Nukem 3D's aliens land in it, run by Duke's own 1996 scripts. Mine, craft, build, and keep your pistol loaded.</p>
+  </section>
+
+  <section id="newworld" class="panel box" hidden>
+    <h2>NEW WORLD</h2>
+    <label for="seed">SEED</label>
+    <input id="seed" type="text" autocomplete="off" spellcheck="false" placeholder="random" maxlength="32">
+    <div id="starters"><button type="button" id="btn-start">LET'S ROCK</button></div>
+  </section>
+</div>
+<script>/*ASSETS*/</script>
+<script>/*SCRIPT*/</script>
+</body>
+</html>
