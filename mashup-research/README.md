@@ -14,6 +14,7 @@ was cloned or its page fetched, and the top picks were checked a second time.
   - A table of engines that ship readable game code (LÖVE, PICO-8, C#, Godot, RPG Maker…). |
 | [MERGE_EXAMPLES.md](MERGE_EXAMPLES.md) | **What makes a true merge** (2026-10-05). The RL car + ball in GTA V taken apart from its source, 23 other merges (libsm64, mario64-in-minecraft, Mari0, Cadence of Hyrule…), the 14-question merge test, and recurring techniques. |
 | [RECOMBINATION_2026-10-05.md](RECOMBINATION_2026-10-05.md) | The first word-recombination pass (method in RESEARCH.md §5): 30 random seeds from the chat, and the ideas they raised for Pokécraft. |
+| [MOBILE_REWRITES_2026-10-06.md](MOBILE_REWRITES_2026-10-06.md) | **Rewrite mobile games ourselves and merge them** (2026-10-06). Why the Minecraft moshes read as mods, what makes a good pair, and a shortlist. The pick is Plants vs. Zombies × Candy Crush. |
 | [3D_PICKS_2026-10-06.md](3D_PICKS_2026-10-06.md) | **A 3D game for Minecraft on mobile** (2026-10-06). The Rocket League car and ball core, and libsm64 (Super Mario 64), both built for wasm here, with sizes and speed. The pick, and why. |
 | [VERIFIED.md](VERIFIED.md) | The full verified list. **Section A:** 57 games already rebuilt in Rust. **Section B:** 80 games that could be rebuilt, split into source releases, decompilations, documented reimplementations, and browser games. |
 
