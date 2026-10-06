@@ -24,6 +24,7 @@
     </div>
     <div id="lefthud"><div id="party"></div><div id="perk"></div></div>
     <div id="crosshair"></div>
+    <div id="ctx" hidden></div>
     <div id="crack" hidden></div>
     <div id="sign" hidden></div>
     <div id="feed"></div>
@@ -42,15 +43,14 @@
 
   <div id="fps-pad">
     <div id="stick" hidden><div id="knob"></div></div>
-    <button type="button" class="act menubtn" data-act="start">MENU</button>
+    <div id="topbtns">
+      <button type="button" class="act menubtn" data-act="start">MENU</button>
+      <button type="button" class="act ride" data-act="ride" hidden>RIDE</button>
+    </div>
     <div id="hotbar"></div>
-    <button type="button" class="act bag" data-act="inv">BAG</button>
-    <button type="button" class="act ride" data-act="ride" hidden>RIDE</button>
-    <button type="button" class="act sneak" data-act="sneak">SNEAK</button>
     <div id="acts">
       <button type="button" class="act ball" data-act="ball" aria-label="throw your POKéMON's ball"><i></i>BALL</button>
-      <button type="button" class="act mine" data-act="mine">MINE</button>
-      <button type="button" class="act use" data-act="a">USE</button>
+      <button type="button" class="act sneak" data-act="sneak">SNEAK</button>
       <button type="button" class="act jump" data-act="jump">JUMP</button>
     </div>
   </div>

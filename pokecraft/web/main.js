@@ -461,6 +461,11 @@ function renderHotbar() {
     }
     el.appendChild(d);
   }
+  const more = document.createElement('div');
+  more.className = 'slot more';
+  more.dataset.act = 'inv';
+  more.textContent = '•••';
+  el.appendChild(more);
   const held = S.inv.held;
   if (held !== S.lastHeld) {
     S.lastHeld = held;
@@ -795,25 +800,57 @@ function targetBlock() {
   });
 }
 
-function interact() {
+/// What a tap (right-click on a computer) does right now, from what's under
+/// the crosshair and what you hold: { label, run }, or null. The label shows
+/// under the crosshair, so a tap never surprises you.
+function tapAction() {
   const p = S.player;
   const eye = p.eye(), dir = p.look();
   const ent = S.ents.pick(eye, dir, 4.5);
-  if (ent) return talk(ent);
+  if (ent) {
+    const label = ent.kind === 'wild' ? `BATTLE ${ent.species.toUpperCase()}`
+      : ent.kind === 'trainer' ? (ent.beaten ? 'TALK' : 'BATTLE TRAINER')
+        : ent.kind === 'nurse' ? 'HEAL' : 'SHOP';
+    return { label, run: () => talk(ent) };
+  }
   const held = S.inv.held;
-  if (held && S.items.food(held) && lookingAtFollower()) return feedFollower(held);
-  if (held === 'fishing_rod') return fish();
+  if (held && S.items.food(held) && lookingAtFollower()) return { label: 'FEED PARTNER', run: () => feedFollower(held) };
+  if (held === 'fishing_rod') return { label: S.fishing ? 'REEL IN' : 'CAST', run: fish };
   const hit = targetBlock();
   const name = hit ? S.names[S.world.block(hit.x, hit.y, hit.z)] : null;
-  if (name && /_bed$/.test(name)) return sleep(hit);
-  if (name === 'crafting_table') { S.inv.show('craft'); return; }
-  if (name && /^(furnace|smoker|blast_furnace)$/.test(name)) { S.inv.show('furnace'); return; }
-  if (name === 'bell') { toast('DING! The village NURSE and CLERK are right here.'); return; }
-  if (held && S.items.food(held)) {
-    if (S.surv.food >= 20) toast("You're not hungry.", 1200);
-    return; // eating happens while you hold USE
-  }
-  if (hit && held && S.items.isBlock(held)) place(hit, held);
+  if (name && /_bed$/.test(name)) return { label: 'SLEEP', run: () => sleep(hit) };
+  if (name === 'crafting_table') return { label: 'CRAFT', run: () => S.inv.show('craft') };
+  if (name && /^(furnace|smoker|blast_furnace)$/.test(name)) return { label: 'SMELT', run: () => S.inv.show('furnace') };
+  if (name === 'bell') return { label: 'RING', run: () => toast('DING! The village NURSE and CLERK are right here.') };
+  if (hit && held && S.items.isBlock(held)) return { label: `PLACE ${S.items.name(held).toUpperCase()}`, run: () => place(hit, held) };
+  return null;
+}
+
+/// What holding does: eat with food in hand, otherwise mine or attack.
+function holdLabel() {
+  const held = S.inv.held;
+  if (held && S.items.food(held) && S.surv.food < 20) return 'EAT';
+  const p = S.player;
+  if (S.mobs.pick(p.eye(), p.look(), 3.6)) return 'ATTACK';
+  return targetBlock() ? 'MINE' : null;
+}
+
+function interact() {
+  const a = tapAction();
+  if (a) a.run();
+}
+
+/// The hint under the crosshair.
+function updateCtx() {
+  const el = $('ctx');
+  if (S.mode !== 'world' || S.inv.open || S.battle || S.sleep) { el.hidden = true; return; }
+  const tap = tapAction(), hold = holdLabel();
+  const [t, h] = TOUCH ? ['TAP', 'HOLD'] : ['RIGHT-CLICK', 'CLICK'];
+  const parts = [];
+  if (tap) parts.push(`${t}: ${tap.label}`);
+  if (hold) parts.push(`${h}: ${hold}`);
+  el.textContent = parts.join(' · ');
+  el.hidden = !parts.length;
 }
 
 function talk(e) {
@@ -1117,7 +1154,9 @@ function worldStep(first) {
   if (first && c.pressed('ride')) toggleRide();
   // Eating: hold USE with food in hand.
   const held = S.inv.held, pts = held ? S.items.food(held) : 0;
-  if (pts && c.down('a') && S.surv.food < 20) {
+  // Eating: hold USE (right mouse) or, on a phone, hold on the screen.
+  const eating = pts && S.surv.food < 20 && (c.down('a') || (TOUCH && c.down('mine')));
+  if (eating) {
     const cooked = S.perks.cook && COOKED[held];
     if (S.surv.eat(cooked ? S.items.food(cooked) || pts : pts, true, DT)) {
       S.inv.useHeld();
@@ -1126,7 +1165,7 @@ function worldStep(first) {
     if (S.frames % 8 === 0) S.view.burst(...p.eye().map((v, i) => v + p.look()[i] * 0.6), tileColour(W.icons[held] && W.icons[held].b !== undefined ? W.icons[held].b : 0), 2, 1, 1);
   } else S.surv.eating = 0;
   if (S.fishing) fishStep();
-  if (c.down('mine') || c.down('b')) mine();
+  if (!eating && (c.down('mine') || c.down('b'))) mine();
   else clearCrack();
   const before = [p.pos[0], p.pos[2]];
   const sneak = c.down('sneak');
@@ -1298,6 +1337,7 @@ function frame(now) {
     if (S.surv.eating) $('eatbar').style.setProperty('--k', String(Math.min(1, S.surv.eating / 1.6)));
     S.view.render();
     if (S.frames % 30 === 0) updateHud();
+    if (now - (S.ctxAt || 0) > 120) { S.ctxAt = now; updateCtx(); }
     if (S.frames % 90 === 0) updateParty();
     if (S.mode === 'world' && now - S.lastSave > AUTOSAVE_MS) saveAll('timer');
   } else if (S.mode === 'title') titleInput();
