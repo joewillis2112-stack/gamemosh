@@ -16,6 +16,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Sub-agents:** use them when asked, and match the shape asked for (for example, one to find and verify, one to filter). Don't spawn them otherwise.
 - **Phone matters.** The user plays on mobile. Prefer WebAssembly/browser builds and touch controls.
 - **The user's examples are ideas, not a spec.** When they list features ("swim in two-block water, crouch, ladders…"), pick the few that matter most and do them well. Don't implement the whole list, and don't present the rest as a to-do. The user said so outright, in capitals, after I built nearly everything from one list.
+- **Pokécraft is a merge, not a mod.** The user (2026-10-06): "This is not a pokemon mod for Minecraft, this is supposed to be either minecraft in pokemon or Pokemon in Minecraft." Pixelmon was the reference for the first-person viewpoint (§2 #11), not for the scope. A mod adds a game's flavour to a host; the target is one whole game running inside the other: Pokémon Red's real progression, systems and people alive in Minecraft's world (or Minecraft whole inside Pokémon's). Judge features by whether they bring the actual game across, not by whether they add Pokémon-themed content.
 - **Write-once, extend-forever.** Prefer structures that grow, such as numbered rounds and appendable files, over rebuilds.
 
 ## 2. Mistakes and corrections (don't repeat these)
