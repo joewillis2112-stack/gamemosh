@@ -10,6 +10,9 @@ const buzz = (ms = 8) => { try { navigator.vibrate && navigator.vibrate(ms); } c
 
 export const GB = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128 };
 
+const HOLD_MS = 280; // touch: press this long without dragging to mine
+const TAP_SLOP = 10; // px a tap may wander
+
 const KEYS = {
   ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
   KeyW: 'fwd', KeyS: 'back', KeyA: 'strafeL', KeyD: 'strafeR',
@@ -139,7 +142,11 @@ export class Controls {
         knob.style.transform = 'translate(-50%, -50%)';
         pointers.set(e.pointerId, { kind: 'stick', x0: e.clientX, y0: e.clientY });
       } else {
-        pointers.set(e.pointerId, { kind: 'look', x: e.clientX, y: e.clientY, t: performance.now(), x0: e.clientX, y0: e.clientY });
+        // The right side, as in Minecraft Bedrock: drag to look, tap to use
+        // what's under the crosshair, hold to mine or attack.
+        const p = { kind: 'look', x: e.clientX, y: e.clientY, t: performance.now(), x0: e.clientX, y0: e.clientY, moved: false, mining: false };
+        p.timer = setTimeout(() => { if (!p.moved) { p.mining = true; this.held.add('mine'); buzz(12); } }, HOLD_MS);
+        pointers.set(e.pointerId, p);
       }
     });
     fps.addEventListener('pointermove', (e) => {
@@ -154,6 +161,7 @@ export class Controls {
         this.stick = [dx / R, -dy / R];
         knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
       } else if (p.kind === 'look') {
+        if (!p.moved && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > TAP_SLOP) { p.moved = true; if (!p.mining) clearTimeout(p.timer); }
         this.lookDelta[0] += (e.clientX - p.x) * 0.0065;
         this.lookDelta[1] += (e.clientY - p.y) * 0.0065;
         p.x = e.clientX; p.y = e.clientY;
@@ -161,8 +169,11 @@ export class Controls {
     });
     const up = (e) => {
       const p = pointers.get(e.pointerId);
-      // A quick tap on the look area is A (use / talk), like tapping in Bedrock.
-      if (p && p.kind === 'look' && performance.now() - p.t < 220 && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) < 12) this.latched.add('a');
+      if (p && p.kind === 'look') {
+        clearTimeout(p.timer);
+        if (p.mining) this.held.delete('mine');
+        else if (!p.moved && performance.now() - p.t < HOLD_MS) this.latched.add('a'); // a tap: use
+      }
       release(e.pointerId);
     };
     fps.addEventListener('pointerup', up);

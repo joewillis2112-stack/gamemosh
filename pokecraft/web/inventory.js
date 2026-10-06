@@ -211,7 +211,7 @@ export class Inventory {
       if (!list.length) {
         const p = document.createElement('p');
         p.className = 'iempty';
-        p.textContent = this.tab === 'craft' ? 'Nothing to craft yet. Punch a tree (hold MINE on a log) for wood.' : this.tab === 'furnace' ? 'Nothing here smelts. Raw ore, sand, food and logs do.' : 'Nothing yet.';
+        p.textContent = this.tab === 'craft' ? 'Nothing to craft yet. Punch a tree (hold your finger on a log) for wood.' : this.tab === 'furnace' ? 'Nothing here smelts. Raw ore, sand, food and logs do.' : 'Nothing yet.';
         body.appendChild(p);
       }
       info.textContent = this.tab === 'craft'

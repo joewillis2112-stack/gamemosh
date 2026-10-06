@@ -5,7 +5,7 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
 - **Pokémon hide where Pokémon always hide.** Walk through tall grass, ferns or bushes, wade through snow, swim, or go down into a dark cave, and every step can make a wild Pokémon jump out at you, as in the Game Boy games. Off those, by day, nothing jumps you.
 - **By day the world is gentle.** Cute Pokémon roam in plain sight and leave you alone: Caterpie, Pidgey, Jigglypuff, Clefairy, Tauros, Ponyta, Eevee, Pikachu, Nidoran, depending on the biome. Throw your ball at one if you want it.
 - **At night the scary ones come out.** Gastly and Haunter, Zubat, Drowzee, Ekans, Mankey, Grimer, Koffing, Cubone roam anywhere, grass or not, and they come for you. Each Pokémon is the Game Boy picture coloured with its Super Game Boy palette, and sized from its Pokédex height.
-- **Battles happen where you meet.** Aim at a wild Pokémon and press BALL to throw your Pokémon's ball (or walk into it, or press USE on it). The opponent steps up a few blocks away, your Pokémon comes out in front of you, and Pokémon Red's own battle plays out: HUD, menus, text, moves, catching, evolving, all drawn over the world.
+- **Battles happen where you meet.** Aim at a wild Pokémon and press BALL to throw your Pokémon's ball (or walk into it, or tap it). The opponent steps up a few blocks away, your Pokémon comes out in front of you, and Pokémon Red's own battle plays out: HUD, menus, text, moves, catching, evolving, all drawn over the world.
 - **Trainers roam.** Every couple of minutes one walks into view: a Youngster, a Hiker, a Lass, a Cooltrainer. If it spots you, it walks up and challenges you with its real Gen 1 party, picked to match how far out you are.
 - **Your lead Pokémon follows you.** Turn around and it's there.
 - **Distance is difficulty.** Wild levels rise about one every 40 blocks from where the world began. The top bar shows the level around you.
@@ -13,8 +13,8 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
 - **It's Minecraft survival.**
   - A real inventory (36 slots, the bottom row is the hotbar) with item names, and Minecraft's own recipes in a recipe-book CRAFT tab: small recipes anywhere, tools and the rest at a crafting table, smelting at a furnace with fuel.
   - Tools matter, with Minecraft's break times and drops: stone by hand breaks slowly and gives nothing; ores need the right pickaxe.
-  - Ten hearts and ten drumsticks. Falling, drowning, lava, starving and monsters hurt; a full belly heals. Hold USE with food to eat. If you die you wake at your bed and keep your things.
-  - Minecraft's night monsters, as 3D models in Minecraft's skins: zombies, husks, drowned, skeletons that shoot, spiders, and creepers that blow holes in the ground. Undead burn at sunrise. Cows, pigs, sheep and chickens graze by day for food and wool. Hit things with MINE (swords hit harder); your lead Pokémon joins in against monsters, and monsters drop Pokémon money.
+  - Ten hearts and ten drumsticks. Falling, drowning, lava, starving and monsters hurt; a full belly heals. Hold food and hold your finger on the screen to eat (right mouse on a computer). If you die you wake at your bed and keep your things.
+  - Minecraft's night monsters, as 3D models in Minecraft's skins: zombies, husks, drowned, skeletons that shoot, spiders, and creepers that blow holes in the ground. Undead burn at sunrise. Cows, pigs, sheep and chickens graze by day for food and wool. Hit things by holding on them (swords hit harder); your lead Pokémon joins in against monsters, and monsters drop Pokémon money.
   - Torches, lanterns, glowstone and lava light the dark around them.
 - **Your lead Pokémon changes how you survive.** The lead is the first Pokémon in your party that hasn't fainted, and its types show under your party:
   - Water: you breathe 3× longer and swim faster.
@@ -44,7 +44,7 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
   - A wild Pokémon that faints leaves what fits it: fish Pokémon leave fish, TAUROS beef and leather, birds chicken and feathers, CHANSEY eggs, MEOWTH gold nuggets (PAY DAY), PARAS mushrooms, GRIMER slime.
   - Gen 1 has no sheep or pig Pokémon, so nothing drops mutton or pork.
   - Fights make you hungry.
-  - Hold food and USE on your partner to feed it: it gets HP back, and berries and fruit heal most.
+  - Hold food and tap your partner to feed it: it gets HP back, and berries and fruit heal most.
 - **One Pokémon, both games.**
   - Your follower fights Minecraft monsters beside you, and their hits come off its real HP; it can faint.
   - Beating monsters with it out, and mining ore, gives it real EXP. Pokémon Red levels it up and teaches it moves, and when it's time it evolves out in the world with Pokémon Red's own cutscene.
@@ -58,7 +58,7 @@ Pokémon Red in an endless, first-person Minecraft world, in the spirit of Pixel
 - **Both at once.**
   - A POKé crafting tab turns Minecraft materials into Pokémon items: iron, red dye and a button make POKé BALLs; a bottle and berries make a POTION; spider eye an ANTIDOTE, golden apple a REVIVE, diamond and sugar a RARE CANDY, and more.
   - Ores sometimes hold evolution stones: Thunder Stone in copper, Moon Stone in diamond, Leaf Stone in emerald, Water Stone in lapis, Fire Stone in redstone.
-  - Craft a fishing rod and cast at water. When the bobber dips, press USE: mostly Pokémon, otherwise cod, salmon or junk.
+  - Craft a fishing rod and cast at water. When the bobber dips, tap: mostly Pokémon, otherwise cod, salmon or junk.
   - A bed: put it down and sleep in it at night (not with monsters near) to heal you and your party and skip to morning. Swim and sprint (push the stick all the way, or hold Shift).
 - **Day and night** follow Minecraft's 20-minute day.
 - **START (MENU)** opens Pokémon's own menu over the world: Pokédex, party, bag, save.
@@ -71,15 +71,17 @@ It runs in a phone browser, portrait or landscape. `dist/index.html` is the whol
 |---|---|---|
 | Walk | left thumb, anywhere on the left | WASD (Shift sprints) |
 | Look | drag on the right | mouse (click to capture it) |
-| Use / talk / place / eat (hold) | USE, or tap the right side | right-click or F |
-| Mine / attack | hold MINE | hold left-click (or X) |
-| Inventory and crafting | BAG | E or I |
+| Use: talk, battle, place, craft at a table, sleep, feed, fish | tap the right side | right-click or F |
+| Mine / attack / eat (with food in hand) | hold the right side still | hold left-click (or X); hold right-click to eat |
+| Inventory and crafting | ••• at the end of the hotbar | E or I |
 | Sneak (dive in water) | SNEAK (toggles) | hold C or Ctrl |
 | Ride your partner, or get off | RIDE (shown when your partner can carry you) | V |
 | Throw your Pokémon's ball | BALL | Q or R |
 | Jump / swim up | JUMP | Space |
 | Menu | MENU | Enter or Esc |
 | Hotbar | tap a slot | 1–9, mouse wheel |
+
+A line under the crosshair says what a tap and a hold will do right now (`TAP: CRAFT · HOLD: MINE`), so there's no guessing which button does what. The phone layout is Minecraft Bedrock's: the hotbar along the bottom edge, hearts and food above it on the left, JUMP, BALL and SNEAK above it on the right, MENU top right. The bag and crafting fill the screen, with the tabs and ✕ always in reach and the list scrolling under your finger.
 
 In Pokémon's screens (battles, menus, text) there's no pad on a phone:
 - **Tap an option** to choose it. The page finds Pokémon's ▶ cursor and steers it there, then presses A.
@@ -156,6 +158,8 @@ node pokecraft/tests/play.mjs     # headless phone: walk, START menu, mine and p
 node pokecraft/tests/more.mjs     # steps and walls, swimming, bed and sleep, merchant shop, waking at your bed, landscape
 node pokecraft/tests/move.mjs     # sneaking at an edge, a ladder, sprint-swimming, faint drops, feeding, repel, riding on land, water and air
 node pokecraft/tests/touch.mjs    # Pokémon's menus and a whole battle by touchscreen taps, no pad
+xvfb-run -a node pokecraft/tests/controls.mjs  # phone layout at four sizes (nothing off screen or overlapping), the bag
+                                  # and crafting fit and touch-scroll, tap places, hold mines, drag looks, SNEAK only sneaks
 node pokecraft/tests/merge.mjs    # the merge test: type perks, EXP from ore and monsters, evolving, follower fainting, creeper vs wild Pokémon
 node pokecraft/tests/survive.mjs  # inventory and crafting, tool tiers, POKé crafting, grass encounters, day/night roamers,
                                   # a zombie fight, eating, fishing, falling, death and respawn, torches, save/continue
