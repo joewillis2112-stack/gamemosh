@@ -37,7 +37,7 @@ Correction to my earlier note: in the "Skate and MW2 in Minecraft" build, MW2 is
   - there was no menu at all;
   - the host was our own approximation of Minecraft, not Minecraft.
 - **Menus can be generated from data we already parse:** QuakeC's field and global defs (names and types, read by `dukequake/engine/src/progs.rs`), Quake's cvars, Duke's CON `define`s and actor tables (`dukecraft/con`), RL-style constants. Each becomes a slider or switch without hand work, the way ReSkate does it.
-- **Phone constraint:** every reference project is a desktop PC mod on retail installs. On a phone we need hosts and guests whose data is free to fetch (Quake and Duke shareware; Minecraft's files from Mojang's servers, as iw4l-skate does) and whose code runs in wasm.
+- **Phone constraint (corrected below):** the reference projects are desktop mods, but phone browsers are not the limit. Big decompiled games already run in them. The limit is getting the game's data.
 
 ## Candidates, by this standard
 
@@ -46,3 +46,16 @@ Correction to my earlier note: in the "Skate and MW2 in Minecraft" build, MW2 is
 | **Quake** (our Rust port, bit-exact against id's C) | Duke Nukem 3D: weapons, HUD, Duke himself, aliens, jetpack, pipebombs, shrinker | Duke's CON scripts (our VM) and Duke's C (JFDuke3D) for the player code | Both shareware; both cores already build for wasm |
 | Quake | Minecraft: blocks, TNT, bow, mobs, Steve's kit | MinecraftOSS (vendored in iw4l-skate) | Minecraft files from Mojang at first run |
 | Pokécraft's Minecraft (our approximation) | Duke (Dukecraft v2) | as above | Already ships; host not real |
+
+## Big hosts already run in phone browsers (added 2026-10-07)
+
+The user: people have ported GTA to the browser and it runs on phones with no jailbreak; someone embedded a multiplayer Minecraft remake in a tweet.
+
+- **GTA: Vice City runs in the browser, on phones, with touch.** It's the reVC decompilation compiled with Emscripten (WebGL 2).
+  - DOS Zone's revcDOS ([Carter54git/revcdos](https://github.com/Carter54git/revcdos), [Lolendor/reVCDOS](https://github.com/Lolendor/reVCDOS)) is binary only: no engine source, data streamed from their CDN or compiled from your own copy.
+  - **Source-available builds exist**, which is what adding content needs:
+    - [origami-ltd/wasm-revc](https://github.com/origami-ltd/wasm-revc) @acde392: `REVC_AUDIO=OAL ./scripts/build-web.sh` → `reVC.{js,wasm}`; streams your own files on demand; IndexedDB saves; needs SharedArrayBuffer (HTTPS with cross-origin isolation).
+    - [ololoken/re3x](https://github.com/ololoken/re3x) @9a1a4fb (2026-10-06): `emcmake cmake` with librw GL3.
+  - reVC has a **built-in debug menu** (Ctrl-M, `CDebugMenu`) that any C++ can add entries to: a ready-made control surface for a content port.
+  - The game data (~1.4 GB, the user's own copy) is the blocker. DOS Zone's CDN returns 403 from this container, and nothing here has the files.
+- **The multiplayer Minecraft in a tweet:** I couldn't find it. One-click multiplayer in the browser is ordinary tech (a WebSocket relay; e.g. "JanneCraft", built in a day with a 21-byte position packet). It needs a server running somewhere; this container can't host one persistently.
