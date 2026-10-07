@@ -1,0 +1,16 @@
+[package]
+name = "dqengine"
+version = "0.1.0"
+edition = "2021"
+description = "Duke × Quake: one engine running both games' own logic (QuakeC progs.dat and Duke's CON), ported from id's GPL source."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[workspace]
