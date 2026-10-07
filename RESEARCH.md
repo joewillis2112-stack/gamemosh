@@ -259,6 +259,15 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **glibc `rand()`** is TYPE_3 additive feedback: seed the 31-word table with 16807 multiplicative steps (Schrage), start f=3 b=0, discard 310. `SV_NewChaseDir` and `random()` depend on it, and Host_Frame calls `rand()` once per frame.
 - **The 1996 shareware** is `archive.org/download/quakeshareware/QUAKE_SW.zip` (`QUAKE_SW/ID1/PAK0.PAK`, 18.7 MB): start, E1M1–E1M8, and `progs.dat` (CRC 5927).
 
+## 4e. Technical lessons from Claude Studio (`claudestudio/`)
+
+- **Luau in wasm needs exception support in every library, not just the binding.** Luau raises errors as C++ exceptions. Building the Luau libraries without `-fwasm-exceptions` made the first `luaL_error` escape as an uncatchable `CppException`. Compile the libraries and the binding with `-fwasm-exceptions`. Link `Luau.Bytecode`, `Luau.Inliner` and `Luau.Common` as well as `VM`, `Compiler` and `Ast`.
+- **Roblox events are deferred.** With immediate events, a `ChildAdded` handler saw a part before the script had named it. Queue handlers and run them when the firing script yields or ends.
+- **Babylon compiles shaders asynchronously and skips meshes that aren't ready.** My first five-view render was all background, with metrics that passed. `await scene.whenReadyAsync()` before every capture.
+- **Animation clips only key some channels.** Playing clips one after another left the last clip's pose in the channels the next didn't key, so the character walked lying on its back after `die`. Record the rest pose at load and reset to it before every clip change. The runtime needs the same.
+- **A golden comparison has to be proven live, like an oracle.** pixelmatch at threshold 0.1 passed a 6% dimmer sun as 0% different. Renders are deterministic here, so compare per channel with a 2/255 tolerance, which fails the same change on four of five views.
+- **Look before concluding.** I misread the straight-down view (I thought the soles were missing); an angled view showed them. When a view is ambiguous, add a view; don't guess.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -373,3 +382,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-07 (GTA IV/V):** The user: the browser GTA ports include IV and V. Verified V (playgta5.com, viral 2026-10-06, reportedly from leaked source, now offline, no source). Found nothing for IV. Only reVC (Vice City) has buildable source. "Twittercraft" is a Minecraft remake like Pokécraft's.
 - **2026-10-07 (any launchable game can be rewritten):** The user, after I ranked phone games by whether open reimplementations exist: "they dont need open reimplementations. If they can still launch on any device you can rewrite them." Right: the reference projects (skate-3-rust-engine against a static recomp, IW4L, reVC) start from the shipped binary, not from source. With the Ghidra/REA tools in `tools/re` the input is the app itself (APK, IPA, exe), the running original is the oracle, and assets come out of its own files. Don't filter candidates by "has a decomp"; filter by "can I get the build". Also declined: decompiling Roblox Studio to reskin as our own product (Claude Studio can be built clean on Luau, MIT, and Roblox's public API docs).
 - **2026-10-07 (Claude Studio; the quality bar):** The user agreed to start Claude Studio first: a studio built clean (Luau, MIT; Roblox's public API docs) whose games must match popular 2026 Roblox games in consistency and finish, not style. The studio's own UI can be ugly. The user called out my half-finished visuals (§2 #16); found the cow-udder cause. Plan in `claudestudio/PLAN.md`.
+- **2026-10-07 (Studio phase 0):** Luau runs in wasm against the JS Instance tree. Renderer: Babylon.js + Havok. Asset gate tooling works, and the golden check is proven live. `character-a` (Kenney, CC0) passed the gate after two real catches (a blank capture with passing metrics; walking lying down because clips inherited the last pose). See §4e and `claudestudio/PLAN.md`.

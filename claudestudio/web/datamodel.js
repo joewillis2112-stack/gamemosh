@@ -1,0 +1,237 @@
+// The Instance tree: classes, properties, methods and events, following the
+// shapes in Roblox's public API reference so Luau scripts read the same.
+// Luau reaches it through `host` (see bridge in luau.js): values cross as
+// {t, n, s, v} with the tags in binding.cpp.
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9 };
+// Vector3 values are tagged so a list of three numbers isn't mistaken for one.
+export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
+
+// ------------------------------------------------------------------ classes
+// Each class: parent class, properties {name: [type, default]}, methods, events.
+const CLASSES = {};
+function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false } = {}) {
+  CLASSES[name] = { name, base, props, methods, events, creatable, service };
+}
+function lookup(cls, field, key) {
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (key in c[field]) return c[field][key];
+  return undefined;
+}
+function hasEvent(cls, ev) {
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (c.events.includes(ev)) return true;
+  return false;
+}
+export function isA(cls, other) {
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (c.name === other) return true;
+  return false;
+}
+
+defineClass('Instance', null, {
+  creatable: false,
+  props: { Name: ['string', ''], Archivable: ['bool', true] },
+  methods: {
+    GetChildren(self) { return [self.children.slice()]; },
+    GetDescendants(self) { const out = []; const walk = i => i.children.forEach(c => { out.push(c); walk(c); }); walk(self); return [out]; },
+    FindFirstChild(self, name, recursive) {
+      const walk = i => { for (const c of i.children) { if (c.Name === name) return c; if (recursive) { const r = walk(c); if (r) return r; } } return null; };
+      return [walk(self)];
+    },
+    FindFirstChildOfClass(self, cls) { return [self.children.find(c => c.ClassName === cls) || null]; },
+    FindFirstChildWhichIsA(self, cls) { return [self.children.find(c => isA(c.ClassName, cls)) || null]; },
+    FindFirstAncestor(self, name) { for (let p = self.parent; p; p = p.parent) if (p.Name === name) return [p]; return [null]; },
+    IsA(self, cls) { return [isA(self.ClassName, cls)]; },
+    IsDescendantOf(self, other) { for (let p = self.parent; p; p = p.parent) if (p === other) return [true]; return [false]; },
+    Destroy(self) { self.dm.destroy(self); return []; },
+    ClearAllChildren(self) { for (const c of self.children.slice()) self.dm.destroy(c); return []; },
+    GetFullName(self) { const n = []; for (let i = self; i && i.parent; i = i.parent) n.unshift(i.Name); return [n.join('.')]; },
+    WaitForChild(self, name) { return [self.children.find(c => c.Name === name) || null]; },
+  },
+  events: ['ChildAdded', 'ChildRemoved', 'Changed', 'Destroying'],
+});
+defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
+defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2] } });
+defineClass('Folder', 'Instance');
+defineClass('Model', 'Instance', { props: { PrimaryPart: ['Instance', null] } });
+defineClass('BasePart', 'Instance', {
+  creatable: false,
+  props: {
+    Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
+    Anchored: ['bool', false], CanCollide: ['bool', true], Transparency: ['number', 0],
+    Color: ['Vector3', [163 / 255, 162 / 255, 165 / 255]], Material: ['string', 'Plastic'], Reflectance: ['number', 0],
+  },
+  events: ['Touched', 'TouchEnded'],
+});
+defineClass('Part', 'BasePart', { props: { Shape: ['string', 'Block'] } });
+defineClass('SpawnLocation', 'Part');
+defineClass('LuaSourceContainer', 'Instance', { creatable: false, props: { Source: ['string', ''], Enabled: ['bool', true] } });
+defineClass('Script', 'LuaSourceContainer');
+defineClass('LocalScript', 'LuaSourceContainer');
+defineClass('ModuleScript', 'LuaSourceContainer');
+defineClass('Lighting', 'Instance', { creatable: false, service: true, props: { ClockTime: ['number', 14], Brightness: ['number', 2] } });
+defineClass('BoolValue', 'Instance', { props: { Value: ['bool', false] } });
+defineClass('NumberValue', 'Instance', { props: { Value: ['number', 0] } });
+defineClass('IntValue', 'Instance', { props: { Value: ['number', 0] } });
+defineClass('StringValue', 'Instance', { props: { Value: ['string', ''] } });
+
+// ------------------------------------------------------------------ instances
+export class Instance {
+  constructor(dm, cls) {
+    this.dm = dm;
+    this.ClassName = cls;
+    this.parent = null;
+    this.children = [];
+    this.props = {};
+    for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : d;
+    }
+    this.props.Name = cls;
+    this.handle = dm.register(this);
+  }
+  get Name() { return this.props.Name; }
+}
+
+export class DataModel {
+  constructor() {
+    this.byHandle = [null];
+    this.conns = new Map(); // id -> {inst, ev, ref, once}
+    this.nextConn = 1;
+    this.onFire = null; // (ref, args) -> void, set by the Luau bridge
+    this.onChange = null; // (inst, key) -> void, for the renderer
+    this.game = new Instance(this, 'DataModel');
+    this.game.props.Name = 'Game';
+    this.services = {};
+    this.workspace = this.service('Workspace');
+    this.service('Lighting');
+  }
+  register(inst) { this.byHandle.push(inst); return this.byHandle.length - 1; }
+  service(name) {
+    if (!this.services[name]) {
+      if (!CLASSES[name] || !CLASSES[name].service) return null;
+      const s = new Instance(this, name);
+      this.services[name] = s;
+      this.setParent(s, this.game);
+    }
+    return this.services[name];
+  }
+  create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
+
+  fire(inst, ev, args) {
+    for (const [id, c] of [...this.conns]) {
+      if (c.inst !== inst || c.ev !== ev) continue;
+      if (c.once) this.conns.delete(id);
+      this.onFire && this.onFire(c.ref, args);
+    }
+  }
+  setParent(inst, p) {
+    if (inst.parent === p) return;
+    if (p && (p === inst || isDescendant(p, inst))) throw new Error(`Attempt to set ${inst.Name}.Parent to a descendant`);
+    const old = inst.parent;
+    if (old) { old.children.splice(old.children.indexOf(inst), 1); this.fire(old, 'ChildRemoved', [inst]); }
+    inst.parent = p;
+    if (p) { p.children.push(inst); this.fire(p, 'ChildAdded', [inst]); }
+    this.onChange && this.onChange(inst, 'Parent');
+    this.fire(inst, 'Changed', ['Parent']);
+  }
+  destroy(inst) {
+    this.fire(inst, 'Destroying', []);
+    for (const c of inst.children.slice()) this.destroy(c);
+    this.setParent(inst, null);
+    inst.destroyed = true;
+    for (const [id, c] of [...this.conns]) if (c.inst === inst) this.conns.delete(id);
+  }
+  set(inst, key, value) {
+    if (key === 'Parent') return this.setParent(inst, value);
+    inst.props[key] = value;
+    this.onChange && this.onChange(inst, key);
+    this.fire(inst, 'Changed', [key]);
+  }
+}
+function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
+
+// ------------------------------------------------------------------ the Luau-facing host
+// Converts between JS values and the {t, n, s, v} channel.
+function typeOf(cls, key) {
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (key in c.props) return c.props[key][0];
+  return undefined;
+}
+
+export function makeHost(dm, log = console.log) {
+  const host = {
+    ret: [], args: [],
+    // Flatten value v into list `o` (lists become {LIST, n} then their items).
+    put(o, v) {
+      if (v === null || v === undefined) o.push({ t: T.NIL });
+      else if (typeof v === 'boolean') o.push({ t: T.BOOL, n: v ? 1 : 0 });
+      else if (typeof v === 'number') o.push({ t: T.NUM, n: v });
+      else if (typeof v === 'string') o.push({ t: T.STR, s: v });
+      else if (v instanceof Instance) o.push({ t: T.INST, n: v.handle });
+      else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
+      else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
+      else o.push({ t: T.NIL });
+      return o;
+    },
+    out(v) { return host.put([], v)[0]; },
+    in(a) {
+      switch (a.t) {
+        case T.NIL: return null;
+        case T.BOOL: return !!a.n;
+        case T.NUM: return a.n;
+        case T.STR: return a.s;
+        case T.VEC: return new V3(a.v[0], a.v[1], a.v[2]);
+        case T.INST: return dm.byHandle[a.n];
+      }
+      return null;
+    },
+    err(msg) { host.ret = [{ t: T.ERR, s: msg }]; },
+    global(name) { return name === 'game' ? dm.game.handle : name === 'workspace' ? dm.workspace.handle : 0; },
+    newInstance(cls) { const i = dm.create(cls); return i ? i.handle : 0; },
+    index(h, key) {
+      const inst = dm.byHandle[h];
+      if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
+      if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
+      if (key in inst.props) { host.ret = host.put([], inst.props[key]); return 1; }
+      if (lookup(inst.ClassName, 'methods', key)) { host.ret = [{ t: T.METHOD }]; return 1; }
+      if (hasEvent(inst.ClassName, key)) { host.ret = [{ t: T.SIGNAL }]; return 1; }
+      const child = inst.children.find(c => c.Name === key);
+      if (child) { host.ret = host.put([], child); return 1; }
+      if (inst.ClassName === 'DataModel' && dm.service(key)) { host.ret = host.put([], dm.service(key)); return 1; }
+      host.err(`${key} is not a valid member of ${inst.ClassName} "${inst.Name}"`);
+      return 1;
+    },
+    newindex(h, key) {
+      const inst = dm.byHandle[h];
+      const v = host.in(host.args[0]);
+      host.ret = [];
+      if (key === 'Parent') {
+        if (v !== null && !(v instanceof Instance)) return host.err('Parent must be an Instance');
+        try { dm.setParent(inst, v); } catch (e) { host.err(e.message); }
+        return;
+      }
+      const ty = typeOf(inst.ClassName, key);
+      if (!ty) return host.err(`${key} is not a valid member of ${inst.ClassName} "${inst.Name}"`);
+      const ok = { string: 'string', number: 'number', bool: 'boolean' }[ty];
+      if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
+      if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
+      if (ty === 'Instance' && v !== null && !(v instanceof Instance)) return host.err(`Unable to assign property ${key}. Instance expected`);
+      dm.set(inst, key, v);
+    },
+    call(h, method) {
+      const inst = dm.byHandle[h];
+      const fn = lookup(inst.ClassName, 'methods', method);
+      if (!fn) { host.err(`${method} is not a valid member of ${inst.ClassName}`); return 1; }
+      let res;
+      try { res = fn(inst, ...host.args.map(host.in)); } catch (e) { host.err(e.message); return 1; }
+      host.ret = [];
+      res.forEach(r => host.put(host.ret, r));
+      return res.length;
+    },
+    connect(h, ev, ref) {
+      const id = dm.nextConn++;
+      // ref < 0: a thread waiting in Signal:Wait(), resumed once.
+      dm.conns.set(id, { inst: dm.byHandle[h], ev, ref, once: ref < 0 });
+      return id;
+    },
+    disconnect(id) { dm.conns.delete(id); },
+    print(s, level) { log(s, level); },
+  };
+  return host;
+}

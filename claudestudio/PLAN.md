@@ -63,3 +63,21 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 2. **The editor:** Explorer, Properties, gizmos, Insert, Play/Stop, save and load. It must work by touch.
 3. **Prompt to game.**
 4. **Multiplayer.**
+
+## Status
+
+### Phase 0, 2026-10-07
+
+- **Luau in WebAssembly: done.** `luau/binding.cpp` and `web/datamodel.js`; `test/luau.test.mjs` passes.
+  - Instance properties with Roblox-style type errors, parenting, `GetChildren` as tables, native `Vector3`.
+  - Events are deferred, as in Roblox's default SignalBehavior.
+  - `task.wait`, `spawn`, `delay`, `Signal:Wait()`.
+  - Each script runs in its own sandboxed thread.
+- **Renderer: Babylon.js 9 + Havok**, chosen on features. It ships PBR, cascaded shadows, image-based lighting, the default post pipeline, glTF skeletal animation and a character controller. three.js would need those assembled by hand, which is where my finish has been weak. **Phone frame rate is not measured yet:** this container has only software rendering, so it waits for a real phone or a GPU runner.
+- **Asset gate tooling: done.** `tools/turntable.mjs <glb>` renders five views (and `--extra` adds an angled underside and a three-quarter view) with the shared look in `web/render.js`. It also prints metrics: height in studs, ground gap, inward faces, and loop pop per clip. `--strip <clip>` gives 6 frames of an animation; `--golden <name>` compares against `goldens/`. The comparison was checked live: a 6% dimmer sun fails it on four of five views.
+- **First asset through the gate: `character-a`** (Kenney Blocky Characters, CC0).
+  - 5 studs tall, on the ground, no inside-out faces.
+  - idle, walk and sprint loop seamlessly.
+  - Walk checked frame by frame and compared with Kenney's preview.
+  - Goldens saved.
+  - The pack has no jump, fall, climb or swim clips. Each will need authoring and its own pass through the gate.
