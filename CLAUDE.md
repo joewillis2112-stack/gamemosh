@@ -11,7 +11,7 @@
 When a task goes sideways, check RESEARCH.md for a lesson that already covers it. At the end of a task, add what you learned there, plus a line to the session log.
 
 The rules that matter most (details in RESEARCH.md §1):
-- Put deliverables on `main`. If you're unsure whether to commit to `main` or to a branch, ask once at the start. When the user says "merge", merge.
+- Push deliverables straight to `main` (no PRs; the user asked, 2026-10-07). Never force-push `main`.
 - Don't watch PRs or schedule check-ins unless asked. If an auto-subscription appears, unsubscribe.
 - Write notes, findings and long summaries to files. Keep chat replies short.
 - No legal caveats. These are personal, never-distributed projects.
