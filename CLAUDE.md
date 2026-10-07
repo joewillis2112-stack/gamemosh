@@ -25,5 +25,6 @@ Layout:
 - `pokecraft/`: Pokécraft, Pokémon Red in an endless first-person Minecraft world, Pixelmon-style (MinecraftOSS worldgen + open-pokered + three.js). See its README; build with `pokecraft/build.sh`
 - `dukecraft/`: Dukecraft, Duke Nukem 3D in Minecraft (Duke's own CON scripts run its aliens in Pokécraft's Minecraft world). See its README and PLAN.md; build with `dukecraft/build.sh`
 - `dukequake/`: Duke × Quake, one engine running both games' own rules. Phase 1 done: id's Quake server ported to Rust, bit-exact against id's C (`dukequake/oracle/run.sh`). See its README and PLAN.md
+- `claudestudio/`: Claude Studio, a browser game studio (Luau scripts, Roblox-style API built clean, phone-first). See its PLAN.md, especially the asset gate
 - `mashup-research/`: verified game and rewrite research, in rounds
 - `GAMEMOSH_BRIEF.md`: early research
