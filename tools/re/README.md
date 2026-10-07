@@ -15,10 +15,14 @@ Skills are copies, taken 2026-10-07: universal-modder @ 6c02e77, rea @ bc2cd8b. 
 ```sh
 tools/re/ghidra.sh                                   # install (first time) and start
 curl -X POST -H 'Content-Type: application/json' -d '{"file_path": "/abs/path/game.exe"}' http://127.0.0.1:8089/import_file
-curl "http://127.0.0.1:8089/list_functions?limit=50"
-curl "http://127.0.0.1:8089/search_functions?query=Physics"
-curl "http://127.0.0.1:8089/decompile_function?name=SV_FlyMove"
+curl "http://127.0.0.1:8089/get_function_count"
+curl "http://127.0.0.1:8089/force_decompile?name=SV_FlyMove"     # JSON; the C is in .decompiled
 tools/re/ghidra.sh stop
 ```
 
 For it to show up as MCP tools instead of curl, the bridge (`uv run bridge-mcp-ghidra` in the ghidra-mcp checkout) has to be registered before the session starts, which needs Ghidra installed by the environment's setup script. Curl works without that.
+
+## Verified here (2026-10-07)
+
+- `tools/re/ghidra.sh` from scratch: download, Maven build, server up in about 5 minutes. It imported the oracle's 32-bit Quake server ELF (574 functions, auto-analysed) and decompiled `SV_FlyMove`; id's 0.7 floor-slope constant is visible in the output. Endpoint names differ from older docs: use `force_decompile`, not `decompile_function`.
+- REA's CLI runs (`npx rea-agents`), but its native analysis refuses Ghidra 12.1.3: it requires exactly 12.1.4. I couldn't find the 12.1.4 download name from here (GitHub's release pages return 403 through this proxy), so native REA is not set up. Its JavaScript, web, .NET and APK analysis don't need Ghidra.
