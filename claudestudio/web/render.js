@@ -35,13 +35,20 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
     const env = new HDRCubeTexture(skyUrl, scene, 256, false, true, false, true);
     scene.environmentTexture = env;
     scene.environmentIntensity = 0.9;
-    if (skybox) scene.createDefaultSkybox(env, true, 2000, 0.0, false);
+    if (skybox) { const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false); if (sky) sky.applyFog = false; }
     ready = new Promise(res => env.onLoadObservable.addOnce(() => res()));
   } else {
     const hemi = new HemisphericLight('fill', new Vector3(0, 1, 0), scene);
     hemi.intensity = 0.6;
     hemi.groundColor = new Color3(0.35, 0.33, 0.3);
   }
+
+  // Atmosphere: distant geometry fades into the horizon colour, so the edge of
+  // the world meets the sky instead of cutting across it.
+  scene.fogMode = Scene.FOGMODE_LINEAR;
+  scene.fogStart = 120;
+  scene.fogEnd = 520;
+  scene.fogColor = new Color3(0.72, 0.77, 0.84);
 
   // The sun: warm, high in the sky, from front-left (so models read in 3D).
   const sun = new DirectionalLight('sun', new Vector3(-0.45, -1, 0.55).normalize(), scene);

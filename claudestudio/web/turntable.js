@@ -3,10 +3,11 @@
 // contact sheet. Driven by tools/turntable.mjs (Playwright).
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
-import { Vector3 } from '@babylonjs/core/Maths/math.js';
+import { Vector3, Quaternion } from '@babylonjs/core/Maths/math.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 import { createRenderer, groundDisc } from './render.js';
+import { poseRotations } from './runtime/poses.js';
 
 const q = new URLSearchParams(location.search);
 const url = q.get('asset');
@@ -42,7 +43,15 @@ async function main() {
   };
   const pose = (g, t) => { toRest(); g.start(false, 1, g.from, g.to); g.goToFrame(g.from + (g.to - g.from) * t); g.pause(); };
   const clip = res.animationGroups.find(g => g.name === animName);
+  // A held pose from runtime/poses.js (?pose=jump), applied over rest.
+  const heldPose = q.get('pose');
+  const applyHeld = () => {
+    if (!heldPose) return;
+    const restOf = name => { const i = posed.findIndex(n => n.name === name); return i < 0 ? null : (rest[i][1] || Quaternion.FromEulerVector(rest[i][2])); };
+    for (const [name, rq] of Object.entries(poseRotations(heldPose, restOf))) posed.find(n => n.name === name).rotationQuaternion = rq;
+  };
   if (clip) pose(clip, animT);
+  applyHeld();
   scene.render();
 
   // Normalise: base on the ground, centred, height = targetHeight studs.
@@ -99,6 +108,7 @@ async function main() {
   metrics.loopPop = loopPop;
   toRest();
   if (clip) pose(clip, animT);
+  applyHeld();
 
   // Five views. glTF characters face +Z.
   const h = max.y - min.y, w = Math.max(max.x - min.x, max.z - min.z, h * 0.6);
@@ -143,7 +153,7 @@ async function main() {
     g.fillStyle = '#fff'; g.font = '20px sans-serif'; g.fillText(shots[i][0], x + 10, y + 22);
   }
   g.fillStyle = '#ddd'; g.font = '15px monospace';
-  const lines = [`asset ${url.split('/').pop()}  pose ${metrics.anim} @${animT}`, `height ${metrics.heightStuds} studs  ground gap ${metrics.groundGap}`,
+  const lines = [`asset ${url.split('/').pop()}  pose ${heldPose || metrics.anim} @${animT}`, `height ${metrics.heightStuds} studs  ground gap ${metrics.groundGap}`,
     `raw ${metrics.rawSize.join(' x ')}  scale ${metrics.scale}`, `meshes ${metrics.meshes}  tris ${metrics.triangles}`,
     ...metrics.inwardFaces.map(([n, a, t]) => `  ${n}: ${a}/${t} faces point inward`), 'loop pop (0 = seamless): ' + Object.entries(loopPop).filter(([k]) => /idle|walk|sprint/.test(k)).map(([k, v]) => k + ' ' + v).join(', ')];
   let y = H + 30; const tx = shots.length > 5 ? 0 : W * 2; if (shots.length > 5) y = H * 2 + 30;

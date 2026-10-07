@@ -5,8 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
-import { PNG } from 'pngjs';
-import pixelmatch from 'pixelmatch';
+import { checkGolden, LIMIT } from './golden.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d; };
@@ -33,6 +32,7 @@ page.on('pageerror', e => logs.push('pageerror ' + e.message));
 const q = new URLSearchParams({ asset: '../' + asset, height: opt('height', '5'), anim: opt('anim', ''), t: opt('t', '0') });
 for (const f of ['nosky', 'nopost', 'noskybox', 'extra']) if (args.includes('--' + f)) q.set(f, '1');
 if (opt('strip')) q.set('strip', opt('strip'));
+if (opt('pose')) q.set('pose', opt('pose'));
 await page.goto(`http://127.0.0.1:${port}/web/turntable.html?${q}`);
 await page.waitForFunction(() => window.result, null, { timeout: 180000 });
 const result = await page.evaluate(() => window.result);
@@ -40,7 +40,7 @@ await browser.close();
 server.close();
 if (result.error) { console.log('ERROR', result.error, logs.join('\n')); process.exit(1); }
 
-const base = path.join(outDir, path.basename(asset, path.extname(asset)) + (opt('anim') ? '-' + opt('anim') + '-' + opt('t', '0') : '') + (opt('strip') ? '-strip-' + opt('strip') : ''));
+const base = path.join(outDir, path.basename(asset, path.extname(asset)) + (opt('anim') ? '-' + opt('anim') + '-' + opt('t', '0') : '') + (opt('strip') ? '-strip-' + opt('strip') : '') + (opt('pose') ? '-pose-' + opt('pose') : ''));
 const png = d => Buffer.from(d.split(',')[1], 'base64');
 fs.writeFileSync(base + '.sheet.png', png(result.sheet));
 fs.writeFileSync(base + '.metrics.json', JSON.stringify(result.metrics, null, 2));
@@ -53,21 +53,11 @@ if (golden) {
   fs.mkdirSync(gdir, { recursive: true });
   let worst = 0;
   for (const [view, data] of result.views) {
-    const f = path.join(gdir, view.split(' ')[0] + '.png');
-    if (args.includes('--update') || !fs.existsSync(f)) { fs.writeFileSync(f, png(data)); console.log('golden saved', f); continue; }
-    const a = PNG.sync.read(fs.readFileSync(f)), b = PNG.sync.read(png(data));
-    const diff = new PNG({ width: a.width, height: a.height });
-    // Renders are deterministic here, so compare tightly: a pixel differs if
-    // any channel moves by more than 2/255. pixelmatch only draws the diff image.
-    let n = 0, sum = 0;
-    for (let i = 0; i < a.data.length; i += 4) {
-      const d = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
-      sum += d; if (d > 2) n++;
-    }
-    const frac = n / (a.width * a.height);
-    worst = Math.max(worst, frac);
-    if (frac > 0.002) { pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.0 }); fs.writeFileSync(base + '.' + view.split(' ')[0] + '.diff.png', PNG.sync.write(diff)); }
-    console.log(`golden ${view}: ${(frac * 100).toFixed(3)}% pixels differ, mean error ${(sum / (a.width * a.height)).toFixed(3)}/255`);
+    const v = view.split(' ')[0], f = path.join(gdir, v + '.png');
+    const r = checkGolden(f, png(data), { update: args.includes('--update'), diffBase: base + '.' + v });
+    if (r.saved) { console.log('golden saved', f); continue; }
+    worst = Math.max(worst, r.frac);
+    console.log(`golden ${view}: ${(r.frac * 100).toFixed(3)}% pixels differ, mean error ${r.mean.toFixed(3)}/255`);
   }
-  if (worst > 0.002) { console.log('GOLDEN MISMATCH'); process.exit(2); }
+  if (worst > LIMIT) { console.log('GOLDEN MISMATCH'); process.exit(2); }
 }

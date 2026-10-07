@@ -81,3 +81,33 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - Walk checked frame by frame and compared with Kenney's preview.
   - Goldens saved.
   - The pack has no jump, fall, climb or swim clips. Each will need authoring and its own pass through the gate.
+
+### Phase 1, 2026-10-07: the player (first slice)
+
+`tools/play.mjs [--phone] [--scenario test/scenarios/x.mjs] [--noshots] [--update]` drives `web/play.html`. Scenarios: `move` (numbers and in-game goldens), `feet` (foot slip), `touch` (run with `--phone`), `desktop`, `look`.
+
+- **World:** `web/runtime/world.js` draws Parts from the DataModel with PBR materials (Plastic, SmoothPlastic, Metal, Neon, Baseplate with a 4-stud grid) and gives them Havok bodies. The look (shadows, fog 120–520, sky) was judged from fixed views.
+- **Character:** `web/runtime/character.js`. Havok character controller, 5-stud capsule, Roblox numbers. Measured:
+  - walk 16.00 studs/s;
+  - jump 6.369 studs (theory 6.371);
+  - air time 0.58 s;
+  - soles exactly on the ground;
+  - holding jump re-jumps on landing.
+- **Animator:** blends clips from the rest pose every frame (nlerp on the shortest arc) with crossfades.
+  - Walk and run rates follow ground speed using the contact-speed rule; foot slip is under 8% of body speed at every stick deflection.
+  - Jump and fall are held poses in `web/runtime/poses.js`, shared with the turntable (`--pose jump|fall`). Both passed the gate; goldens are saved.
+- **Camera:** `web/runtime/camera.js`. Orbits the head at zoom 12.5 (0.5–128), pitch ±80°, FOV 70°.
+  - Pulls in when a part blocks the view (measured 3.46 against a computed 3.46), then eases back out.
+  - First person below 1.5 studs.
+- **Controls:** `web/runtime/controls.js`. All of these are tested through real events:
+  - WASD/arrows and Space;
+  - mouse drag turns (right looks right) and the wheel zooms;
+  - touch: a thumbstick that appears under the left thumb, a jump button bottom right, drag to look, pinch to zoom.
+- **Goldens:** `goldens/play/` holds the idle, run, jump and fall in-game views and the phone HUD. `tools/golden.mjs` is shared with the turntable.
+
+**Not done yet, in order:**
+1. A `Color3` value type in the Luau API. Colours are `Vector3` today, which is wrong against Roblox's API.
+2. Slopes, stairs (step height 1.1) and moving platforms, measured.
+3. The reference obby, part by part through the gate.
+4. Climb and swim poses.
+5. Phone frame rate on real hardware.
