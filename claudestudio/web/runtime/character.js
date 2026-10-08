@@ -193,8 +193,9 @@ export class Character {
     const leg = res.transformNodes.concat(res.meshes).find(n => n.name === 'leg-left');
     this.holder.computeWorldMatrix(true); root.computeWorldMatrix(true); leg.computeWorldMatrix(true);
     this.legLength = leg.getAbsolutePosition().y - this.holder.position.y;
-    this.walkNatural = clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
-    this.sprintNatural = clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
+    const legs = res.meshes.filter(m => /^leg-(left|right)$/.test(m.name));
+    this.walkNatural = this.soleGroundSpeed('walk', legs) || clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
+    this.sprintNatural = this.soleGroundSpeed('sprint', legs) || clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
     this.contacts = { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
     this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
@@ -249,6 +250,60 @@ export class Character {
     }
     this.anim.layers = [];
     return { min, max };
+  }
+
+  // A walk-type clip's no-slip ground speed at rate 1, measured from the pose:
+  // follow each sole (the centre of its leg's lowest face) in the character's
+  // frame at 240 Hz, and at each lowest point (refined between samples) take
+  // its backward speed. The body must move at that speed for a planted foot to
+  // stay put. (Averaging the legs' swing rates at their crossings was ~5% low:
+  // the forward swing and the planted sweep run at different rates.)
+  // Also keeps the backward-sweeping sole's speed through the whole cycle
+  // (this.soleSpeed[clip]), for the per-phase playback rate in step().
+  soleGroundSpeed(clip, legs) {
+    if (!this.anim.clips[clip] || !legs.length) return 0;
+    const len = this.anim.duration(clip), n = Math.round(len * 240), dt = len / n;
+    const inv = this.holder.computeWorldMatrix(true).clone().invert();
+    const soles = [];
+    for (let i = 0; i <= n + 1; i++) {
+      this.anim.layers = [{ clip, time: (i * dt) % len, weight: 1, target: 1, speed: 0 }];
+      this.anim.update(0);
+      soles.push(legs.map(m => {
+        m.computeWorldMatrix(true);
+        const b = m.getBoundingInfo().boundingBox;
+        const w = Vector3.TransformCoordinates(new Vector3((b.minimum.x + b.maximum.x) / 2, b.minimum.y, (b.minimum.z + b.maximum.z) / 2), m.getWorldMatrix());
+        return Vector3.TransformCoordinates(w, inv);
+      }));
+    }
+    this.anim.layers = [];
+    // The speed to hold the clip to at each phase: on the ground (the lower
+    // sole within 0.05 studs) the backward-sweeping sole's speed; in the air
+    // (above 0.3) nothing is planted, so play at the clip's mean rate; blended
+    // smoothly between, so the legs don't jerk.
+    const u = new Float32Array(n), lows = [];
+    for (let i = 0; i < n; i++) {
+      const sweep = Math.max(...legs.map((_, k) => -(soles[i + 1][k].z - soles[i][k].z) / dt));
+      const low = Math.min(...legs.map((_, k) => soles[i][k].y)) - Math.min(...soles.flat().map(p => p.y));
+      lows.push(low);
+      u[i] = sweep; // finished below, once the mean planted speed is known
+    }
+    const prof = { u, dt, lows };
+    const speeds = [];
+    for (let i = 1; i <= n; i++) legs.forEach((_, k) => {
+      const y = j => soles[j][k].y, z = j => soles[j][k].z;
+      if (!(y(i) <= y(i - 1) && y(i) < y(i + 1))) return;
+      const den = y(i - 1) - 2 * y(i) + y(i + 1);
+      const off = den > 1e-12 ? Math.max(-0.5, Math.min(0.5, (y(i - 1) - y(i + 1)) / (2 * den))) : 0;
+      const a = (z(i) - z(i - 1)) / dt, b = (z(i + 1) - z(i)) / dt, vz = a + (b - a) * (off + 0.5);
+      if (vz < 0) speeds.push(-vz); // planted: sweeping backward (the character faces +Z)
+    });
+    const natural = speeds.length ? speeds.reduce((x, y) => x + y) / speeds.length : 0;
+    for (let i = 0; i < n; i++) {
+      const x = Math.min(1, Math.max(0, (0.3 - lows[i]) / 0.25)), w = x * x * (3 - 2 * x); // 1 on the ground, 0 in the air
+      u[i] = natural + (Math.max(u[i], 0.4 * natural) - natural) * w;
+    }
+    (this.soleSpeed ||= {})[clip] = { u, dt };
+    return natural;
   }
 
   // How far the current (dying) pose reaches below the soles, in studs.
@@ -398,17 +453,44 @@ export class Character {
     if (this.dead) state = this.anim.clips.die ? 'die' : 'idle';
     else if (!this.grounded && this.jumpAnim > 0) state = 'jump';
     else if (!this.grounded && (this.justJumped > 0 || this.airTime > 0.12 || this.state === 'jump' || this.state === 'fall')) state = 'fall';
-    else if (sp > (this.state === 'walk' ? 0.3 : 0.8)) state = 'walk'; // hysteresis: no flicker when pushing into a wall
+    else if (sp > (this.state === 'walk' ? 0.3 : 0.75)) state = 'walk'; // Roblox walks above 0.75; the lower exit stops flicker when pushing into a wall
     else state = 'idle';
     if (state === 'walk') {
-      // Walk or sprint clip, whichever's natural speed is closer; rate matches the ground.
-      // Switch clips only once the other is clearly closer (10% margin), so a
-      // speed near the midpoint doesn't flip clips every frame.
-      const dW = Math.abs(sp - this.walkNatural), dS = Math.abs(sp - this.sprintNatural);
+      // Walk or run as Roblox's Animate picks them: walk only up to 6.4 studs/s,
+      // run only from 12.8, a crossfade between (mashup-research/ROBLOX_DEFAULTS
+      // §Animate). We switch at the band's middle, 9.6, with a 10% margin so a
+      // speed near it doesn't flip clips every frame, and crossfade over 0.2 s.
+      // The rate is ours: each clip at its measured no-slip ground speed (Roblox
+      // uses fixed rates for its own clips, which these aren't).
       const cur = this.anim.current === 'sprint' || this.anim.current === 'walk' ? this.anim.current : null;
-      const clip = cur === 'sprint' ? (dW < dS * 0.9 ? 'walk' : 'sprint') : cur === 'walk' ? (dS < dW * 0.9 ? 'sprint' : 'walk') : (dS < dW ? 'sprint' : 'walk');
+      const clip = cur === 'sprint' ? (sp < 9.6 * 0.9 ? 'walk' : 'sprint') : cur === 'walk' ? (sp > 9.6 * 1.1 ? 'sprint' : 'walk') : (sp > 9.6 ? 'sprint' : 'walk');
       const natural = clip === 'sprint' ? this.sprintNatural : this.walkNatural;
-      const rate = Math.min(2.2, Math.max(0.4, sp / natural));
+      // Per-phase rate: these clips' legs mirror each other, so the planted
+      // (backward-sweeping) sole moves at a different speed on alternate steps
+      // (6 and 13.5 studs/s in walk). One rate for the whole clip made each
+      // foot skate ~25% of body speed, alternately forward and back. Instead,
+      // advance the clip so the sweeping sole always moves at the body's speed:
+      // rate = speed / soleSpeed(phase). Near the swing's ends the sole slows to
+      // a stop with both feet up; there the rate is capped (sole speed floored
+      // at 40% of the clip's mean). Above 2.2x the clip's natural speed, the
+      // legs stop keeping up (feet slide) rather than blur.
+      const prof = this.soleSpeed && this.soleSpeed[clip], lay = this.anim.layers.find(l => l.clip === clip);
+      const v = Math.min(sp, 2.2 * natural);
+      let rate = v / natural;
+      if (prof && lay && dt > 0) {
+        // Walk the speed table from the current phase until the sole has
+        // covered v*dt (the sole speed changes abruptly between keyframes, so
+        // one rate per frame overshoots), and play at whatever rate gets there.
+        const { u, dt: h } = prof, n = u.length, floor = 0.4 * natural;
+        // Position as an integer sample and a fraction of it (no float drift at boundaries).
+        let need = v * dt, i = Math.floor(lay.time / h), frac = lay.time / h - i, adv = 0;
+        for (let guard = 0; need > 1e-9 && guard < 4 * n; guard++) {
+          const speed = Math.max(u[((i % n) + n) % n], floor), left = (1 - frac) * h;
+          if (need >= left * speed) { adv += left; need -= left * speed; i++; frac = 0; }
+          else { adv += need / speed; need = 0; }
+        }
+        rate = adv / dt;
+      }
       if (this.anim.current !== clip) this.anim.play(clip, 0.2, rate);
       else this.anim.layers.find(l => l.clip === clip).speed = rate;
     } else if (this.anim.current !== state) {

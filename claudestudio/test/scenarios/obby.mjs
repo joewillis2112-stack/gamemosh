@@ -40,5 +40,12 @@ export default async function (t) {
     return { finished, seconds: +(frames / 60).toFixed(1), deaths, reached: W[Math.min(wp, W.length - 1)] };
   }, [WAYPOINTS]);
   console.log('bot', JSON.stringify(r));
-  console.log('luau:\n  ' + t.logs.filter(l => l.includes('[luau]')).map(l => l.replace(/^\w+ \[luau\] /, '')).join('\n  '));
+  const luau = t.logs.filter(l => l.includes('[luau]')).map(l => l.replace(/^\w+ \[luau\] /, ''));
+  console.log('luau:\n  ' + luau.join('\n  '));
+  // The bot finishes with no deaths in about the time a player would (15.9 s
+  // measured), and the place's own scripts saw every checkpoint and the finish.
+  const want = ['stage 1', 'stage 2', 'stage 3', 'stage 4', 'stage 5', 'finished Player1'];
+  const missing = want.filter(w => !luau.includes(w));
+  if (!r.finished || Object.keys(r.deaths).length || r.seconds > 20 || missing.length)
+    throw new Error('FAIL obby: ' + JSON.stringify({ finished: r.finished, deaths: r.deaths, seconds: r.seconds, missing }));
 }
