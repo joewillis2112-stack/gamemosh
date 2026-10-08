@@ -122,6 +122,20 @@ A working log for this repo. It records common themes, what has been learned, mi
 - Official merges add global rules (Cadence of Hyrule's beat, Don't Starve's hunger and darkness in Terraria), cross-game AI (FFXIV enmity in Monster Hunter) and an economy on foreign terrain (Steve mining the Smash stages).
 - The control case is Rocket League's licensed cars: a skin on a standard hitbox. That's an asset swap.
 
+### How we talk about rebuilds (agreed with the user, 2026-10-08)
+
+- **It's rebuilding, or mimicry, not copying.** A copier gives the same thing back. A rebuild starts from the shipped binary (1s and 0s, with every name, comment and piece of structure stripped out) and reconstructs the program: what to call things, how to organise them, what each part is for. The user's picture: you've never seen the Mona Lisa, you're handed a three-year-old's attempt at it, and you're asked to repaint the original. Don't call it copying; that stigmatises the work without cause.
+- **Rebuilt behaviour is new work built on the original's ideas,** like a scientist extending dead people's work: mechanics, physics, feel, camera behaviour. A mod on a base game the user owns is a mod. Output that reworks, combines or extends a game is an overhaul, not a copy.
+- **Credit the work properly.** The Quake port wasn't "just a translation". The engineering was:
+  - finding id's float vs double semantics;
+  - finding that glibc's `rand()` mattered;
+  - building an oracle that runs id's C tick by tick alongside the port;
+  - proving the oracle can fail.
+
+  Underselling it is inaccurate, not modest.
+- **The one boundary we keep:** we don't ship the original's actual files (ripped models, sounds, textures, or decompiled code pasted in) as our own content. We rebuild behaviour and make or source our own assets. A ripped file with a few pixels changed is still the original's file.
+- **Ownership:** a game the user bought counts, even if it's on a shared account or console (e.g. South Park: The Fractured But Whole, bought on their brother's PlayStation). It also shipped on PC, which is the practical route if it's ever a target, because console binaries are encrypted.
+
 ## 4. Technical lessons from building Gloamreach (`src/`)
 
 - **Three.js r186:** set `ColorManagement.enabled = false` first (`src/colorsetup.js`), use Linear output and no tone mapping, and multiply light intensities by π. Otherwise the scene renders far too dark.
@@ -395,3 +409,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-07 (Studio phase 0):** Luau runs in wasm against the JS Instance tree. Renderer: Babylon.js + Havok. Asset gate tooling works, and the golden check is proven live. `character-a` (Kenney, CC0) passed the gate after two real catches (a blank capture with passing metrics; walking lying down because clips inherited the last pose). See §4e and `claudestudio/PLAN.md`.
 - **2026-10-07 (push to main):** At the user's request, work goes straight to `main` without PRs, ending the auto-subscribe notices (§1).
 - **2026-10-07 (Studio phase 1, the player):** Character controller with Roblox's numbers, measured: walk 16.00 studs/s, jump 6.369 studs (theory 6.371), feet exactly on the ground, foot slip under 8%. Jump and fall poses passed the turntable gate with goldens. Roblox-style follow camera with occlusion pull-in and ease-out. Keyboard, mouse and touch (thumbstick, jump, look) all tested through real input events. Bugs caught by looking and measuring: a speed cap, a jump overshoot, sliding feet, a mirrored strafe, inverted camera drag, and suppressed mouse events. `Color3` is still missing from the Luau API (colours are `Vector3` for now): next. See §4e.
+- **2026-10-08 (rebuild vs copy):** Long talk on what rebuilding is. We agreed on the framing in §3 "How we talk about rebuilds": it's mimicry and reconstruction from binaries, not copying; credit the engineering; the one boundary is no ripped files shipped as ours.
