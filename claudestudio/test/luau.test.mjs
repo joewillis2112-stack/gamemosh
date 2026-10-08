@@ -1,5 +1,5 @@
 // Luau in wasm driving the JS DataModel: properties, parenting, lists,
-// vectors, events, task.wait, Signal:Wait, errors.
+// vectors, Color3, events, task.wait, Signal:Wait, errors.
 import createLuau from '../web/luau.mjs';
 import { DataModel, V3 } from '../web/datamodel.js';
 import { startLuau } from '../web/luau.js';
@@ -34,6 +34,24 @@ workspace.Box1:Destroy()
 print("after destroy", #workspace:GetChildren(), workspace:FindFirstChild("Box1"))
 `);
 
+vm.run('color', `
+local c = Color3.fromRGB(255, 128, 0)
+print("rgb", c.R, math.floor(c.G * 255 + 0.5), c.B, typeof(c))
+print("hex", Color3.fromHex("#ff8000"):ToHex(), Color3.fromHex("0f0"):ToHex(), c:ToHex())
+print("hsv", Color3.fromHSV(0, 1, 1) == Color3.new(1, 0, 0), Color3.fromHSV(2/3, 1, 1):ToHex())
+local h, s, v = Color3.new(0, 1, 0):ToHSV()
+print("tohsv", math.floor(h * 3 + 0.5), s, v)
+local m = Color3.new(1, 0, 0):Lerp(Color3.new(0, 0, 1), 0.5)
+print("lerp", m.R, m.G, m.B, tostring(Color3.new(1, 0.5, 0)))
+local part = Instance.new("Part")
+part.Color = Color3.fromRGB(13, 105, 172)
+print("part color", part.Color:ToHex(), typeof(part.Color))
+local ok, err = pcall(function() part.Color = Vector3.new(1, 0, 0) end)
+print("color type", ok, err)
+ok, err = pcall(function() c.R = 0 end)
+print("color readonly", ok, err)
+`);
+
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -60,14 +78,22 @@ const expect = [
   'touched by Box2',
   'done',
   'after destroy 3 nil',
+  'rgb 1 128 0 Color3',
+  'hex ff8000 00ff00 ff8000',
+  'hsv true 0000ff',
+  'tohsv 1 1 1',
+  'lerp 0.5 0 0.5 1, 0.5, 0',
+  'part color 0d69ac Color3',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
 const badtype = out.find(l => l.startsWith('bad type false') && l.includes('bool expected'));
 const broken = out.find(l => l.startsWith('ERR') && l.includes('attempt to index nil'));
 const t1 = out.includes('t1 1');
-if (missing.length || !badprop || !badtype || !broken || !t1 || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, waiting: vm.waiting() });
+const colorType = out.find(l => l.startsWith('color type false') && l.includes('Color3 expected'));
+const colorRO = out.find(l => l.startsWith('color readonly false') && l.includes('R cannot be assigned to'));
+if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || vm.waiting() !== 0) {
+  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

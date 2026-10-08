@@ -17,9 +17,9 @@ export default async function (t) {
   // Thumb down at (95, 690), pushed straight up 45 px: full forward.
   await touch('touchStart', [[95, 690, 1]], 'stick');
   await touch('touchMove', [[95, 645, 1]], 'stick');
-  await t.sim(60, 'live');
+  await t.sim(36, 'live'); // 0.6 s: stays short of the blocks at z 14
   const b = await P();
-  console.log('stick forward 1 s: moved', (b.z - a.z).toFixed(2), 'studs along +Z, sideways', (b.x - a.x).toFixed(2));
+  console.log('stick forward 0.6 s: moved', (b.z - a.z).toFixed(2), 'studs along +Z, sideways', (b.x - a.x).toFixed(2));
   await t.frames(2, 'live'); await t.shot('touch-stick');
   // Jump with the right thumb while still holding the stick.
   const box = await t.page.locator('.cs-jump').boundingBox();

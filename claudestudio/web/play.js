@@ -49,7 +49,7 @@ async function main() {
     t += dt;
     vm.step(t);
     const c = controls.read();
-    player.setInput(c.dx, c.dz, c.jump);
+    player.setInput(c.dx, c.dz, c.jump, c.touch);
     player.step(dt, GRAVITY);
     camera.update(dt);
     world.syncFromPhysics();
@@ -60,7 +60,7 @@ async function main() {
   await scene.whenReadyAsync();
   window.studio = {
     dm, vm, world, scene, cam: camera.cam, camera, player, controls, ready: true,
-    // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump }).
+    // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.
     sim(n, input) {

@@ -10,7 +10,9 @@
 #include "luacode.h"
 
 #include <emscripten.h>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -18,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -48,6 +50,7 @@ static std::vector<Waiter> waiters;
 static const char* INST_MT = "Instance";
 static const char* SIGNAL_MT = "RBXScriptSignal";
 static const char* CONN_MT = "RBXScriptConnection";
+static const char* COLOR_MT = "Color3";
 static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 
 struct Signal { int h; char ev[56]; };
@@ -75,6 +78,27 @@ static int check_instance(lua_State* L, int idx) {
     return *u;
 }
 
+// Color3: an immutable userdata of three floats (0..1 nominal, not clamped, as in Roblox).
+struct Color { float r, g, b; };
+static void push_color(lua_State* L, double r, double g, double b) {
+    Color* c = (Color*)lua_newuserdata(L, sizeof(Color));
+    c->r = (float)r; c->g = (float)g; c->b = (float)b;
+    luaL_getmetatable(L, COLOR_MT);
+    lua_setmetatable(L, -2);
+}
+static Color* to_color(lua_State* L, int idx) {
+    if (lua_type(L, idx) != LUA_TUSERDATA || !lua_getmetatable(L, idx)) return nullptr;
+    luaL_getmetatable(L, COLOR_MT);
+    bool ok = lua_rawequal(L, -1, -2);
+    lua_pop(L, 2);
+    return ok ? (Color*)lua_touserdata(L, idx) : nullptr;
+}
+static Color* check_color(lua_State* L, int idx) {
+    Color* c = to_color(L, idx);
+    if (!c) luaL_typeerror(L, idx, "Color3");
+    return c;
+}
+
 static int to_instance(lua_State* L, int idx) {
     if (lua_type(L, idx) != LUA_TUSERDATA) return 0;
     if (!lua_getmetatable(L, idx)) return 0;
@@ -95,6 +119,7 @@ static void send_arg(lua_State* L, int idx) {
     case LUA_TUSERDATA: {
         int h = to_instance(L, idx);
         if (h) { js_arg(T_INST, h, nullptr, 0, 0, 0); break; }
+        if (Color* c = to_color(L, idx)) { js_arg(T_COLOR, 0, nullptr, c->r, c->g, c->b); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
     }
     default: luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
@@ -124,6 +149,7 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_STR: { char* s = js_ret_str(i); lua_pushstring(L, s); free(s); break; }
     case T_VEC: lua_pushvector(L, (float)js_ret_vec(i, 0), (float)js_ret_vec(i, 1), (float)js_ret_vec(i, 2)); break;
     case T_INST: push_instance(L, (int)js_ret_num(i)); break;
+    case T_COLOR: push_color(L, js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
     case T_METHOD:
         lua_pushstring(L, key);
         lua_pushcclosurek(L, method_call, key, 1, nullptr);
@@ -343,6 +369,94 @@ static int vec_index(lua_State* L) {
     return 0;
 }
 
+// ------------------------------------------------------------------ Color3
+static void rgb_to_hsv(double r, double g, double b, double* h, double* s, double* v) {
+    double mx = std::fmax(r, std::fmax(g, b)), mn = std::fmin(r, std::fmin(g, b)), d = mx - mn;
+    *v = mx; *s = mx > 0 ? d / mx : 0;
+    if (d == 0) { *h = 0; return; }
+    double hh = mx == r ? std::fmod((g - b) / d, 6.0) : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
+    hh /= 6; if (hh < 0) hh += 1;
+    *h = hh;
+}
+static int color_new(lua_State* L) {
+    push_color(L, luaL_optnumber(L, 1, 0), luaL_optnumber(L, 2, 0), luaL_optnumber(L, 3, 0));
+    return 1;
+}
+static int color_fromRGB(lua_State* L) {
+    push_color(L, luaL_optnumber(L, 1, 0) / 255.0, luaL_optnumber(L, 2, 0) / 255.0, luaL_optnumber(L, 3, 0) / 255.0);
+    return 1;
+}
+static int color_fromHSV(lua_State* L) {
+    double h = luaL_checknumber(L, 1), s = luaL_checknumber(L, 2), v = luaL_checknumber(L, 3);
+    h = std::fmod(h, 1.0); if (h < 0) h += 1;
+    double f = h * 6, c = v * s, x = c * (1 - std::fabs(std::fmod(f, 2.0) - 1)), m = v - c, r = 0, g = 0, b = 0;
+    switch ((int)f % 6) { case 0: r = c; g = x; break; case 1: r = x; g = c; break; case 2: g = c; b = x; break;
+                          case 3: g = x; b = c; break; case 4: r = x; b = c; break; default: r = c; b = x; }
+    push_color(L, r + m, g + m, b + m);
+    return 1;
+}
+static int color_fromHex(lua_State* L) {
+    const char* s = luaL_checkstring(L, 1);
+    if (*s == '#') s++;
+    size_t n = strlen(s);
+    char buf[7] = {0};
+    if (n == 3) { for (int i = 0; i < 3; i++) buf[2 * i] = buf[2 * i + 1] = s[i]; }
+    else if (n == 6) memcpy(buf, s, 6);
+    else luaL_error(L, "Unable to convert characters to hex value");
+    for (int i = 0; i < 6; i++) if (!isxdigit((unsigned char)buf[i])) luaL_error(L, "Unable to convert characters to hex value");
+    long v = strtol(buf, nullptr, 16);
+    push_color(L, ((v >> 16) & 255) / 255.0, ((v >> 8) & 255) / 255.0, (v & 255) / 255.0);
+    return 1;
+}
+static int color_lerp(lua_State* L) {
+    Color* a = check_color(L, 1); Color* b = check_color(L, 2);
+    double t = luaL_checknumber(L, 3);
+    push_color(L, a->r + (b->r - a->r) * t, a->g + (b->g - a->g) * t, a->b + (b->b - a->b) * t);
+    return 1;
+}
+static int color_toHSV(lua_State* L) {
+    Color* c = check_color(L, 1);
+    double h, s, v; rgb_to_hsv(c->r, c->g, c->b, &h, &s, &v);
+    lua_pushnumber(L, h); lua_pushnumber(L, s); lua_pushnumber(L, v);
+    return 3;
+}
+static int color_toHex(lua_State* L) {
+    Color* c = check_color(L, 1);
+    auto byte = [](float f) { int v = (int)std::lround(f * 255.0); return v < 0 ? 0 : v > 255 ? 255 : v; };
+    char buf[8];
+    snprintf(buf, sizeof buf, "%02x%02x%02x", byte(c->r), byte(c->g), byte(c->b));
+    lua_pushstring(L, buf);
+    return 1;
+}
+static int color_index(lua_State* L) {
+    Color* c = check_color(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "R")) { lua_pushnumber(L, c->r); return 1; }
+    if (!strcmp(k, "G")) { lua_pushnumber(L, c->g); return 1; }
+    if (!strcmp(k, "B")) { lua_pushnumber(L, c->b); return 1; }
+    if (!strcmp(k, "Lerp")) { lua_pushcfunction(L, color_lerp, "Lerp"); return 1; }
+    if (!strcmp(k, "ToHSV")) { lua_pushcfunction(L, color_toHSV, "ToHSV"); return 1; }
+    if (!strcmp(k, "ToHex")) { lua_pushcfunction(L, color_toHex, "ToHex"); return 1; }
+    luaL_error(L, "%s is not a valid member of Color3", k);
+    return 0;
+}
+static int color_newindex(lua_State* L) {
+    luaL_error(L, "%s cannot be assigned to", luaL_checkstring(L, 2));
+    return 0;
+}
+static int color_eq(lua_State* L) {
+    Color* a = to_color(L, 1); Color* b = to_color(L, 2);
+    lua_pushboolean(L, a && b && a->r == b->r && a->g == b->g && a->b == b->b);
+    return 1;
+}
+static int color_tostring(lua_State* L) {
+    Color* c = check_color(L, 1);
+    char buf[96];
+    snprintf(buf, sizeof buf, "%.9g, %.9g, %.9g", c->r, c->g, c->b);
+    lua_pushstring(L, buf);
+    return 1;
+}
+
 // ------------------------------------------------------------------ exports
 extern "C" {
 
@@ -383,6 +497,19 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setfield(L0, -2, "__type");
     lua_pop(L0, 1);
 
+    luaL_newmetatable(L0, COLOR_MT);
+    lua_pushcfunction(L0, color_index, "__index");
+    lua_setfield(L0, -2, "__index");
+    lua_pushcfunction(L0, color_newindex, "__newindex");
+    lua_setfield(L0, -2, "__newindex");
+    lua_pushcfunction(L0, color_eq, "__eq");
+    lua_setfield(L0, -2, "__eq");
+    lua_pushcfunction(L0, color_tostring, "__tostring");
+    lua_setfield(L0, -2, "__tostring");
+    lua_pushstring(L0, "Color3");
+    lua_setfield(L0, -2, "__type");
+    lua_pop(L0, 1);
+
     // vector metatable: .X/.Y/.Z are native; Magnitude and Unit here.
     lua_pushvector(L0, 0, 0, 0);
     lua_newtable(L0);
@@ -409,6 +536,19 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_pushvector(L0, 1, 1, 1);
     lua_setfield(L0, -2, "one");
     lua_setglobal(L0, "Vector3");
+
+    lua_newtable(L0);
+    lua_pushcfunction(L0, color_new, "new");
+    lua_setfield(L0, -2, "new");
+    lua_pushcfunction(L0, color_fromRGB, "fromRGB");
+    lua_setfield(L0, -2, "fromRGB");
+    lua_pushcfunction(L0, color_fromHSV, "fromHSV");
+    lua_setfield(L0, -2, "fromHSV");
+    lua_pushcfunction(L0, color_fromHex, "fromHex");
+    lua_setfield(L0, -2, "fromHex");
+    lua_pushcfunction(L0, color_toHSV, "toHSV");
+    lua_setfield(L0, -2, "toHSV");
+    lua_setglobal(L0, "Color3");
 
     lua_newtable(L0);
     lua_pushcfunction(L0, task_wait, "wait");

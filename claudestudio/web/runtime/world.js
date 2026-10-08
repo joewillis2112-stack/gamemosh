@@ -28,17 +28,17 @@ export class World {
     this.shadows = shadows;
     this.parts = new Map(); // Instance -> { mesh, agg }
     this.matCache = new Map();
-    dm.onChange = (inst, key) => this.changed(inst, key);
+    dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
   }
 
   material(name, color) {
-    const key = `${name}|${color.x.toFixed(3)},${color.y.toFixed(3)},${color.z.toFixed(3)}`;
+    const key = `${name}|${color.r.toFixed(3)},${color.g.toFixed(3)},${color.b.toFixed(3)}`;
     if (this.matCache.has(key)) return this.matCache.get(key);
     const r = MATERIALS[name] || MATERIALS.Plastic;
     const m = new PBRMaterial(key, this.scene);
     // Part colours are sRGB, like Color3.fromRGB in Roblox.
-    m.albedoColor = new Color3(color.x, color.y, color.z).toLinearSpace();
+    m.albedoColor = new Color3(color.r, color.g, color.b).toLinearSpace();
     m.roughness = r.roughness;
     m.metallic = r.metallic;
     if (r.emissive) { m.emissiveColor = m.albedoColor.scale(r.emissive); m.disableLighting = false; }

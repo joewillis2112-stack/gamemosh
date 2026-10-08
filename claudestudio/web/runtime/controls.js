@@ -112,19 +112,20 @@ export class Controls {
     return Math.hypot(a.x - b.x, a.y - b.y) || 1;
   }
 
-  // The world-space move direction and jump for this frame.
+  // The world-space move direction, jump, and whether the move came from touch.
   read() {
-    let x = 0, y = 0, jump = false;
-    if (this.override) { [x, y] = this.override.move || [0, 0]; jump = !!this.override.jump; }
+    let x = 0, y = 0, jump = false, touch = false;
+    if (this.override) { [x, y] = this.override.move || [0, 0]; jump = !!this.override.jump; touch = !!this.override.touch; }
     else {
       const k = c => this.keys.has(c);
       x = (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0);
       y = (k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0);
       const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
-      if (this.move.x || this.move.y) { x = this.move.x; y = this.move.y; }
+      if (this.move.x || this.move.y) { x = this.move.x; y = this.move.y; touch = true; }
       jump = k('Space') || [...this.touches.values()].some(v => v.kind === 'jump');
     }
     const { forward, right } = this.camera.basis();
-    return { dx: right.x * x + forward.x * y, dz: right.z * x + forward.z * y, jump };
+    // touch: moving with the thumbstick, which turns on auto-jump (as Roblox does).
+    return { dx: right.x * x + forward.x * y, dz: right.z * x + forward.z * y, jump, touch };
   }
 }

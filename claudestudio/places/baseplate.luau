@@ -5,7 +5,7 @@ base.Size = Vector3.new(512, 20, 512)
 base.Position = Vector3.new(0, -10, 0)
 base.Anchored = true
 base.Material = "Baseplate"
-base.Color = Vector3.new(0.39, 0.40, 0.42)
+base.Color = Color3.new(0.39, 0.40, 0.42)
 base.Parent = workspace
 
 local spawn = Instance.new("SpawnLocation")
@@ -13,14 +13,14 @@ spawn.Size = Vector3.new(12, 1, 12)
 spawn.Position = Vector3.new(0, 0.5, 0)
 spawn.Anchored = true
 spawn.Material = "SmoothPlastic"
-spawn.Color = Vector3.new(0.64, 0.64, 0.66)
+spawn.Color = Color3.new(0.64, 0.64, 0.66)
 spawn.Parent = workspace
 
 local colours = {
-  Vector3.new(0.77, 0.16, 0.11), -- red
-  Vector3.new(0.05, 0.41, 0.67), -- blue
-  Vector3.new(0.29, 0.59, 0.29), -- green
-  Vector3.new(0.96, 0.80, 0.19), -- yellow
+  Color3.new(0.77, 0.16, 0.11), -- red
+  Color3.new(0.05, 0.41, 0.67), -- blue
+  Color3.new(0.29, 0.59, 0.29), -- green
+  Color3.new(0.96, 0.80, 0.19), -- yellow
 }
 for i, c in ipairs(colours) do
   local p = Instance.new("Part")
@@ -37,12 +37,12 @@ ball.Size = Vector3.new(4, 4, 4)
 ball.Position = Vector3.new(14, 2, 6)
 ball.Anchored = true
 ball.Material = "Metal"
-ball.Color = Vector3.new(0.85, 0.85, 0.88)
+ball.Color = Color3.new(0.85, 0.85, 0.88)
 ball.Parent = workspace
 local neon = Instance.new("Part")
 neon.Size = Vector3.new(1, 8, 1)
 neon.Position = Vector3.new(-14, 4, 4)
 neon.Anchored = true
 neon.Material = "Neon"
-neon.Color = Vector3.new(0.0, 0.85, 1.0)
+neon.Color = Color3.new(0.0, 0.85, 1.0)
 neon.Parent = workspace

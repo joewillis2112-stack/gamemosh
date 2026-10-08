@@ -2,9 +2,11 @@
 // shapes in Roblox's public API reference so Luau scripts read the same.
 // Luau reaches it through `host` (see bridge in luau.js): values cross as
 // {t, n, s, v} with the tags in binding.cpp.
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9 };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10 };
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
+// Color3: components 0..1 (sRGB, as Roblox stores them).
+export class C3 { constructor(r, g, b) { this.r = r; this.g = g; this.b = b; } }
 
 // ------------------------------------------------------------------ classes
 // Each class: parent class, properties {name: [type, default]}, methods, events.
@@ -56,7 +58,7 @@ defineClass('BasePart', 'Instance', {
   props: {
     Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], Transparency: ['number', 0],
-    Color: ['Vector3', [163 / 255, 162 / 255, 165 / 255]], Material: ['string', 'Plastic'], Reflectance: ['number', 0],
+    Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['string', 'Plastic'], Reflectance: ['number', 0],
   },
   events: ['Touched', 'TouchEnded'],
 });
@@ -67,6 +69,34 @@ defineClass('Script', 'LuaSourceContainer');
 defineClass('LocalScript', 'LuaSourceContainer');
 defineClass('ModuleScript', 'LuaSourceContainer');
 defineClass('Lighting', 'Instance', { creatable: false, service: true, props: { ClockTime: ['number', 14], Brightness: ['number', 2] } });
+// Players and characters. Single-player for now: one Player joins after the
+// place's scripts have run (so PlayerAdded handlers see it, as in Roblox).
+defineClass('Players', 'Instance', {
+  creatable: false, service: true,
+  props: { LocalPlayer: ['Instance', null], RespawnTime: ['number', 5], CharacterAutoLoads: ['bool', true] },
+  methods: {
+    GetPlayers(self) { return [self.children.filter(c => c.ClassName === 'Player')]; },
+    GetPlayerFromCharacter(self, m) { return [self.children.find(p => p.ClassName === 'Player' && m && p.props.Character === m) || null]; },
+  },
+  events: ['PlayerAdded', 'PlayerRemoving'],
+});
+defineClass('Player', 'Instance', {
+  creatable: false,
+  props: { UserId: ['number', 1], DisplayName: ['string', ''], Character: ['Instance', null], RespawnLocation: ['Instance', null], AutoJumpEnabled: ['bool', true] },
+  methods: { LoadCharacter(self) { self.dm.hooks.loadCharacter && self.dm.hooks.loadCharacter(self); return []; } },
+  events: ['CharacterAdded', 'CharacterRemoving'],
+});
+defineClass('Humanoid', 'Instance', {
+  props: {
+    Health: ['number', 100], MaxHealth: ['number', 100], WalkSpeed: ['number', 16], JumpPower: ['number', 50],
+    JumpHeight: ['number', 7.2], UseJumpPower: ['bool', true], AutoJumpEnabled: ['bool', true], MaxSlopeAngle: ['number', 89],
+    HipHeight: ['number', 2], Jump: ['bool', false], MoveDirection: ['Vector3', [0, 0, 0]], FloorMaterial: ['string', 'Air'],
+  },
+  methods: {
+    TakeDamage(self, amount) { self.dm.set(self, 'Health', Math.max(0, self.props.Health - (+amount || 0))); return []; },
+  },
+  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched'],
+});
 defineClass('BoolValue', 'Instance', { props: { Value: ['bool', false] } });
 defineClass('NumberValue', 'Instance', { props: { Value: ['number', 0] } });
 defineClass('IntValue', 'Instance', { props: { Value: ['number', 0] } });
@@ -81,7 +111,7 @@ export class Instance {
     this.children = [];
     this.props = {};
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : d;
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : d;
     }
     this.props.Name = cls;
     this.handle = dm.register(this);
@@ -95,7 +125,8 @@ export class DataModel {
     this.conns = new Map(); // id -> {inst, ev, ref, once}
     this.nextConn = 1;
     this.onFire = null; // (ref, args) -> void, set by the Luau bridge
-    this.onChange = null; // (inst, key) -> void, for the renderer
+    this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
+    this.hooks = {};    // runtime callbacks the API needs (e.g. Player:LoadCharacter)
     this.game = new Instance(this, 'DataModel');
     this.game.props.Name = 'Game';
     this.services = {};
@@ -128,7 +159,7 @@ export class DataModel {
     if (old) { old.children.splice(old.children.indexOf(inst), 1); this.fire(old, 'ChildRemoved', [inst]); }
     inst.parent = p;
     if (p) { p.children.push(inst); this.fire(p, 'ChildAdded', [inst]); }
-    this.onChange && this.onChange(inst, 'Parent');
+    this.notify(inst, 'Parent');
     this.fire(inst, 'Changed', ['Parent']);
   }
   destroy(inst) {
@@ -140,10 +171,13 @@ export class DataModel {
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
+    if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
     inst.props[key] = value;
-    this.onChange && this.onChange(inst, key);
+    this.notify(inst, key);
     this.fire(inst, 'Changed', [key]);
   }
+  watch(fn) { this.watchers.push(fn); }
+  notify(inst, key) { for (const w of this.watchers) w(inst, key); }
 }
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
@@ -165,6 +199,7 @@ export function makeHost(dm, log = console.log) {
       else if (typeof v === 'string') o.push({ t: T.STR, s: v });
       else if (v instanceof Instance) o.push({ t: T.INST, n: v.handle });
       else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
+      else if (v instanceof C3) o.push({ t: T.COLOR, v: [v.r, v.g, v.b] });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
@@ -177,6 +212,7 @@ export function makeHost(dm, log = console.log) {
         case T.NUM: return a.n;
         case T.STR: return a.s;
         case T.VEC: return new V3(a.v[0], a.v[1], a.v[2]);
+        case T.COLOR: return new C3(a.v[0], a.v[1], a.v[2]);
         case T.INST: return dm.byHandle[a.n];
       }
       return null;
@@ -211,6 +247,7 @@ export function makeHost(dm, log = console.log) {
       const ok = { string: 'string', number: 'number', bool: 'boolean' }[ty];
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
+      if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
       if (ty === 'Instance' && v !== null && !(v instanceof Instance)) return host.err(`Unable to assign property ${key}. Instance expected`);
       dm.set(inst, key, v);
     },

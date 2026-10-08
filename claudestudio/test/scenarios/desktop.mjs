@@ -28,10 +28,9 @@ export default async function (t) {
   // Occlusion: a wall 4 studs behind the player, camera looking through it.
   await t.eval(() => {
     const s = window.studio;
-    s.vm.run('wall', 'local w = Instance.new("Part") w.Name = "Wall" w.Size = Vector3.new(30, 14, 2) w.Position = Vector3.new(0, 7, 21) w.Anchored = true w.Color = Vector3.new(0.8, 0.75, 0.6) w.Parent = workspace');
+    s.vm.run('wall', 'local w = Instance.new("Part") w.Name = "Wall" w.Size = Vector3.new(30, 14, 2) w.Position = Vector3.new(0, 7, 21) w.Anchored = true w.Color = Color3.new(0.8, 0.75, 0.6) w.Parent = workspace');
     s.vm.flush && s.vm.flush();
-    s.player.ctrl.setPosition(s.player.ctrl.getPosition().constructor.FromArray([0, 2.5, 16]));
-    s.player.yaw = Math.PI;
+    s.player.teleport(s.player.holder.position.constructor.FromArray([0, 0, 16]), Math.PI);
     s.camera.yaw = 0; s.camera.pitch = 10 * Math.PI / 180; s.camera.zoom = 12.5;
   });
   await t.sim(5, 'live');

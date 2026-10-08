@@ -61,8 +61,17 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
    - Set up the turntable and golden-screenshot tooling.
 1. **The player:** DataModel, parts, materials, lighting and sky, physics, one character with animations, camera, touch controls, Luau scripts with events. **Gate:** a reference obby (parkour course) that passes the asset gate, part by part.
 2. **The editor:** Explorer, Properties, gizmos, Insert, Play/Stop, save and load. It must work by touch.
-3. **Prompt to game.**
-4. **Multiplayer.**
+3. **The creator suite** (from the user, 2026-10-08: "don't just stop at Roblox Studio"). These are tools inside the studio, rebuilt from how the professional tools behave, each producing assets the game uses directly. Every tool's output still goes through the asset gate. Build order, by what games need most:
+   1. **Animate** (the animation editors of Blender, Maya and Roblox's Moon Animator): a timeline, keyframes per joint, curves (linear, bezier, ease), onion skin, IK for limbs, and clips that the runtime animator plays. It starts on the character rig we already have, and its first job is to replace the jump and fall poses I wrote in code.
+   2. **Model** (Blender's mesh editing): vertex, edge and face selection; extrude, inset, bevel and loop cut; mirror; UV unwrap; rigging (bones, weights). Exports glTF. Sculpting comes later.
+   3. **Paint** (Photoshop and Substance Painter): layers, blend modes, brushes, masks and fills, painting straight onto a model's UVs, plus PBR channels (albedo, roughness, metal, normal). The output is a material for the game's material set.
+   4. **Vector** (Illustrator): paths, shapes and text for HUDs, icons and logos, exported as UI assets for `ScreenGui`.
+   5. **Motion** (After Effects and Premiere): a timeline for cutscenes and UI animation, with camera moves, tweens and effects, played in game.
+   6. **Sound:** a sound-effect designer and a simple mixer.
+
+   Each tool gets the same treatment as the player: a reference for how the real tool behaves, measured behaviour, and goldens of what it produces. One tool at a time, finished before the next starts.
+4. **Prompt to game.**
+5. **Multiplayer.**
 
 ## Status
 
@@ -105,9 +114,28 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - touch: a thumbstick that appears under the left thumb, a jump button bottom right, drag to look, pinch to zoom.
 - **Goldens:** `goldens/play/` holds the idle, run, jump and fall in-game views and the phone HUD. `tools/golden.mjs` is shared with the turntable.
 
+**2026-10-08 additions:**
+- **`Color3`** is a real Luau type, not a vector:
+  - `new`, `fromRGB`, `fromHSV` and `fromHex`;
+  - `R`, `G` and `B`;
+  - `Lerp`, `ToHSV` and `ToHex`;
+  - equality and tostring;
+  - read-only components;
+  - `Part.Color` rejects a `Vector3`, as Roblox does.
+
+  Tested in `test/luau.test.mjs`. The in-game goldens were unchanged by the switch.
+- **The hover controller (Roblox's way).** The collision capsule starts `StepUp` (0.8) above the feet. Physics floor rays and a spring hold the body there, with slope feed-forward so horizontal speed stays at WalkSpeed on ramps. `places/movement-lab.luau` with `test/scenarios/slopes.mjs` measured:
+  - ramps from 15° to 75° are 100% grounded up and down, with no fall flicker (`MaxSlopeAngle` 89°, Roblox's documented default);
+  - steps of 0.5–0.8 are seamless, 1.0 runs at 93% speed (the "slight hop" Roblox players describe), 1.2 at 63%, and 1.5 and above block.
+
+  Roblox doesn't document a step height. Its forum says about 0.8 is seamless and 1 gives a slight hop, which matches what we measured.
+- **Auto-jump on touch** (`AutoJumpEnabled`, touch only, as documented by Roblox). `test/scenarios/autojump.mjs`:
+  - a 2-stud flight on the thumbstick is hopped up automatically;
+  - the keyboard stays blocked;
+  - a 10-stud wall never triggers it.
+
 **Not done yet, in order:**
-1. A `Color3` value type in the Luau API. Colours are `Vector3` today, which is wrong against Roblox's API.
-2. Slopes, stairs (step height 1.1) and moving platforms, measured.
-3. The reference obby, part by part through the gate.
-4. Climb and swim poses.
-5. Phone frame rate on real hardware.
+1. Moving platforms. Roblox carries players only on physics-moved parts, so this needs `AssemblyLinearVelocity` or constraints first.
+2. The reference obby, part by part through the gate.
+3. Climb (TrussPart) and swim poses.
+4. Phone frame rate on real hardware.

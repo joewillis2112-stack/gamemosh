@@ -3,9 +3,9 @@
 // rest pose every frame (a clip never inherits another clip's pose).
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import { Vector3, Quaternion } from '@babylonjs/core/Maths/math.js';
-import { PhysicsCharacterController, CharacterSupportedState } from '@babylonjs/core/Physics/v2/characterController.js';
+import { PhysicsCharacterController } from '@babylonjs/core/Physics/v2/characterController.js';
+import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
-import { Ray } from '@babylonjs/core/Culling/ray.js';
 import { POSES, poseRotations } from './poses.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
@@ -13,6 +13,13 @@ export const HUMANOID = {
   WalkSpeed: 16,      // studs/s
   JumpPower: 50,      // studs/s upward
   Height: 5,          // studs
+  MaxSlopeAngle: 89,  // degrees; Roblox's documented default ("climb pretty much any slope")
+  StepUp: 0.8,        // studs walked over seamlessly. Roblox's is undocumented; its forum says ~0.8
+                      // seamless, 1 with a slight hop, taller needs a jump. Measured here (slopes
+                      // scenario): 0.8 full speed, 1.0 at 93%, 1.2 at 63%, 1.5+ blocked.
+  SnapDown: 1.3,      // studs the feet follow the floor down (stairs, slopes) before it counts as falling
+  Spring: 20,         // 1/s, how fast the body settles onto the floor height
+  AutoJumpEnabled: true, // touch only, as in Roblox: jump when walking into something jumpable
   Radius: 1,          // capsule radius, studs
   TurnRate: 14,       // 1/s, how fast the body turns toward the move direction
   Accel: 30,          // 1/s, ground velocity response (snappy, not instant)
@@ -172,11 +179,14 @@ export class Character {
     this.sprintNatural = clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
     this.anim.play('idle', 0);
 
-    // Physics: a capsule standing on the spawn.
-    const start = spawn ? spawn.clone() : new Vector3(0, 0, 0);
-    this.ctrl = new PhysicsCharacterController(start.add(new Vector3(0, H.Height / 2 + 0.05, 0)), { capsuleHeight: H.Height, capsuleRadius: H.Radius }, scene);
-    this.ctrl.maxSlopeCosine = Math.cos(50 * Math.PI / 180);
-    this.ctrl.maxStepHeight = 1.1;
+    // Physics, Roblox's way: the body hovers. The collision capsule starts
+    // StepUp above the feet, and floor rays plus a spring hold it at that
+    // height. So anything lower than StepUp is walked over, stairs and slopes
+    // are followed smoothly, and only taller things block.
+    this.capH = H.Height - H.StepUp;
+    this.ctrl = new PhysicsCharacterController(Vector3.Zero(), { capsuleHeight: this.capH, capsuleRadius: H.Radius }, scene);
+    this.ctrl.maxSlopeCosine = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
+    this.ctrl.maxStepHeight = 0; // stepping is the hover spring's job
     this.ctrl.maxCharacterSpeedForSolver = 300; // default 10 would cap walking and jumping
     this.meshes = res.meshes;
     this.visible = true;
@@ -186,45 +196,113 @@ export class Character {
     this.state = 'idle';
     this.grounded = false;
     this.velocity = Vector3.Zero();
+    this.vy = 0;
+    this.ray = new PhysicsRaycastResult();
+    this.teleport(spawn ? spawn.clone() : Vector3.Zero());
+  }
+
+  /** Put the feet at `foot` (world), standing still. */
+  teleport(foot, yaw = this.yaw) {
+    this.ctrl.setPosition(new Vector3(foot.x, foot.y + HUMANOID.StepUp + this.capH / 2, foot.z));
+    this.ctrl.setVelocity(Vector3.Zero());
+    this.vy = 0; this.yaw = yaw; this.grounded = true; this.airTime = 0; this.justJumped = 0;
     this.place();
   }
 
+  get footY() { return this.ctrl.getPosition().y - this.capH / 2 - HUMANOID.StepUp; }
+
+  // The floor under the body: physics rays (so CanCollide=false parts don't
+  // count) from the capsule centre and four points around it, down past the
+  // feet. Returns the highest walkable hit at most StepUp above the feet.
+  probeFloor() {
+    const H = HUMANOID, c = this.ctrl.getPosition(), foot = this.footY;
+    const eng = this.scene.getPhysicsEngine();
+    const minNy = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
+    let best = null;
+    const r = H.Radius * 0.7;
+    for (const [ox, oz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+      eng.raycastToRef(new Vector3(c.x + ox, c.y, c.z + oz), new Vector3(c.x + ox, foot - H.SnapDown - 0.5, c.z + oz), this.ray);
+      if (!this.ray.hasHit) continue;
+      const y = this.ray.hitPointWorld.y, n = this.ray.hitNormalWorld;
+      if (n.y < minNy || y > foot + H.StepUp + 0.05) continue;
+      if (!best || y > best.y + 1e-4 || (ox === 0 && oz === 0 && Math.abs(y - best.y) <= 1e-4)) best = { y, n: n.clone() };
+    }
+    return best;
+  }
+
   // Input for this frame: world-space direction (x, z), length <= 1; jump pressed.
-  setInput(dirX, dirZ, jump) {
+  setInput(dirX, dirZ, jump, touch = false) {
     this.moveDir.set(dirX, 0, dirZ);
     if (this.moveDir.lengthSquared() > 1) this.moveDir.normalize();
     this.jumpHeld = jump;
+    this.touchInput = touch;
+  }
+
+  // Auto-jump (touch): walking into something, held back for a moment, and
+  // the thing ahead has a top we can land on within jump reach.
+  wantsAutoJump(dt, horiz, gravity) {
+    const H = HUMANOID;
+    const wish = this.moveDir.length();
+    const blocked = wish > 0.5 && horiz.length() < 0.5 * wish * H.WalkSpeed;
+    this.blockedTime = blocked ? (this.blockedTime || 0) + dt : 0;
+    if (!H.AutoJumpEnabled || !this.touchInput || this.blockedTime < 0.1) return false;
+    const d = this.moveDir.normalizeToNew(), foot = this.footY, p = this.ctrl.getPosition();
+    const reach = H.JumpPower * H.JumpPower / (2 * gravity) - 0.4; // clear it with a little room
+    const x = p.x + d.x * (H.Radius + 0.6), z = p.z + d.z * (H.Radius + 0.6);
+    this.scene.getPhysicsEngine().raycastToRef(new Vector3(x, foot + reach + 0.5, z), new Vector3(x, foot, z), this.ray);
+    if (!this.ray.hasHit) return false;
+    const top = this.ray.hitPointWorld.y - foot;
+    return top > H.StepUp && top <= reach && this.ray.hitNormalWorld.y > 0.5;
   }
 
   step(dt, gravity) {
     const H = HUMANOID;
     const g = new Vector3(0, -gravity, 0);
-    const support = this.ctrl.checkSupport(dt, new Vector3(0, -1, 0));
     this.justJumped = Math.max(0, (this.justJumped || 0) - dt);
-    this.lastSupport = support.supportedState;
-    // Just after a jump the capsule still touches the ground; don't let that cancel it.
-    const grounded = support.supportedState === CharacterSupportedState.SUPPORTED && this.justJumped <= 0;
     const v = this.ctrl.getVelocity();
-    const want = this.moveDir.scale(H.WalkSpeed);
+    const foot = this.footY;
+    const floor = this.justJumped > 0 ? null : this.probeFloor();
+    // On the ground: following the floor down to SnapDown if we were already
+    // on it; landing only when falling and the floor is within this step.
+    let grounded = false;
+    if (floor) {
+      const gap = foot - floor.y;
+      grounded = this.grounded ? gap <= H.SnapDown : this.vy <= 0 && gap <= Math.max(0.05, -this.vy * dt + 0.05);
+    }
+    this.lastSupport = floor ? +floor.n.y.toFixed(3) : null;
 
-    // Vertical speed is tracked here and the capsule moves by the step's mean
-    // velocity, so a jump traces the exact parabola: height JumpPower²/2g
-    // (6.37 studs at Roblox's defaults), whatever the frame rate.
-    let vy0 = grounded ? 0 : (this.vy ?? v.y), vy1;
-    if (grounded && this.jumpHeld) { vy0 = H.JumpPower; this.justJumped = 0.1; } // holding jump re-jumps on landing, as in Roblox
-    if (grounded && vy0 === 0) vy1 = 0;
-    else vy1 = vy0 - gravity * dt;
+    const want = this.moveDir.scale(H.WalkSpeed);
     const k = 1 - Math.exp(-(grounded ? H.Accel : H.AirAccel) * dt);
     const horiz = new Vector3(v.x, 0, v.z);
-    if (grounded) horiz.subtractInPlace(new Vector3(support.averageSurfaceVelocity.x, 0, support.averageSurfaceVelocity.z));
     horiz.addInPlace(want.subtract(horiz).scale(k));
-    const out = new Vector3(horiz.x, (vy0 + vy1) / 2, horiz.z);
-    if (grounded) out.addInPlace(support.averageSurfaceVelocity);
+    let outY;
+    if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x, 0, v.z), gravity))) {
+      // Jump: vertical speed is tracked here and the body moves by the step's
+      // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
+      grounded = false;
+      this.justJumped = 0.1;
+      const vy1 = H.JumpPower - gravity * dt;
+      outY = (H.JumpPower + vy1) / 2; this.vy = vy1;
+    } else if (grounded) {
+      // Hold the feet on the floor: follow its slope under the horizontal
+      // velocity (horizontal speed stays WalkSpeed on a ramp) and spring out
+      // any height error (a step up or down).
+      const n = floor.n;
+      const along = -(n.x * horiz.x + n.z * horiz.z) / n.y;
+      const err = floor.y - foot;
+      outY = along + err * Math.min(H.Spring, 1 / dt);
+      this.vy = along;
+    } else {
+      const vy0 = this.vy, vy1 = vy0 - gravity * dt;
+      outY = (vy0 + vy1) / 2; this.vy = vy1;
+    }
+    const out = new Vector3(horiz.x, outY, horiz.z);
     this.ctrl.setVelocity(out);
+    const support = this.ctrl.checkSupport(dt, new Vector3(0, -1, 0));
     this.ctrl.integrate(dt, support, g);
     this.velocity = this.ctrl.getVelocity();
-    // A ceiling or the ground changed the vertical speed: take the solver's.
-    this.vy = Math.abs(this.velocity.y - out.y) > 1e-3 ? this.velocity.y : vy1;
+    // A ceiling (or a wall's slope) changed the vertical speed: take the solver's.
+    if (!grounded && Math.abs(this.velocity.y - out.y) > 1e-3) this.vy = this.velocity.y;
     this.velocity.y = this.vy;
     this.grounded = grounded;
     this.airTime = grounded ? 0 : (this.airTime || 0) + dt;
@@ -243,7 +321,7 @@ export class Character {
     // Airborne only after a moment off the ground (or a jump), so stepping
     // off a ledge edge or a contact flicker on landing doesn't pop the pose.
     if (!this.grounded && (this.justJumped > 0 || this.vy > 0 || this.airTime > 0.12)) state = this.vy > 0 ? 'jump' : 'fall';
-    else if (sp > 0.5) state = 'walk';
+    else if (sp > (this.state === 'walk' ? 0.3 : 0.8)) state = 'walk'; // hysteresis: no flicker when pushing into a wall
     else state = 'idle';
     if (state === 'walk') {
       // Walk or sprint clip, whichever's natural speed is closer; rate matches the ground.
@@ -262,14 +340,7 @@ export class Character {
 
   place() {
     const p = this.ctrl.getPosition();
-    let foot = p.y - HUMANOID.Height / 2;
-    // The controller floats a few hundredths of a stud above what it stands on
-    // (and the amount varies); on the ground, put the soles on the surface.
-    if (this.grounded) {
-      const own = new Set(this.meshes);
-      const hit = this.scene.pickWithRay(new Ray(new Vector3(p.x, foot + 0.5, p.z), new Vector3(0, -1, 0), 0.8), m => m.isPickable && m.isVisible && !own.has(m));
-      if (hit && hit.hit) foot = hit.pickedPoint.y;
-    }
+    const foot = this.footY;
     this.holder.position.set(p.x, foot, p.z);
     this.holder.rotationQuaternion = Quaternion.RotationAxis(UP, this.yaw);
   }
