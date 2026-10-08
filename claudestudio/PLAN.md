@@ -176,6 +176,40 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 - ~~Places with no ground show the HDR sky's mirrored lower half.~~ Fixed (2026-10-08): a skybox material plugin fades the sky below the horizon to the haze colour, deepening to a bluer haze further down. A flat haze disc had looked worse.
 - A soft line remains where fully fogged ground meets the sky's horizon band, which is lighter than the haze colour. Roblox's Atmosphere matches haze to the sky; ours should sample the sky's horizon colour per direction.
 
+**2026-10-08, polish pass ("quality before quantity"):**
+- **Roblox's defaults, from its shipped scripts** (`mashup-research/ROBLOX_DEFAULTS_2026-10-08.md`, spot-checked against the Animate script):
+  - Camera:
+    - 15° pitch on spawn;
+    - zoom 0.5–400 with Roblox's step formula and a 4.5 Hz spring;
+    - first person below 1 stud, with the character fading as the camera closes in;
+    - mouse 0.5°/px (vertical ×0.77), touch 1°/px (vertical ×0.66);
+    - arrow keys turn the view 120°/s;
+    - Follow mode on touch, held off for 2 s after a drag.
+  - Touch:
+    - stick zones (portrait: bottom 40%; landscape: left 40%, bottom 2/3);
+    - 2 px dead zone, full speed at 20 px (both ×2 on big screens);
+    - ring 74 px, thumb 45 px, a dot trail, and a hint ring before the first touch;
+    - jump button 70 px at (1,−95,1,−90), or 120 px on big screens.
+  - Animate: jump fades in over 0.1 s and holds 0.31 s, then fall over 0.2 s; walk and idle over 0.2 s. The fall pose sways.
+  - Health regenerates 1%/s.
+- **Sound** (CC0: Kenney and OpenGameArt, `assets/sounds/README.md`), following RbxCharacterSounds:
+  - volume 0.65 with a 5/d roll-off;
+  - jump on takeoff;
+  - landing only above 75 studs/s;
+  - fall wind fading in at 0.9/s;
+  - death on Died.
+  - Footsteps play on the animation's actual foot contacts (3.5 steps/s and a 4.6-stud stride when running), where Roblox loops one blind clip.
+  - Loops are made seamless at load (MP3 padding trimmed, 50 ms equal-power crossfade).
+  - Nobody has listened to them yet: a human should.
+- **Independent review** (`REVIEW_2026-10-08.md`): 4 high and 12 medium findings, nearly all fixed with tests (see its Status table):
+  - inside-out wedges (with a mesh check added to the gate);
+  - Touched on walls and ceilings, with exact shapes;
+  - the dead body's footprint, and the body resting on the floor;
+  - events running after Disconnect;
+  - cylinder colliders;
+  - property-change rebuilds and the material leak;
+  - Changed semantics, WaitForChild, locked metatables, and Vector3 typeof and methods.
+
 **Not done yet, in order:**
 1. Moving and spinning parts. Moving an anchored part rebuilds its physics body today. It needs kinematic bodies, and Roblox carries players only on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService).
 2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
