@@ -173,7 +173,8 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - The floor was chosen by comparison. Bright lava swamped every frame. A sky void gave no shadows to judge landings by, and showed the HDR's streaky lower half. Dark lava (120, 28, 12) won.
 
 **Known gaps:**
-- Places with no ground show the HDR sky's mirrored lower half. A flat haze disc looked worse (a white floor with a hard horizon). The fix belongs in the sky shader: a gradient below the horizon.
+- ~~Places with no ground show the HDR sky's mirrored lower half.~~ Fixed (2026-10-08): a skybox material plugin fades the sky below the horizon to the haze colour, deepening to a bluer haze further down. A flat haze disc had looked worse.
+- A soft line remains where fully fogged ground meets the sky's horizon band, which is lighter than the haze colour. Roblox's Atmosphere matches haze to the sky; ours should sample the sky's horizon colour per direction.
 
 **Not done yet, in order:**
 1. Moving and spinning parts. Moving an anchored part rebuilds its physics body today. It needs kinematic bodies, and Roblox carries players only on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService).
