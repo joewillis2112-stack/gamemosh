@@ -6,7 +6,7 @@
 // Humanoid's properties drive the controller. Health 0 fires Died, plays the
 // death clip, and the player respawns after Players.RespawnTime.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
-import { V3, Instance } from '../datamodel.js';
+import { V3, CF, Instance } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
 
 const DEG = Math.PI / 180;
@@ -94,9 +94,11 @@ export class Players {
 
   changed(inst, key) {
     // A script moving the root part teleports the character (obby teleporters).
-    if (inst === this.root && key === 'Position' && !this.dead) {
-      const P = inst.props.Position;
-      this.char.teleport(new Vector3(P.x, P.y - 3, P.z));
+    // Setting its CFrame also turns the character to the CFrame's facing.
+    if (inst === this.root && key === 'CFrame' && !this.dead) {
+      const cf = inst.props.CFrame, look = [-cf.m[5], -cf.m[11]]; // LookVector's x and z
+      const turned = Math.hypot(look[0], look[1]) > 1e-3;
+      this.char.teleport(new Vector3(cf.x, cf.y - 3, cf.z), turned ? Math.atan2(look[0], look[1]) : undefined);
       return;
     }
     if (inst !== this.humanoid) return;
@@ -217,11 +219,12 @@ export class Players {
 
   syncRoot() {
     // Physics-driven, like Roblox: written straight to the props (no Changed per frame).
-    const f = this.char.holder.position;
-    this.root.props.Position = new V3(f.x, f.y + 3, f.z);
+    const f = this.char.holder.position, P = this.root.props;
     let oy = this.char.yaw / DEG - 180; // Roblox: 0 = facing -Z
     oy = ((oy + 180) % 360 + 360) % 360 - 180;
-    this.root.props.Orientation = new V3(0, oy, 0);
+    P.CFrame = CF.fromOrientation(f.x, f.y + 3, f.z, 0, oy, 0);
+    P.Position = new V3(P.CFrame.x, P.CFrame.y, P.CFrame.z);
+    P.Orientation = new V3(0, oy, 0);
   }
 
   // Touched / TouchEnded: the body as a capsule from the soles to the top of

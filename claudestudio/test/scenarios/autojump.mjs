@@ -14,7 +14,13 @@ export default async function (t) {
     }
     return { jumps, maxY: +maxY.toFixed(2), endY: +p.footPosition.y.toFixed(2) };
   }, [x, touch]);
-  console.log('2-stud stairs, touch   ', JSON.stringify(await go(24 + 6 * 14, true)));
-  console.log('2-stud stairs, keyboard', JSON.stringify(await go(24 + 6 * 14, false)));
-  console.log('10-stud wall, touch    ', JSON.stringify(await go(130, true)));
+  const touch = await go(24 + 6 * 14, true), keys = await go(24 + 6 * 14, false), wall = await go(130, true);
+  console.log('2-stud stairs, touch   ', JSON.stringify(touch));
+  console.log('2-stud stairs, keyboard', JSON.stringify(keys));
+  console.log('10-stud wall, touch    ', JSON.stringify(wall));
+  const fail = [];
+  if (!(touch.jumps >= 3 && touch.maxY >= 16)) fail.push('touch hops to the top of the 16-stud flight');
+  if (!(keys.jumps === 0 && keys.maxY < 0.2)) fail.push('keyboard stays blocked');
+  if (!(wall.jumps === 0 && wall.maxY < 0.2)) fail.push('a 10-stud wall never triggers it');
+  if (fail.length) throw new Error('FAIL: ' + fail.join('; '));
 }

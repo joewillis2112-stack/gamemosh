@@ -2,7 +2,9 @@
 // shapes in Roblox's public API reference so Luau scripts read the same.
 // Luau reaches it through `host` (see bridge in luau.js): values cross as
 // {t, n, s, v} with the tags in binding.cpp.
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11 };
+import { CF } from './cframe.js';
+export { CF };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12 };
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
 // Color3: components 0..1 (sRGB, as Roblox stores them).
@@ -75,13 +77,48 @@ defineClass('Instance', null, {
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
 defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] } });
 defineClass('Folder', 'Instance');
-defineClass('Model', 'Instance', { props: { PrimaryPart: ['Instance', null] } });
+// Pivots: a part's pivot is its CFrame (PivotOffset isn't modelled). A model's
+// is its PrimaryPart's CFrame, else the centre of its parts' bounding box
+// (Roblox keeps a stored WorldPivot there; this recomputes it).
+function partsOf(model) { const out = []; const walk = i => i.children.forEach(c => { if (isA(c.ClassName, 'BasePart')) out.push(c); walk(c); }); walk(model); return out; }
+function modelPivot(model) {
+  const pp = model.props.PrimaryPart;
+  if (pp && !pp.destroyed && isDescendant(pp, model)) return pp.props.CFrame;
+  const parts = partsOf(model);
+  if (!parts.length) return new CF();
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of parts) {
+    const m = p.props.CFrame.m, s = p.props.Size;
+    for (let r = 0; r < 3; r++) {
+      const ext = (Math.abs(m[3 + r * 3]) * s.x + Math.abs(m[4 + r * 3]) * s.y + Math.abs(m[5 + r * 3]) * s.z) / 2;
+      lo[r] = Math.min(lo[r], m[r] - ext); hi[r] = Math.max(hi[r], m[r] + ext);
+    }
+  }
+  return new CF([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
+}
+defineClass('Model', 'Instance', {
+  props: { PrimaryPart: ['Instance', null] },
+  methods: {
+    GetPivot(self) { return [modelPivot(self)]; },
+    // Moves every part rigidly so the pivot lands on `cf`.
+    PivotTo(self, cf) {
+      if (!(cf instanceof CF)) throw new Error('Unable to cast value to CFrame');
+      const delta = cf.mul(modelPivot(self).inverse());
+      for (const p of partsOf(self)) self.dm.set(p, 'CFrame', delta.mul(p.props.CFrame));
+      return [];
+    },
+  },
+});
 defineClass('BasePart', 'Instance', {
   creatable: false,
   props: {
-    Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
+    CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], Transparency: ['number', 0],
     Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
+  },
+  methods: {
+    GetPivot(self) { return [self.props.CFrame]; },
+    PivotTo(self, cf) { if (!(cf instanceof CF)) throw new Error('Unable to cast value to CFrame'); self.dm.set(self, 'CFrame', cf); return []; },
   },
   events: ['Touched', 'TouchEnded'],
 });
@@ -143,7 +180,7 @@ export class Instance {
     this.children = [];
     this.props = {};
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : d;
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : d;
     }
     this.props.Name = cls;
     this.handle = dm.register(this);
@@ -232,12 +269,30 @@ export class DataModel {
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
+    if ((key === 'CFrame' || key === 'Position' || key === 'Orientation') && inst.props.CFrame) return this.place(inst, key, value);
     if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
     if (sameValue(inst.props[key], value)) return; // Roblox fires Changed only on a real change
     inst.props[key] = value;
     this.notify(inst, key);
     if (isA(inst.ClassName, 'ValueBase')) { if (key === 'Value') this.fire(inst, 'Changed', [value]); }
     else this.fire(inst, 'Changed', [key]);
+  }
+  // A part's placement: CFrame is the truth; Position and Orientation are
+  // views of it, and setting any one updates the others (as in Roblox, where
+  // each fires its own Changed). Watchers hear one 'CFrame' change.
+  place(inst, key, value) {
+    const P = inst.props, old = P.CFrame;
+    let cf;
+    if (key === 'CFrame') cf = value;
+    else if (key === 'Position') cf = old.withPosition(value.x, value.y, value.z);
+    else cf = CF.fromOrientation(old.x, old.y, old.z, value.x, value.y, value.z);
+    const [ox, oy, oz] = cf.toOrientation();
+    const next = { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)) };
+    const changed = Object.keys(next).filter(k => !sameValue(P[k], next[k]));
+    if (!changed.length) return;
+    Object.assign(P, next);
+    this.notify(inst, 'CFrame');
+    for (const k of changed) this.fire(inst, 'Changed', [k]);
   }
   watch(fn) { this.watchers.push(fn); }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }
@@ -246,6 +301,7 @@ function sameValue(a, b) {
   if (a === b) return true;
   if (a instanceof V3 && b instanceof V3) return a.x === b.x && a.y === b.y && a.z === b.z;
   if (a instanceof C3 && b instanceof C3) return a.r === b.r && a.g === b.g && a.b === b.b;
+  if (a instanceof CF) return a.equals(b);
   return false;
 }
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
@@ -273,6 +329,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof Instance) o.push({ t: T.INST, n: v.handle });
       else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
       else if (v instanceof C3) o.push({ t: T.COLOR, v: [v.r, v.g, v.b] });
+      else if (v instanceof CF) o.push({ t: T.CFRAME, v: v.m });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
@@ -287,6 +344,7 @@ export function makeHost(dm, log = console.log) {
         case T.STR: return a.s;
         case T.VEC: return new V3(a.v[0], a.v[1], a.v[2]);
         case T.COLOR: return new C3(a.v[0], a.v[1], a.v[2]);
+        case T.CFRAME: return new CF(a.v);
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
       }
@@ -332,6 +390,7 @@ export function makeHost(dm, log = console.log) {
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
+      if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
       if (ty.startsWith('Enum.')) {
         // An EnumItem of this type, its name, or its number, as Roblox accepts.
         const type = ty.slice(5);

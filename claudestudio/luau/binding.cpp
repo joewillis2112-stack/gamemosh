@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -46,6 +46,10 @@ EM_JS(int, js_enum_items, (const char* type), { return Module.studio.enumItems(U
 EM_JS(void, js_arg, (int t, double n, const char* s, double x, double y, double z), {
     Module.studio.args.push({ t: t, n: n, s: s ? UTF8ToString(s) : null, v: [x, y, z] });
 });
+// A CFrame: 12 floats at `m` (x, y, z, then the rotation's rows).
+EM_JS(void, js_arg_cf, (const float* m), {
+    Module.studio.args.push({ t: 12, v: Array.from(HEAPF32.subarray(m >> 2, (m >> 2) + 12)) });
+});
 
 // ------------------------------------------------------------------ state
 static lua_State* L0;
@@ -65,6 +69,9 @@ static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yields)
 
 struct Signal { int h; char ev[56]; };
+
+#include "cframe.h"
+
 
 // ------------------------------------------------------------------ marshalling
 static void push_instance(lua_State* L, int h) {
@@ -158,6 +165,7 @@ static void send_arg(lua_State* L, int idx) {
         int h = to_instance(L, idx);
         if (h) { js_arg(T_INST, h, nullptr, 0, 0, 0); break; }
         if (Color* c = to_color(L, idx)) { js_arg(T_COLOR, 0, nullptr, c->r, c->g, c->b); break; }
+        if (CF* c = to_cf(L, idx)) { js_arg_cf(c->m); break; }
         if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
     }
@@ -189,6 +197,7 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_VEC: lua_pushvector(L, (float)js_ret_vec(i, 0), (float)js_ret_vec(i, 1), (float)js_ret_vec(i, 2)); break;
     case T_INST: push_instance(L, (int)js_ret_num(i)); break;
     case T_COLOR: push_color(L, js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
+    case T_CFRAME: { double m[12]; for (int k = 0; k < 12; k++) m[k] = js_ret_vec(i, k); push_cf(L, m); break; }
     case T_ENUM: {
         char* s = js_ret_str(i);
         std::string full = s ? s : "";
@@ -788,6 +797,8 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setfield(L0, -2, "toHSV");
     lua_setglobal(L0, "Color3");
 
+    register_cframe(L0);
+
     lua_newtable(L0);
     lua_pushcfunction(L0, task_wait, "wait");
     lua_setfield(L0, -2, "wait");
@@ -847,7 +858,7 @@ end)";
         lua_setfield(L0, idx < 0 ? idx - 1 : idx, "__metatable");
         lua_setreadonly(L0, idx, true);
     };
-    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
+    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
     lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
     lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
 

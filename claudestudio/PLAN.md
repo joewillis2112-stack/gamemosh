@@ -211,6 +211,10 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - Changed semantics, WaitForChild, locked metatables, and Vector3 typeof and methods.
   - Low findings after that: walk/sprint hysteresis, `Workspace.FallenPartsDestroyHeight` (fallen parts destroyed), Humanoid `Running`/`Jumping`/`FreeFalling` as Roblox fires them, slope decals on wedges, non-colliding unanchored parts that still fall. Tested by `humanoid-events.mjs` and the parts goldens.
 
+- **Scripting API gaps, found by reading what real Roblox scripts touch first:**
+  - `CFrame` (done): a C++ userdata in the binding with Roblox's constructors (`new` in all its forms, `lookAt`, `Angles`, `fromEulerAnglesYXZ`, `fromOrientation`, `fromAxisAngle`, `fromMatrix`, `identity`), operators, vectors, object/world-space methods, Euler and axis-angle readback, `Lerp` (slerp). Parts store a CFrame; `Position` and `Orientation` are views of it, each firing its own `Changed`. Setting `HumanoidRootPart.CFrame` teleports and turns the character. `PivotTo`/`GetPivot` on parts and models. Tests: `test/luau.test.mjs` (expectations from Roblox's documented behaviour) and `test/scenarios/cframe.mjs` (in-engine, mutation-checked). Unknown: Roblox's `lookAt` result when looking straight along the up vector.
+  - `RunService` (next): Roblox's frame order, `time()`, writable `_G`/`shared`, the standard container services.
+
 **Not done yet, in order:**
 1. Moving and spinning parts. A script moving an anchored part now moves a kinematic body, but nothing carries the player: Roblox carries players on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService), and the controller needs to inherit its floor's velocity.
 2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.

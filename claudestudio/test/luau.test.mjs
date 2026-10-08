@@ -119,6 +119,56 @@ local later = workspace:WaitForChild("Later")
 print("waitforchild", later and later.Name, workspace:WaitForChild("Never", 0.3))
 `);
 
+vm.run('cframe', `
+-- Expectations are Roblox's documented behaviour, not read off this implementation.
+local function near(a, b) return (a - b).Magnitude < 1e-4 end
+local rad = math.rad
+local y90 = CFrame.Angles(0, rad(90), 0)
+print("cf type", typeof(CFrame.new()), tostring(CFrame.new(1, 2, 3)))
+print("cf y90", near(y90.LookVector, Vector3.new(-1, 0, 0)), near(y90.RightVector, Vector3.new(0, 0, -1)), near(y90.UpVector, Vector3.yAxis))
+local la = CFrame.lookAt(Vector3.zero, Vector3.new(10, 0, 0))
+print("cf lookAt", near(la.LookVector, Vector3.xAxis), near(la.RightVector, Vector3.zAxis), la == CFrame.new(Vector3.zero, Vector3.new(10, 0, 0)))
+local a = CFrame.new(1, 2, 3) * CFrame.Angles(rad(10), rad(20), rad(30))
+local b = CFrame.new(-4, 5, 6) * CFrame.fromEulerAnglesYXZ(rad(40), rad(50), rad(60))
+print("cf inverse", (a:Inverse() * a):FuzzyEq(CFrame.identity), a:ToObjectSpace(b):FuzzyEq(a:Inverse() * b), a:ToWorldSpace(b):FuzzyEq(a * b))
+print("cf points", near(a:PointToWorldSpace(Vector3.new(1, 0, 0)), a * Vector3.new(1, 0, 0)), near(a:PointToObjectSpace(a * Vector3.new(3, 4, 5)), Vector3.new(3, 4, 5)), near(a:VectorToObjectSpace(a:VectorToWorldSpace(Vector3.one)), Vector3.one))
+local rx, ry, rz = a:ToEulerAnglesXYZ()
+local ox, oy, oz = b:ToOrientation()
+print("cf euler", math.abs(rx - rad(10)) < 1e-5, math.abs(ry - rad(20)) < 1e-5, math.abs(rz - rad(30)) < 1e-5, math.abs(ox - rad(40)) < 1e-5, math.abs(oy - rad(50)) < 1e-5, math.abs(oz - rad(60)) < 1e-5)
+local ax, an = CFrame.Angles(0, 1, 0):ToAxisAngle()
+print("cf axis", near(ax, Vector3.yAxis), math.abs(an - 1) < 1e-5, CFrame.fromAxisAngle(Vector3.yAxis, 1):FuzzyEq(CFrame.Angles(0, 1, 0)), CFrame.new(0, 0, 0, 0, math.sin(0.5), 0, math.cos(0.5)):FuzzyEq(CFrame.Angles(0, 1, 0)))
+print("cf lerp", CFrame.new():Lerp(CFrame.new(10, 0, 0) * y90, 0.5):FuzzyEq(CFrame.new(5, 0, 0) * CFrame.Angles(0, rad(45), 0)))
+print("cf ops", (CFrame.new(1, 2, 3) + Vector3.one).Position == Vector3.new(2, 3, 4), (CFrame.new(1, 2, 3) - Vector3.one).Y, select("#", a:GetComponents()), CFrame.new(1, 2, 3).p.Z)
+local ok, err = pcall(function() a.X = 1 end)
+print("cf readonly", ok, err)
+local part = Instance.new("Part", workspace)
+part.Name = "Spinner"
+local changes = {}
+part.Changed:Connect(function(k) changes[#changes + 1] = k end)
+part.Orientation = Vector3.new(0, 90, 0)
+print("cf part orient", near(part.CFrame.LookVector, Vector3.new(-1, 0, 0)), part.Orientation == Vector3.new(0, 90, 0))
+part.CFrame = CFrame.new(1, 2, 3) * CFrame.Angles(0, rad(45), 0)
+print("cf part set", part.Position == Vector3.new(1, 2, 3), near(part.Orientation, Vector3.new(0, 45, 0)))
+part.Position = Vector3.new(7, 8, 9)
+print("cf part pos", part.CFrame.Position == Vector3.new(7, 8, 9), near(part.CFrame.LookVector, (CFrame.Angles(0, rad(45), 0)).LookVector))
+part.Orientation = Vector3.new(0, 270, 0)
+print("cf orient wraps", near(part.Orientation, Vector3.new(0, -90, 0)))
+ok, err = pcall(function() part.CFrame = Vector3.one end)
+print("cf part type", ok, err)
+task.wait() -- Changed handlers are deferred
+-- Which properties fire is Roblox's (each view that changed); the order among them is ours.
+print("cf changed", table.concat(changes, ","))
+-- Pivots: a model with no PrimaryPart pivots about its bounding-box centre;
+-- PivotTo moves every part rigidly.
+local m = Instance.new("Model")
+local p1 = Instance.new("Part", m) p1.Size = Vector3.new(2, 2, 2) p1.Position = Vector3.new(0, 0, 0)
+local p2 = Instance.new("Part", m) p2.Size = Vector3.new(2, 2, 2) p2.Position = Vector3.new(10, 0, 0)
+print("pivot box", m:GetPivot().Position == Vector3.new(5, 0, 0))
+m:PivotTo(CFrame.new(5, 10, 0) * CFrame.Angles(0, rad(90), 0))
+print("pivot to", near(p1.Position, Vector3.new(5, 10, 5)), near(p2.Position, Vector3.new(5, 10, -5)), near(p1.CFrame.LookVector, Vector3.new(-1, 0, 0)))
+m.PrimaryPart = p2
+print("pivot primary", m:GetPivot() == p2.CFrame, p1:GetPivot() == p1.CFrame)
+`);
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -168,6 +218,23 @@ const expect = [
   'readonly false',
   'bad parent false',
   'waitforchild Later nil',
+  'cf type CFrame 1, 2, 3, 1, 0, 0, 0, 1, 0, 0, 0, 1',
+  'cf y90 true true true',
+  'cf lookAt true true true',
+  'cf inverse true true true',
+  'cf points true true true',
+  'cf euler true true true true true true',
+  'cf axis true true true true',
+  'cf lerp true',
+  'cf ops true 1 12 3',
+  'cf part orient true true',
+  'cf part set true true',
+  'cf part pos true true',
+  'cf orient wraps true',
+  'cf changed CFrame,Orientation,CFrame,Position,Orientation,CFrame,Position,CFrame,Orientation',
+  'pivot box true',
+  'pivot to true true true',
+  'pivot primary true true',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
@@ -176,10 +243,11 @@ const broken = out.find(l => l.startsWith('ERR') && l.includes('attempt to index
 const t1 = out.includes('t1 1');
 const colorType = out.find(l => l.startsWith('color type false') && l.includes('Color3 expected'));
 const colorRO = out.find(l => l.startsWith('color readonly false') && l.includes('R cannot be assigned to'));
+const cfType = out.find(l => l.startsWith('cf part type false') && l.includes('CFrame expected')) && out.find(l => l.startsWith('cf readonly false') && l.includes('X cannot be assigned to'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
-if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, waiting: vm.waiting() });
+if (missing.length || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
+  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

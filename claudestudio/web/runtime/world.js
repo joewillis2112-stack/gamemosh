@@ -9,7 +9,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import { PhysicsShapeType, PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import { partShape } from './shapes.js';
-import { isA } from '../datamodel.js';
+import { isA, CF, V3 } from '../datamodel.js';
 
 const DEG = Math.PI / 180;
 
@@ -184,11 +184,10 @@ export class World {
     this.body(inst, e);
   }
   transform(inst, e) {
-    const P = inst.props, s = P.Size, p = P.Position, o = P.Orientation;
+    const P = inst.props, s = P.Size, cf = P.CFrame;
     e.mesh.scaling.set(s.x, s.y, s.z);
-    e.mesh.position.set(p.x, p.y, p.z);
-    // Roblox Orientation is degrees, applied Y then X then Z.
-    e.mesh.rotationQuaternion = Quaternion.RotationYawPitchRoll(o.y * DEG, o.x * DEG, o.z * DEG);
+    e.mesh.position.set(cf.x, cf.y, cf.z);
+    e.mesh.rotationQuaternion = new Quaternion(...cf.toQuat());
     partShape(inst, e.mesh.rotationQuaternion, e.shape);
   }
   visibility(inst, e) {
@@ -232,7 +231,7 @@ export class World {
     switch (key) {
       case 'Color': case 'Material': return this.updateMaterial(inst, e);
       case 'Transparency': return this.visibility(inst, e);
-      case 'Position': case 'Orientation':
+      case 'CFrame':
         this.transform(inst, e);
         if (e.agg && inst.props.Anchored) {
           // A script moving an anchored part: its body follows the mesh (kinematic), no rebuild.
@@ -257,11 +256,10 @@ export class World {
       if (inst.props.Anchored || !e.agg) continue;
       const m = e.mesh;
       if (m.position.y < floor) { fallen.push(inst); continue; } // Roblox destroys parts that fall this far
-      inst.props.Position.x = m.position.x; inst.props.Position.y = m.position.y; inst.props.Position.z = m.position.z;
-      if (m.rotationQuaternion) {
-        const r = m.rotationQuaternion.toEulerAngles();
-        inst.props.Orientation.x = r.x / DEG; inst.props.Orientation.y = r.y / DEG; inst.props.Orientation.z = r.z / DEG;
-      }
+      // Physics-driven: written straight to the props (no Changed per frame, as in Roblox).
+      const p = m.position, q = m.rotationQuaternion || Quaternion.Identity();
+      const cf = CF.fromQuat(p.x, p.y, p.z, q.x, q.y, q.z, q.w), [ox, oy, oz] = cf.toOrientation();
+      inst.props.CFrame = cf; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(ox, oy, oz);
       partShape(inst, m.rotationQuaternion, e.shape);
     }
     for (const inst of fallen) this.dm.destroy(inst);
