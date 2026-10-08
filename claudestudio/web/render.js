@@ -12,6 +12,7 @@ import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
+import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase.js';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader.js';
 import '@babylonjs/core/Helpers/sceneHelpers.js';
@@ -37,7 +38,10 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
     const env = new HDRCubeTexture(skyUrl, scene, 256, false, true, false, true);
     scene.environmentTexture = env;
     scene.environmentIntensity = 0.9;
-    if (skybox) { const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false); if (sky) sky.applyFog = false; }
+    if (skybox) {
+      const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false);
+      if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene); }
+    }
     ready = new Promise(res => env.onLoadObservable.addOnce(() => res()));
   } else {
     const hemi = new HemisphericLight('fill', new Vector3(0, 1, 0), scene);
@@ -87,6 +91,38 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   pipeline.samples = quality === 'phone' ? 1 : 4;
 
   return { engine, scene, sun, shadows, pipeline, ready, attachCamera(cam) { pipeline.addCamera(cam); } };
+}
+
+// The HDR's lower half is mirrored, streaky cloud. Below the horizon the sky
+// fades into the haze colour, the same colour fog takes distant geometry to,
+// so a place with no ground (or the ground's far edge) meets it seamlessly;
+// further down it deepens, so a void still has depth.
+class BelowHorizon extends MaterialPluginBase {
+  constructor(material, scene) {
+    super(material, 'BelowHorizon', 200, { BELOW_HORIZON: false });
+    this.scene = scene;
+    this._enable(true);
+  }
+  prepareDefines(defines) { defines.BELOW_HORIZON = true; }
+  getClassName() { return 'BelowHorizon'; }
+  getUniforms() {
+    return { ubo: [{ name: 'horizonColor', size: 3, type: 'vec3' }], fragment: 'uniform vec3 horizonColor;' };
+  }
+  bindForSubMesh(ubo) { ubo.updateColor3('horizonColor', this.scene.fogColor); }
+  getCustomCode(shaderType) {
+    if (shaderType !== 'fragment') return null;
+    return {
+      CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
+        #ifdef BELOW_HORIZON
+          vec3 skyDir = normalize(vPositionW - vEyePosition.xyz);
+          float below = smoothstep(0.0, -0.05, skyDir.y);
+          // Deeper below, a darker, bluer haze, as an atmosphere looks looking down.
+          vec3 deep = horizonColor * vec3(0.55, 0.62, 0.74);
+          vec3 haze = mix(horizonColor, deep, smoothstep(-0.02, -0.6, skyDir.y));
+          finalColor.rgb = mix(finalColor.rgb, haze, below);
+        #endif`,
+    };
+  }
 }
 
 /** A plain studio plastic: albedo colour, mid roughness, no metal. */
