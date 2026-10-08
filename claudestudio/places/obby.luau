@@ -44,8 +44,8 @@ local function checkpoint(stage, z)
   return cp
 end
 
--- Lava under everything.
-local lava = part({ Name = "Lava", Size = Vector3.new(400, 1, 400), Position = Vector3.new(0, -0.5, 120), Color = Color3.fromRGB(120, 28, 12), Material = Enum.Material.SmoothPlastic }) -- dark lava: its shadows show where you will land
+-- Lava under everything, wide enough that its edge is past full fog (520).
+local lava = part({ Name = "Lava", Size = Vector3.new(2000, 1, 2000), Position = Vector3.new(0, -0.5, 120), Color = Color3.fromRGB(120, 28, 12), Material = Enum.Material.SmoothPlastic }) -- dark lava: its shadows show where you will land
 kills(lava)
 
 -- Start.
