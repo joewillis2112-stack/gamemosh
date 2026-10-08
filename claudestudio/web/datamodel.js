@@ -77,6 +77,18 @@ defineClass('Instance', null, {
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
 defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] } });
 defineClass('Folder', 'Instance');
+// The frame's events, fired by play.js in Roblox's documented order:
+// PreAnimation, PreSimulation (Stepped), physics, PostSimulation (Heartbeat),
+// then waiting threads resume, then PreRender (RenderStepped) and the frame is drawn.
+// One local session plays both sides, so it reports client and server.
+defineClass('RunService', 'Instance', {
+  creatable: false, service: true,
+  methods: { IsClient() { return [true]; }, IsServer() { return [true]; }, IsStudio() { return [false]; }, IsRunning() { return [true]; }, IsEdit() { return [false]; } },
+  events: ['PreAnimation', 'PreSimulation', 'Stepped', 'PostSimulation', 'Heartbeat', 'PreRender', 'RenderStepped'],
+});
+// Roblox's standard containers. Nothing replicates (one local session), so they only hold things.
+for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterGui', 'StarterPack', 'StarterPlayer'])
+  defineClass(name, 'Instance', { creatable: false, service: true });
 // Pivots: a part's pivot is its CFrame (PivotOffset isn't modelled). A model's
 // is its PrimaryPart's CFrame, else the centre of its parts' bounding box
 // (Roblox keeps a stored WorldPivot there; this recomputes it).

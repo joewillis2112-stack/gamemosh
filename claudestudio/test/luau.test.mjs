@@ -169,6 +169,8 @@ print("pivot to", near(p1.Position, Vector3.new(5, 10, 5)), near(p2.Position, Ve
 m.PrimaryPart = p2
 print("pivot primary", m:GetPivot() == p2.CFrame, p1:GetPivot() == p1.CFrame)
 `);
+vm.run('g1', `_G.shared_score = 41 shared.flag = "on"`);
+vm.run('g2', `_G.shared_score += 1 print("globals", _G.shared_score, shared.flag, type(time()), tick() > 1.7e9)`);
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -235,6 +237,7 @@ const expect = [
   'pivot box true',
   'pivot to true true true',
   'pivot primary true true',
+  'globals 42 on number true',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));

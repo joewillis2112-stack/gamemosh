@@ -438,6 +438,10 @@ static int l_typeof(lua_State* L) {
     return 1;
 }
 static int l_print(lua_State* L) { return g_print(L, 0); }
+// time(): seconds the game has been running (the frame clock). tick(): Unix time, deprecated in Roblox but still common.
+EM_JS(double, js_unix_time, (), { return Date.now() / 1000; });
+static int l_time(lua_State* L) { lua_pushnumber(L, now_s); return 1; }
+static int l_tick(lua_State* L) { lua_pushnumber(L, js_unix_time()); return 1; }
 static int l_warn(lua_State* L) { return g_print(L, 1); }
 
 // ------------------------------------------------------------------ Vector3
@@ -761,6 +765,10 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setglobal(L0, "print");
     lua_pushcfunction(L0, l_warn, "warn");
     lua_setglobal(L0, "warn");
+    lua_pushcfunction(L0, l_time, "time");
+    lua_setglobal(L0, "time");
+    lua_pushcfunction(L0, l_tick, "tick");
+    lua_setglobal(L0, "tick");
 
     lua_newtable(L0);
     lua_pushcfunction(L0, instance_new, "new");
@@ -862,7 +870,13 @@ end)";
     lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
     lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
 
+    // _G and shared: in Roblox, tables every script can write and share (not
+    // the globals themselves). The sandbox freezes every global table, so
+    // they're unfrozen after it.
+    lua_newtable(L0); lua_setglobal(L0, "_G");
+    lua_newtable(L0); lua_setglobal(L0, "shared");
     luaL_sandbox(L0);
+    for (const char* g : { "_G", "shared" }) { lua_getglobal(L0, g); lua_setreadonly(L0, -1, false); lua_pop(L0, 1); }
 }
 
 // A handler's ref, released when its instance is destroyed (after any queued fires ran).

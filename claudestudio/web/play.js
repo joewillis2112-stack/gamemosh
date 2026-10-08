@@ -51,11 +51,21 @@ async function main() {
   players.onDied = () => sounds.died();
 
   // One clock for scripts, physics, the player and animation. Tests step it at a fixed 1/60 s.
+  // A frame, in Roblox's order (RunService's docs): PreAnimation and
+  // PreSimulation/Stepped, then physics (Havok, then the character), then
+  // PostSimulation/Heartbeat, then waiting threads resume (task.wait), then
+  // PreRender/RenderStepped, the camera, and the frame is drawn.
   let t = 0;
   const fixed = !!q.get('test');
+  const frameDt = () => fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 1 / 20);
+  const run = dm.service('RunService');
+  const fire = (ev, args) => { dm.fire(run, ev, args); vm.flush(); };
+  const beforePhysics = dt => {
+    fire('PreAnimation', [dt]);
+    fire('PreSimulation', [dt]); fire('Stepped', [t, dt]);
+  };
   const tick = dt => {
     t += dt;
-    vm.step(t);
     const c = controls.read(dt);
     const scriptJump = players.preStep();
     // No character (not spawned yet, or a script removed it): nothing to drive.
@@ -64,13 +74,17 @@ async function main() {
       player.step(dt, GRAVITY);
     }
     players.postStep(t);
+    world.syncFromPhysics();
+    fire('PostSimulation', [dt]); fire('Heartbeat', [dt]);
+    vm.step(t);
+    fire('PreRender', [dt]); fire('RenderStepped', [dt]);
     camera.update(dt);
     sounds.update(dt);
-    world.syncFromPhysics();
   };
   if (fixed) scene.getPhysicsEngine().setTimeStep(1 / 60);
   let simulating = false;
-  scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 1 / 20)); });
+  scene.onBeforePhysicsObservable.add(() => beforePhysics(frameDt()));
+  scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
   window.studio = {
     dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, ready: true,

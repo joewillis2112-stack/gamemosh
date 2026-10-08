@@ -310,6 +310,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Luau inlines builtins.** The compiler turns `typeof` into a fast call, so overriding the global did nothing until scripts were compiled with `mutableGlobals = {"typeof"}`. Vector component reads also don't all take the VM's fast path: handle `X/Y/Z` in `__index` too.
 - **A test that only prints can't fail.** The humanoid-events scenario logged the right lines but asserted nothing, so it would have passed broken. Assert, then break the expectation once to see the test fail (a mutation check).
 - **A golden change you didn't expect is a question, not noise.** Walk/sprint hysteresis moved the clip switch from 15.46 to 15.76 studs/s, which shifted the stride phase in the run and phone shots. Explain each changed golden before saving it.
+- **Luau's sandbox freezes every global table, `_G` included.** Roblox's `_G` and `shared` are writable tables shared by all scripts. Give them fresh tables before `luaL_sandbox`, then unfreeze those two.
 
 ## 5. Ways to work that held up
 
