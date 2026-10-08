@@ -402,7 +402,11 @@ export class Character {
     else state = 'idle';
     if (state === 'walk') {
       // Walk or sprint clip, whichever's natural speed is closer; rate matches the ground.
-      const clip = Math.abs(sp - this.sprintNatural) < Math.abs(sp - this.walkNatural) ? 'sprint' : 'walk';
+      // Switch clips only once the other is clearly closer (10% margin), so a
+      // speed near the midpoint doesn't flip clips every frame.
+      const dW = Math.abs(sp - this.walkNatural), dS = Math.abs(sp - this.sprintNatural);
+      const cur = this.anim.current === 'sprint' || this.anim.current === 'walk' ? this.anim.current : null;
+      const clip = cur === 'sprint' ? (dW < dS * 0.9 ? 'walk' : 'sprint') : cur === 'walk' ? (dS < dW * 0.9 ? 'sprint' : 'walk') : (dS < dW ? 'sprint' : 'walk');
       const natural = clip === 'sprint' ? this.sprintNatural : this.walkNatural;
       const rate = Math.min(2.2, Math.max(0.4, sp / natural));
       if (this.anim.current !== clip) this.anim.play(clip, 0.2, rate);

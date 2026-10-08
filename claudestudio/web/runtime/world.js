@@ -81,10 +81,13 @@ export class World {
       if (c.ClassName !== 'Decal' && c.ClassName !== 'Texture') continue;
       const D = c.props, url = this.builtinUrl(D.Texture);
       if (!url || D.Transparency >= 1) continue;
-      const [pos, rot] = FACES[D.Face] || FACES.Front;
+      const wedgeFront = D.Face === 'Front' && (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge');
+      const [pos, rot] = wedgeFront ? [[0, 0, 0], [Math.PI / 4, 0, 0]] : FACES[D.Face] || FACES.Front;
       const plane = MeshBuilder.CreatePlane(inst.Name + '.' + c.Name, { size: 1 }, this.scene);
       plane.parent = e.mesh;
       plane.position.set(...pos); plane.rotation.set(...rot);
+      // A wedge's front face is its slope: in the unit box it runs corner to corner, sqrt(2) long.
+      if (wedgeFront) plane.scaling.y = Math.SQRT2;
       plane.isPickable = false;
       plane.receiveShadows = true;
       const m = new PBRMaterial(plane.name, this.scene);
@@ -94,7 +97,8 @@ export class World {
       t.hasAlpha = true;
       if (c.ClassName === 'Texture') {
         const [u, v] = FACE_UV[D.Face] || FACE_UV.Front;
-        t.uScale = inst.props.Size[u] / D.StudsPerTileU; t.vScale = inst.props.Size[v] / D.StudsPerTileV;
+        const vLen = wedgeFront ? Math.hypot(inst.props.Size.y, inst.props.Size.z) : inst.props.Size[v];
+        t.uScale = inst.props.Size[u] / D.StudsPerTileU; t.vScale = vLen / D.StudsPerTileV;
         t.uOffset = D.OffsetStudsU / D.StudsPerTileU; t.vOffset = D.OffsetStudsV / D.StudsPerTileV;
       }
       m.albedoTexture = t;
@@ -196,13 +200,18 @@ export class World {
   body(inst, e) {
     if (e.agg) { e.agg.dispose(); e.agg = null; }
     const P = inst.props;
-    if (!P.CanCollide || !this.inWorkspace(inst) || !this.scene.getPhysicsEngine()) return;
+    if (!this.inWorkspace(inst) || !this.scene.getPhysicsEngine()) return;
+    // An anchored part that doesn't collide has nothing to simulate. An
+    // unanchored one still falls (Roblox), it just collides with nothing:
+    // a body with empty collision masks, which rays skip too.
+    if (!P.CanCollide && P.Anchored) return;
     const wedge = inst.ClassName === 'WedgePart' || P.Shape === 'Wedge';
     // Wedges and cylinders collide as their own convex hulls (a cylinder as a box let players stand on its corners).
     const type = P.Shape === 'Ball' ? PhysicsShapeType.SPHERE : wedge || P.Shape === 'Cylinder' ? PhysicsShapeType.CONVEX_HULL : PhysicsShapeType.BOX;
     // Roblox part density ~0.7 g/cm³ for plastic; mass in arbitrary units scaled by volume.
     const mass = P.Anchored ? 0 : 0.7 * P.Size.x * P.Size.y * P.Size.z;
     e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction: 0.5, restitution: 0 }, this.scene);
+    if (!P.CanCollide) { e.agg.shape.filterMembershipMask = 0; e.agg.shape.filterCollideMask = 0; }
   }
 
   changed(inst, key) {
@@ -242,9 +251,12 @@ export class World {
 
   // Unanchored parts are moved by physics: copy their pose back into the DataModel.
   syncFromPhysics() {
+    const floor = this.dm.workspace.props.FallenPartsDestroyHeight;
+    const fallen = [];
     for (const [inst, e] of this.parts) {
       if (inst.props.Anchored || !e.agg) continue;
       const m = e.mesh;
+      if (m.position.y < floor) { fallen.push(inst); continue; } // Roblox destroys parts that fall this far
       inst.props.Position.x = m.position.x; inst.props.Position.y = m.position.y; inst.props.Position.z = m.position.z;
       if (m.rotationQuaternion) {
         const r = m.rotationQuaternion.toEulerAngles();
@@ -252,6 +264,7 @@ export class World {
       }
       partShape(inst, m.rotationQuaternion, e.shape);
     }
+    for (const inst of fallen) this.dm.destroy(inst);
   }
 }
 

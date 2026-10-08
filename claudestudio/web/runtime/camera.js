@@ -97,7 +97,7 @@ export class FollowCamera {
     // Pull in when something blocks the view; ease back out. A fixed focus is a scripted view: no pull-in.
     let want = this.z;
     if (!firstPerson && !this.focus) {
-      const own = new Set(this.char.meshes);
+      const own = this.own || (this.own = new Set(this.char.meshes));
       const hit = this.scene.pickWithRay(new Ray(target, dir, this.z), m => m.isPickable && m.isVisible && m.visibility > 0.75 && !own.has(m) && m.name !== 'skyBox' && !m.name.startsWith('hdrSkyBox'));
       if (hit && hit.hit) want = Math.max(CAMERA.MinZoom, hit.distance - 0.6);
     }

@@ -209,9 +209,10 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - cylinder colliders;
   - property-change rebuilds and the material leak;
   - Changed semantics, WaitForChild, locked metatables, and Vector3 typeof and methods.
+  - Low findings after that: walk/sprint hysteresis, `Workspace.FallenPartsDestroyHeight` (fallen parts destroyed), Humanoid `Running`/`Jumping`/`FreeFalling` as Roblox fires them, slope decals on wedges, non-colliding unanchored parts that still fall. Tested by `humanoid-events.mjs` and the parts goldens.
 
 **Not done yet, in order:**
-1. Moving and spinning parts. Moving an anchored part rebuilds its physics body today. It needs kinematic bodies, and Roblox carries players only on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService).
+1. Moving and spinning parts. A script moving an anchored part now moves a kinematic body, but nothing carries the player: Roblox carries players on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService), and the controller needs to inherit its floor's velocity.
 2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.

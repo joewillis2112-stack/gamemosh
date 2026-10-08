@@ -10,7 +10,6 @@ import { V3, Instance } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
 
 const DEG = Math.PI / 180;
-const FALLEN_PARTS_DESTROY_HEIGHT = -500; // Workspace.FallenPartsDestroyHeight default
 
 export class Players {
   constructor(dm, world, character, gravity) {
@@ -188,15 +187,20 @@ export class Players {
     const md = c.moveDir;
     this.humanoid.props.MoveDirection = new V3(md.x, 0, md.z);
     this.humanoid.props.FloorMaterial = c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';
+    // Humanoid events, as Roblox fires them: Jumping(true) on takeoff,
+    // FreeFalling(true/false) entering and leaving a fall, and Running(speed)
+    // whenever the ground speed changes (including to 0).
     if (c.state !== this.lastState) {
-      if (c.state === 'jump' && c.vy > 0 && this.lastState !== 'jump') this.dm.fire(this.humanoid, 'Jumping', [true]);
+      if (c.state === 'jump' && this.lastState !== 'jump') this.dm.fire(this.humanoid, 'Jumping', [true]);
       if (c.state === 'fall') this.dm.fire(this.humanoid, 'FreeFalling', [true]);
-      if (c.state === 'walk' || c.state === 'idle') this.dm.fire(this.humanoid, 'Running', [c.state === 'walk' ? Math.hypot(c.velocity.x, c.velocity.z) : 0]);
+      if (this.lastState === 'fall') this.dm.fire(this.humanoid, 'FreeFalling', [false]);
       this.lastState = c.state;
     }
+    const speed = c.grounded ? Math.hypot(c.velocity.x, c.velocity.z) : 0;
+    if (c.grounded && Math.abs(speed - (this.lastSpeed ?? -1)) > 0.1) { this.lastSpeed = speed; this.dm.fire(this.humanoid, 'Running', [speed]); }
     if (!this.dead) this.touches();
     if (!this.dead) this.regen(t);
-    if (!this.dead && c.footY < FALLEN_PARTS_DESTROY_HEIGHT) this.dm.set(this.humanoid, 'Health', 0);
+    if (!this.dead && c.footY < this.dm.workspace.props.FallenPartsDestroyHeight) this.dm.set(this.humanoid, 'Health', 0);
     if (this.dead && this.respawnAt !== null && t >= this.respawnAt && this.service.props.CharacterAutoLoads) this.spawn(this.player);
   }
 

@@ -41,6 +41,12 @@ local ball = part("Part", "Ball", -6, Color3.fromRGB(13, 105, 172))
 ball.Shape = Enum.PartType.Ball
 local cyl = part("Part", "Cylinder", 0, Color3.fromRGB(75, 151, 75))
 cyl.Shape = Enum.PartType.Cylinder
-part("WedgePart", "Wedge", 6, Color3.fromRGB(245, 205, 48))
+local wedge = part("WedgePart", "Wedge", 6, Color3.fromRGB(245, 205, 48))
+local slope = Instance.new("Texture") -- on a wedge, Front is the slope
+slope.Texture = "studio://grid"
+slope.Face = Enum.NormalId.Front
+slope.StudsPerTileU = 1
+slope.StudsPerTileV = 1
+slope.Parent = wedge
 local w2 = part("Part", "PartWedge", 12, Color3.fromRGB(170, 85, 255))
 w2.Shape = Enum.PartType.Wedge

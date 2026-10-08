@@ -73,7 +73,7 @@ defineClass('Instance', null, {
   events: ['ChildAdded', 'ChildRemoved', 'Changed', 'Destroying'],
 });
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
-defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2] } });
+defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] } });
 defineClass('Folder', 'Instance');
 defineClass('Model', 'Instance', { props: { PrimaryPart: ['Instance', null] } });
 defineClass('BasePart', 'Instance', {

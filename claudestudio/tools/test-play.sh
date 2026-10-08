@@ -18,6 +18,7 @@ run --noshots --place places/parts-lab.luau --scenario test/scenarios/meshes.mjs
 run --place places/parts-lab.luau --scenario test/scenarios/parts.mjs
 run --noshots --place places/touch-lab.luau --scenario test/scenarios/touch-shapes.mjs
 run --noshots --place places/touch-lab.luau --scenario test/scenarios/death-clear.mjs
+run --noshots --scenario test/scenarios/humanoid-events.mjs
 run --noshots --scenario test/scenarios/defaults.mjs
 run --noshots --phone --scenario test/scenarios/defaults.mjs
 run --noshots --scenario test/scenarios/sounds.mjs
