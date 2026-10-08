@@ -7,7 +7,8 @@ import { Vector3, Color3, Quaternion } from '@babylonjs/core/Maths/math.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
-import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { PhysicsShapeType, PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { partShape } from './shapes.js';
 import { isA } from '../datamodel.js';
 
 const DEG = Math.PI / 180;
@@ -38,24 +39,22 @@ export class World {
     this.scene = scene;
     this.dm = dm;
     this.shadows = shadows;
-    this.parts = new Map(); // Instance -> { mesh, agg }
-    this.matCache = new Map();
+    this.parts = new Map(); // Instance -> { mesh, mat, agg, shape, decals }
     dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
   }
 
-  material(name, color) {
-    const key = `${name}|${color.r.toFixed(3)},${color.g.toFixed(3)},${color.b.toFixed(3)}`;
-    if (this.matCache.has(key)) return this.matCache.get(key);
-    const r = MATERIALS[name] || MATERIALS.Plastic;
-    const m = new PBRMaterial(key, this.scene);
+  // Each part owns its material, updated in place when Color or Material
+  // changes (a colour-cycling part used to leak a material per colour).
+  updateMaterial(inst, e) {
+    const P = inst.props, r = MATERIALS[P.Material] || MATERIALS.Plastic;
+    const m = e.mat || (e.mat = new PBRMaterial(inst.Name + '#' + inst.handle, this.scene));
     // Part colours are sRGB, like Color3.fromRGB in Roblox.
-    m.albedoColor = new Color3(color.r, color.g, color.b).toLinearSpace();
+    m.albedoColor = new Color3(P.Color.r, P.Color.g, P.Color.b).toLinearSpace();
     m.roughness = r.roughness;
     m.metallic = r.metallic;
-    if (r.emissive) { m.emissiveColor = m.albedoColor.scale(r.emissive); m.disableLighting = false; }
-    this.matCache.set(key, m);
-    return m;
+    m.emissiveColor = r.emissive ? m.albedoColor.scale(r.emissive) : Color3.Black();
+    e.mesh.material = m;
   }
 
   // Built-in images for Decal/Texture. "studio://grid": one cell of a light
@@ -116,7 +115,7 @@ export class World {
   }
   removed(inst) {
     const p = this.parts.get(inst);
-    if (p) { p.agg && p.agg.dispose(); (p.decals || []).forEach(d => { d.material && d.material.dispose(true, true); d.dispose(); }); p.mesh.dispose(); this.parts.delete(inst); }
+    if (p) { p.agg && p.agg.dispose(); (p.decals || []).forEach(d => { d.material && d.material.dispose(true, true); d.dispose(); }); p.mat && p.mat.dispose(); p.mesh.dispose(); this.parts.delete(inst); }
     for (const c of inst.children) this.removed(c);
   }
   inWorkspace(inst) { for (let p = inst; p; p = p.parent) if (p === this.dm.workspace) return true; return false; }
@@ -133,7 +132,7 @@ export class World {
     mesh.metadata = { instance: inst };
     mesh.receiveShadows = true;
     this.shadows.addShadowCaster(mesh);
-    const entry = { mesh, agg: null };
+    const entry = { mesh, mat: null, agg: null, shape: {} };
     this.parts.set(inst, entry);
     this.apply(inst, entry);
   }
@@ -153,12 +152,15 @@ export class World {
     for (const t of tris) { const b = add(t, [[0, 0], [1, 0], [1, 1]]); idx.push(b, b + 1, b + 2); }
     const nrm = [];
     VertexData.ComputeNormals(pos, idx, nrm);
-    // Wind every face so its normal points out of the wedge (centre at 0).
+    // Wind every face like Babylon's own CreateBox: (b-a)x(c-a) points INTO
+    // the solid (Babylon's front faces, and ComputeNormals' outward normals,
+    // follow that convention). Wound the other way, the wedge rendered
+    // inside-out and passed my eye in small shots (RESEARCH.md §4e).
     for (let i = 0; i < idx.length; i += 3) {
       const [a, b, c] = [idx[i], idx[i + 1], idx[i + 2]].map(k => pos.slice(k * 3, k * 3 + 3));
       const n = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
       const m = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3 + 1 / 6, (a[2] + b[2] + c[2]) / 3 - 1 / 6]; // from the prism's centroid
-      if (n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < 0) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+      if (n[0] * m[0] + n[1] * m[1] + n[2] * m[2] > 0) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
     }
     nrm.length = 0;
     VertexData.ComputeNormals(pos, idx, nrm);
@@ -169,18 +171,26 @@ export class World {
     return mesh;
   }
 
+  // Everything, for a new part. Later changes do only what they need (changed()).
   apply(inst, e) {
-    const P = inst.props;
-    const s = P.Size, p = P.Position, o = P.Orientation;
+    this.transform(inst, e);
+    this.updateMaterial(inst, e);
+    this.decals(inst, e);
+    this.visibility(inst, e);
+    this.body(inst, e);
+  }
+  transform(inst, e) {
+    const P = inst.props, s = P.Size, p = P.Position, o = P.Orientation;
     e.mesh.scaling.set(s.x, s.y, s.z);
     e.mesh.position.set(p.x, p.y, p.z);
     // Roblox Orientation is degrees, applied Y then X then Z.
     e.mesh.rotationQuaternion = Quaternion.RotationYawPitchRoll(o.y * DEG, o.x * DEG, o.z * DEG);
-    e.mesh.material = this.material(P.Material, P.Color);
-    this.decals(inst, e);
+    partShape(inst, e.mesh.rotationQuaternion, e.shape);
+  }
+  visibility(inst, e) {
+    const P = inst.props;
     e.mesh.visibility = 1 - P.Transparency;
     e.mesh.isVisible = P.Transparency < 1 && this.inWorkspace(inst);
-    this.body(inst, e);
   }
 
   body(inst, e) {
@@ -188,7 +198,8 @@ export class World {
     const P = inst.props;
     if (!P.CanCollide || !this.inWorkspace(inst) || !this.scene.getPhysicsEngine()) return;
     const wedge = inst.ClassName === 'WedgePart' || P.Shape === 'Wedge';
-    const type = P.Shape === 'Ball' ? PhysicsShapeType.SPHERE : wedge ? PhysicsShapeType.CONVEX_HULL : PhysicsShapeType.BOX;
+    // Wedges and cylinders collide as their own convex hulls (a cylinder as a box let players stand on its corners).
+    const type = P.Shape === 'Ball' ? PhysicsShapeType.SPHERE : wedge || P.Shape === 'Cylinder' ? PhysicsShapeType.CONVEX_HULL : PhysicsShapeType.BOX;
     // Roblox part density ~0.7 g/cm³ for plastic; mass in arbitrary units scaled by volume.
     const mass = P.Anchored ? 0 : 0.7 * P.Size.x * P.Size.y * P.Size.z;
     e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction: 0.5, restitution: 0 }, this.scene);
@@ -207,8 +218,26 @@ export class World {
     }
     const e = this.parts.get(inst);
     if (!e) return;
-    if (key === 'Shape' || key === 'Size' && (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge')) return this.build(inst);
-    this.apply(inst, e);
+    // Only what the property affects: a colour change must not rebuild the
+    // physics body (or stop an unanchored part dead), nor reload decals.
+    switch (key) {
+      case 'Color': case 'Material': return this.updateMaterial(inst, e);
+      case 'Transparency': return this.visibility(inst, e);
+      case 'Position': case 'Orientation':
+        this.transform(inst, e);
+        if (e.agg && inst.props.Anchored) {
+          // A script moving an anchored part: its body follows the mesh (kinematic), no rebuild.
+          if (!e.moving) { e.agg.body.setMotionType(PhysicsMotionType.ANIMATED); e.agg.body.disablePreStep = false; e.moving = true; }
+          return;
+        }
+        return this.body(inst, e); // teleporting an unanchored part
+      case 'Size':
+        if (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge' || inst.props.Shape === 'Cylinder') return this.build(inst); // hull from the mesh
+        this.transform(inst, e); this.decals(inst, e); return this.body(inst, e);
+      case 'Shape': return this.build(inst);
+      case 'CanCollide': case 'Anchored': e.moving = false; return this.body(inst, e);
+      default: return; // Name, CanTouch, Reflectance...: nothing to redraw
+    }
   }
 
   // Unanchored parts are moved by physics: copy their pose back into the DataModel.
@@ -221,6 +250,7 @@ export class World {
         const r = m.rotationQuaternion.toEulerAngles();
         inst.props.Orientation.x = r.x / DEG; inst.props.Orientation.y = r.y / DEG; inst.props.Orientation.z = r.z / DEG;
       }
+      partShape(inst, m.rotationQuaternion, e.shape);
     }
   }
 }

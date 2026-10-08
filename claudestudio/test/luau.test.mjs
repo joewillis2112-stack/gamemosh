@@ -70,6 +70,55 @@ ok, err = pcall(function() return Enum.Material.Lava end)
 print("enum bad item", ok, err)
 `);
 
+vm.run('review', `
+-- H2: a handler that disconnects itself doesn't run again for queued events, and nothing else runs in its place.
+local p = Instance.new("Part")
+p.Parent = workspace
+local hits = 0
+local c; c = p.Changed:Connect(function(k) hits += 1 c:Disconnect() workspace.ChildAdded:Connect(function() end) end)
+p.Transparency = 0.5
+p.CanCollide = false
+task.wait()
+print("disconnect queued", hits, c.Connected)
+-- M3: an equal write doesn't fire Changed.
+local n = 0
+p.Changed:Connect(function() n += 1 end)
+p.Anchored = true p.Anchored = true
+task.wait()
+print("changed once", n)
+-- M4: Value objects pass the new value.
+local v = Instance.new("IntValue")
+local got
+v.Changed:Connect(function(x) got = x end)
+v.Value = 7
+task.wait()
+print("value changed", got)
+-- Connected is false after the instance is destroyed; Disconnect afterwards is safe.
+local q = Instance.new("Part")
+local qc = q.Touched:Connect(function() end)
+q:Destroy()
+print("connected after destroy", qc.Connected)
+qc:Disconnect()
+-- L10: a destroyed instance can't come back.
+print("reparent destroyed", (pcall(function() q.Parent = workspace end)))
+-- L9: task.delay passes its arguments.
+task.delay(0, function(a, b) print("delay args", a, b) end, "x", 2)
+-- L17: Vector3.
+local a, b = Vector3.new(1, 0, 0), Vector3.new(0, 1, 0)
+print("vector", typeof(a), a:Dot(b), a:Cross(b).Z, a:Lerp(b, 0.5).Y, a:FuzzyEq(Vector3.new(1, 0, 1e-7)), Vector3.yAxis.Y, math.floor(math.deg(a:Angle(b)) + 0.5))
+-- M6: shared metatables are locked.
+print("metatable", getmetatable(workspace), pcall(function() getmetatable(Color3.new()).__index = nil end))
+-- L13: read-only properties.
+print("readonly", (pcall(function() local h = Instance.new("Humanoid") h.MoveDirection = Vector3.one end)))
+-- L11: Instance.new with a bad parent errors.
+print("bad parent", (pcall(function() Instance.new("Part", 5) end)))
+-- M5: WaitForChild waits, and times out to nil.
+task.delay(0.2, function() local f = Instance.new("Folder") f.Name = "Later" f.Parent = workspace end)
+local t0 = os.clock()
+local later = workspace:WaitForChild("Later")
+print("waitforchild", later and later.Name, workspace:WaitForChild("Never", 0.3))
+`);
+
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -86,6 +135,8 @@ vm.step(1.0);
 dm.fire(dm.workspace.children.find(c => c.Name === 'Floor'), 'Touched', [dm.workspace.children.find(c => c.Name === 'Box2')]);
 vm.step(1.2);
 vm.step(1.6);
+vm.step(2.0);
+vm.step(2.5);
 console.log(out.join('\n'));
 const expect = [
   'Floor Part Workspace 64 64 true',
@@ -107,6 +158,16 @@ const expect = [
   'enum string Wood',
   'enum number Ball true PartType', // Roblox: tostring(Enum.PartType) is "PartType"
   'enum items 5 Block',
+  'disconnect queued 1 false',
+  'changed once 1',
+  'value changed 7',
+  'connected after destroy false',
+  'reparent destroyed false',
+  'delay args x 2',
+  'vector Vector3 0 1 0.5 true 1 90',
+  'readonly false',
+  'bad parent false',
+  'waitforchild Later nil',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
@@ -115,9 +176,10 @@ const broken = out.find(l => l.startsWith('ERR') && l.includes('attempt to index
 const t1 = out.includes('t1 1');
 const colorType = out.find(l => l.startsWith('color type false') && l.includes('Color3 expected'));
 const colorRO = out.find(l => l.startsWith('color readonly false') && l.includes('R cannot be assigned to'));
+const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
-if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, waiting: vm.waiting() });
+if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
+  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

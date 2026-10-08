@@ -24,7 +24,7 @@ em++ -O2 -std=c++17 -fwasm-exceptions "$H/binding.cpp" \
   -I"$B/luau/VM/include" -I"$B/luau/Compiler/include" \
   "$L/libLuau.VM.a" "$L/libLuau.Compiler.a" "$L/libLuau.Inliner.a" "$L/libLuau.Bytecode.a" "$L/libLuau.Ast.a" "$L/libLuau.Common.a" \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createLuau -sENVIRONMENT=web,node -sSINGLE_FILE=1 \
-  -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_cs_init,_cs_run,_cs_step,_cs_fire,_cs_waiting,_malloc,_free \
+  -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_cs_init,_cs_run,_cs_step,_cs_fire,_cs_waiting,_cs_unref,_malloc,_free \
   -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8,UTF8ToString \
   -o "$H/../web/luau.mjs"
 ls -la "$H/../web/luau.mjs"

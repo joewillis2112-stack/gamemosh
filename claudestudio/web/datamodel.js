@@ -126,10 +126,13 @@ defineClass('Humanoid', 'Instance', {
   },
   events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched'],
 });
-defineClass('BoolValue', 'Instance', { props: { Value: ['bool', false] } });
-defineClass('NumberValue', 'Instance', { props: { Value: ['number', 0] } });
-defineClass('IntValue', 'Instance', { props: { Value: ['number', 0] } });
-defineClass('StringValue', 'Instance', { props: { Value: ['string', ''] } });
+// Value objects: Changed fires with the new value (not the property name), as in Roblox.
+defineClass('ValueBase', 'Instance', { creatable: false });
+defineClass('BoolValue', 'ValueBase', { props: { Value: ['bool', false] } });
+defineClass('NumberValue', 'ValueBase', { props: { Value: ['number', 0] } });
+defineClass('IntValue', 'ValueBase', { props: { Value: ['number', 0] } });
+defineClass('StringValue', 'ValueBase', { props: { Value: ['string', ''] } });
+defineClass('ObjectValue', 'ValueBase', { props: { Value: ['Instance', null] } });
 
 // ------------------------------------------------------------------ instances
 export class Instance {
@@ -152,6 +155,7 @@ export class DataModel {
   constructor() {
     this.byHandle = [null];
     this.conns = new Map(); // id -> {inst, ev, ref, once}
+    this.connsOf = new Map(); // inst -> Map(ev -> Set(id)): fire looks up only its own
     this.nextConn = 1;
     this.onFire = null; // (ref, args) -> void, set by the Luau bridge
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
@@ -175,13 +179,36 @@ export class DataModel {
   create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
 
   fire(inst, ev, args) {
-    for (const [id, c] of [...this.conns]) {
-      if (c.inst !== inst || c.ev !== ev) continue;
-      if (c.once) this.conns.delete(id);
-      this.onFire && this.onFire(c.ref, args);
+    const ids = this.connsOf.get(inst)?.get(ev);
+    if (!ids) return;
+    for (const id of [...ids]) {
+      const c = this.conns.get(id);
+      if (!c) continue;
+      if (c.once) this.disconnect(id);
+      // The id travels with the queued event: a connection disconnected before
+      // the queue runs must not run (Roblox), and its ref may be reused.
+      // Destroying handlers run even though destroy ends the connection (id 0: not checked).
+      this.onFire && this.onFire(c.ref, args, c.once || ev === 'Destroying' ? 0 : id);
     }
   }
+  connect(inst, ev, ref) {
+    const id = this.nextConn++;
+    // ref < 0: a thread waiting in Signal:Wait(), resumed once.
+    this.conns.set(id, { inst, ev, ref, once: ref < 0 });
+    if (!this.connsOf.has(inst)) this.connsOf.set(inst, new Map());
+    const byEv = this.connsOf.get(inst);
+    if (!byEv.has(ev)) byEv.set(ev, new Set());
+    byEv.get(ev).add(id);
+    return id;
+  }
+  disconnect(id) {
+    const c = this.conns.get(id);
+    if (!c) return;
+    this.conns.delete(id);
+    this.connsOf.get(c.inst)?.get(c.ev)?.delete(id);
+  }
   setParent(inst, p) {
+    if (inst.destroyed) throw new Error(`The Parent property of ${inst.Name} is locked, current parent: NULL, new parent ${p ? p.Name : 'NULL'}`);
     if (inst.parent === p) return;
     if (p && (p === inst || isDescendant(p, inst))) throw new Error(`Attempt to set ${inst.Name}.Parent to a descendant`);
     const old = inst.parent;
@@ -192,23 +219,40 @@ export class DataModel {
     this.fire(inst, 'Changed', ['Parent']);
   }
   destroy(inst) {
+    if (inst.destroyed) return;
     this.fire(inst, 'Destroying', []);
     for (const c of inst.children.slice()) this.destroy(c);
     this.setParent(inst, null);
     inst.destroyed = true;
-    for (const [id, c] of [...this.conns]) if (c.inst === inst) this.conns.delete(id);
+    // Its connections end (Roblox: Connected becomes false); their Luau refs are released by the binding.
+    const gone = [];
+    for (const ids of (this.connsOf.get(inst) || new Map()).values()) for (const id of ids) { const c = this.conns.get(id); if (c && c.ref > 0) gone.push(c.ref); this.conns.delete(id); }
+    this.connsOf.delete(inst);
+    if (gone.length) this.onRelease && this.onRelease(gone);
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
     if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
+    if (sameValue(inst.props[key], value)) return; // Roblox fires Changed only on a real change
     inst.props[key] = value;
     this.notify(inst, key);
-    this.fire(inst, 'Changed', [key]);
+    if (isA(inst.ClassName, 'ValueBase')) { if (key === 'Value') this.fire(inst, 'Changed', [value]); }
+    else this.fire(inst, 'Changed', [key]);
   }
   watch(fn) { this.watchers.push(fn); }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }
 }
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (a instanceof V3 && b instanceof V3) return a.x === b.x && a.y === b.y && a.z === b.z;
+  if (a instanceof C3 && b instanceof C3) return a.r === b.r && a.g === b.g && a.b === b.b;
+  return false;
+}
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
+
+// Properties scripts may read but not write (the engine sets them), as in Roblox.
+const READ_ONLY = new Set(['Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
+function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host
 // Converts between JS values and the {t, n, s, v} channel.
@@ -283,6 +327,7 @@ export function makeHost(dm, log = console.log) {
       }
       const ty = typeOf(inst.ClassName, key);
       if (!ty) return host.err(`${key} is not a valid member of ${inst.ClassName} "${inst.Name}"`);
+      if (readOnly(inst.ClassName, key)) return host.err(`Unable to assign property ${key}. Property is read only`);
       const ok = { string: 'string', number: 'number', bool: 'boolean' }[ty];
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
@@ -307,13 +352,9 @@ export function makeHost(dm, log = console.log) {
       res.forEach(r => host.put(host.ret, r));
       return res.length;
     },
-    connect(h, ev, ref) {
-      const id = dm.nextConn++;
-      // ref < 0: a thread waiting in Signal:Wait(), resumed once.
-      dm.conns.set(id, { inst: dm.byHandle[h], ev, ref, once: ref < 0 });
-      return id;
-    },
-    disconnect(id) { dm.conns.delete(id); },
+    connect(h, ev, ref) { return dm.connect(dm.byHandle[h], ev, ref); },
+    disconnect(id) { dm.disconnect(id); },
+    connected(id) { return dm.conns.has(id) ? 1 : 0; },
     print(s, level) { log(s, level); },
   };
   return host;

@@ -6,7 +6,7 @@ import { Vector3, Quaternion } from '@babylonjs/core/Maths/math.js';
 import { PhysicsCharacterController } from '@babylonjs/core/Physics/v2/characterController.js';
 import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
-import { POSES, poseRotations } from './poses.js';
+import { POSES, poseRotations, posePeriod } from './poses.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
 export const HUMANOID = {
@@ -47,16 +47,18 @@ class Animator {
       this.clips[g.name] = { channels: g.targetedAnimations.map(t => ({ target: t.target, path: t.animation.targetProperty, anim: t.animation })), from: g.from, to: g.to, fps, loop: true };
     }
     this.layers = []; // { clip, time, weight, target, speed }
+    this.fade = 0.15; // set by play(); a default so a pose measured before any play() isn't NaN
   }
 
-  // A pose as a clip: { nodeName: Quaternion } held still.
-  addPose(name, rotations) {
+  // A pose as a clip. `at(t)` gives { nodeName: Quaternion } at time t (s);
+  // a pose that sways loops over `period` seconds, a still one holds.
+  addPose(name, at, period = 0) {
     const channels = [];
-    for (const [nodeName, q] of Object.entries(rotations)) {
+    for (const nodeName of Object.keys(at(0))) {
       const target = this.nodes.find(n => n.name === nodeName);
-      if (target) channels.push({ target, path: 'rotationQuaternion', fixed: q });
+      if (target) channels.push({ target, path: 'rotationQuaternion', at: t => at(t)[nodeName] });
     }
-    this.clips[name] = { channels, from: 0, to: 0, fps: 60, loop: false };
+    this.clips[name] = { channels, from: 0, to: period * 60, fps: 60, loop: period > 0 };
   }
 
   duration(name) { const c = this.clips[name]; return (c.to - c.from) / c.fps; }
@@ -78,7 +80,7 @@ class Animator {
       const len = (c.to - c.from) / c.fps;
       l.time += dt * (l.speed || 1);
       if (len > 0) l.time = c.loop ? l.time % len : Math.min(l.time, len);
-      const step = dt / this.fade;
+      const step = this.fade > 0 ? dt / this.fade : 1;
       l.weight = l.target > l.weight ? Math.min(l.target, l.weight + step) : Math.max(l.target, l.weight - step);
     }
     this.layers = this.layers.filter(l => l.weight > 0 || l.target > 0);
@@ -98,7 +100,7 @@ class Animator {
       for (const ch of c.channels) {
         const a = acc.get(ch.target);
         if (!a) continue;
-        const v = ch.fixed || ch.anim.evaluate(frame);
+        const v = ch.at ? ch.at(l.time) : ch.anim.evaluate(frame);
         if (ch.path === 'position') { a.P.addInPlace(v.scale(w)); a.pw += w; }
         else if (ch.path === 'rotationQuaternion') {
           const q = v.clone();
@@ -145,6 +147,19 @@ function clipGroundSpeed(anim, clipName, legName, r) {
   return rates.length ? r * rates.reduce((x, y) => x + y) / rates.length : 0;
 }
 
+// The times (s) in a walk-type clip when a sole passes under the hip, which is
+// when it touches the ground: where the leg's swing angle changes sign.
+function clipContacts(anim, clipName, legName) {
+  const c = anim.clips[clipName];
+  const leg = c && c.channels.find(ch => ch.target.name === legName && ch.path === 'rotationQuaternion');
+  if (!leg) return [];
+  const rest = anim.rest.get(leg.target).q;
+  const angle = f => { const q = Quaternion.Inverse(rest).multiply(leg.anim.evaluate(f)); return 2 * Math.atan2(q.w < 0 ? -q.x : q.x, Math.abs(q.w)); };
+  const out = [];
+  for (let f = c.from; f + 0.25 <= c.to; f += 0.25) if (Math.sign(angle(f)) !== Math.sign(angle(f + 0.25))) out.push((f + 0.125 - c.from) / c.fps);
+  return out;
+}
+
 // ------------------------------------------------------------------ character
 export class Character {
   static async load(scene, url, shadows, spawn) {
@@ -173,15 +188,17 @@ export class Character {
     this.anim = new Animator(res);
     // Jump and fall: held poses (the pack has no clips), shared with the turntable gate.
     const restOf = name => { const n = this.anim.nodes.find(n => n.name === name); return n && this.anim.rest.get(n).q; };
-    for (const name of Object.keys(POSES)) this.anim.addPose(name, poseRotations(name, restOf));
+    for (const name of Object.keys(POSES)) this.anim.addPose(name, t => poseRotations(name, restOf, t), posePeriod(name));
     // Hip-to-sole distance in studs: the leg's pivot height (soles are at y 0).
     const leg = res.transformNodes.concat(res.meshes).find(n => n.name === 'leg-left');
     this.holder.computeWorldMatrix(true); root.computeWorldMatrix(true); leg.computeWorldMatrix(true);
     this.legLength = leg.getAbsolutePosition().y - this.holder.position.y;
     this.walkNatural = clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
     this.sprintNatural = clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
+    this.contacts = { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
+    this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
-    this.deadBox = this.measurePose('die', this.anim.duration('die'), res.meshes);
+    this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), res.meshes) : null;
     this.anim.play('idle', 0);
 
     // Physics, Roblox's way: the body hovers. The collision capsule starts
@@ -210,7 +227,7 @@ export class Character {
   teleport(foot, yaw = this.yaw) {
     this.ctrl.setPosition(new Vector3(foot.x, foot.y + this.p.StepUp + this.capH / 2, foot.z));
     this.ctrl.setVelocity(Vector3.Zero());
-    this.vy = 0; this.yaw = yaw; this.grounded = true; this.airTime = 0; this.justJumped = 0;
+    this.vy = 0; this.yaw = yaw; this.grounded = true; this.airTime = 0; this.justJumped = 0; this.jumpAnim = 0;
     this.place();
   }
 
@@ -234,9 +251,24 @@ export class Character {
     return { min, max };
   }
 
+  // How far the current (dying) pose reaches below the soles, in studs.
+  deadLift() {
+    let low = 0;
+    this.holder.computeWorldMatrix(true);
+    const base = this.holder.position.y;
+    for (const m of this.meshes) {
+      if (!m.getTotalVertices()) continue;
+      m.computeWorldMatrix(true);
+      low = Math.min(low, m.getBoundingInfo().boundingBox.minimumWorld.y - base);
+    }
+    this.lift = Math.max(this.lift || 0, -low); // never sink back once lifted
+    return this.lift;
+  }
+
   /** Back to life at `foot`: standing, idle, facing `yaw`. */
   respawn(foot, yaw = 0) {
     this.dead = false;
+    this.lift = 0;
     this.anim.layers = [];
     this.anim.play('idle', 0);
     this.teleport(foot, yaw);
@@ -316,6 +348,9 @@ export class Character {
       // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
       grounded = false;
       this.justJumped = 0.1;
+      this.jumpAnim = 0.31; // Roblox's Animate: the jump animation plays 0.31 s before fall
+      this.blockedTime = 0;
+      this.on.jump && this.on.jump();
       const vy1 = H.JumpPower - gravity * dt;
       outY = (H.JumpPower + vy1) / 2; this.vy = vy1;
     } else if (grounded) {
@@ -335,12 +370,15 @@ export class Character {
     this.ctrl.setVelocity(out);
     const support = this.ctrl.checkSupport(dt, new Vector3(0, -1, 0));
     this.ctrl.integrate(dt, support, g);
-    this.velocity = this.ctrl.getVelocity();
+    this.velocity = this.ctrl.getVelocity().clone(); // a copy: getVelocity returns the controller's own vector
     // A ceiling (or a wall's slope) changed the vertical speed: take the solver's.
     if (!grounded && Math.abs(this.velocity.y - out.y) > 1e-3) this.vy = this.velocity.y;
     this.velocity.y = this.vy;
+    if (grounded && !this.grounded && this.airTime > 0) this.on.land && this.on.land(-this.lastAirVy);
+    this.lastAirVy = grounded ? 0 : this.vy;
     this.grounded = grounded;
     this.airTime = grounded ? 0 : (this.airTime || 0) + dt;
+    if (!grounded) this.blockedTime = 0;
 
     // Turn toward movement.
     const sp = Math.hypot(this.velocity.x, this.velocity.z);
@@ -351,12 +389,15 @@ export class Character {
       this.yaw += d * (1 - Math.exp(-H.TurnRate * dt));
     }
 
-    // Animation state.
-    // Airborne only after a moment off the ground (or a jump), so stepping
-    // off a ledge edge or a contact flicker on landing doesn't pop the pose.
+    // Animation state, with Roblox's Animate timings: jump fades in over 0.1 s
+    // and holds 0.31 s, then fall fades in over 0.2 s; idle and walk over 0.2 s.
+    // Airborne without a jump only counts after a moment off the ground, so
+    // stepping off a ledge edge or a contact flicker on landing doesn't pop.
+    this.jumpAnim = Math.max(0, (this.jumpAnim || 0) - dt);
     let state;
-    if (this.dead) state = 'die';
-    else if (!this.grounded && (this.justJumped > 0 || this.vy > 0 || this.airTime > 0.12)) state = this.vy > 0 ? 'jump' : 'fall';
+    if (this.dead) state = this.anim.clips.die ? 'die' : 'idle';
+    else if (!this.grounded && this.jumpAnim > 0) state = 'jump';
+    else if (!this.grounded && (this.justJumped > 0 || this.airTime > 0.12 || this.state === 'jump' || this.state === 'fall')) state = 'fall';
     else if (sp > (this.state === 'walk' ? 0.3 : 0.8)) state = 'walk'; // hysteresis: no flicker when pushing into a wall
     else state = 'idle';
     if (state === 'walk') {
@@ -364,26 +405,42 @@ export class Character {
       const clip = Math.abs(sp - this.sprintNatural) < Math.abs(sp - this.walkNatural) ? 'sprint' : 'walk';
       const natural = clip === 'sprint' ? this.sprintNatural : this.walkNatural;
       const rate = Math.min(2.2, Math.max(0.4, sp / natural));
-      if (this.anim.current !== clip) this.anim.play(clip, 0.15, rate);
+      if (this.anim.current !== clip) this.anim.play(clip, 0.2, rate);
       else this.anim.layers.find(l => l.clip === clip).speed = rate;
     } else if (this.anim.current !== state) {
-      this.anim.play(state, state === 'jump' ? 0.08 : state === 'fall' ? 0.25 : 0.2);
+      this.anim.play(state, state === 'jump' ? 0.1 : 0.2);
     }
     this.state = state;
+    // A footstep when the leading walk/run layer passes a sole contact.
+    const lead = this.anim.layers.filter(l => this.contacts[l.clip]).sort((a, b) => b.weight - a.weight)[0];
+    const before = lead ? lead.time : 0;
     this.anim.update(dt);
+    if (lead && lead.weight > 0.5 && state === 'walk' && this.grounded) {
+      const len = this.anim.duration(lead.clip), after = lead.time;
+      const crossed = c => (after >= before ? c > before && c <= after : c > before || c <= after);
+      if (this.contacts[lead.clip].some(crossed)) this.on.step && this.on.step();
+    }
     this.place();
   }
 
   place() {
     const p = this.ctrl.getPosition();
-    const foot = this.footY;
+    let foot = this.footY;
+    // The die pose dips below the soles (the body lies with its back below
+    // the feet' level): lift the body so its lowest point rests on the floor.
+    if (this.dead && this.deadBox) foot += this.deadLift();
     this.holder.position.set(p.x, foot, p.z);
     this.holder.rotationQuaternion = Quaternion.RotationAxis(UP, this.yaw);
   }
 
-  setVisible(v) { if (v !== this.visible) { this.visible = v; this.meshes.forEach(m => { m.isVisible = v; }); } }
+  // Hidden (e.g. before spawning) and faded (the camera's closeness, 0-1) combine.
+  setVisible(v) { if (v !== this.visible) { this.visible = v; this.applyVisibility(); } }
+  setFade(a) { if (a !== this.fade) { this.fade = a; this.applyVisibility(); } }
+  applyVisibility() {
+    const a = this.fade || 0;
+    this.meshes.forEach(m => { m.isVisible = this.visible && a < 0.999; m.visibility = 1 - a; });
+  }
   faceYaw(yaw) { this.yaw = yaw; }
 
   get footPosition() { return this.holder.position; }
-  get headPosition() { return this.holder.position.add(new Vector3(0, this.p.Height - 0.8, 0)); }
 }

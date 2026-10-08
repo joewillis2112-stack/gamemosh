@@ -28,6 +28,7 @@ EM_JS(void, js_newindex, (int h, const char* key), { Module.studio.newindex(h, U
 EM_JS(int, js_call, (int h, const char* method), { return Module.studio.call(h, UTF8ToString(method)); });
 EM_JS(int, js_connect, (int h, const char* ev, int ref), { return Module.studio.connect(h, UTF8ToString(ev), ref); });
 EM_JS(void, js_disconnect, (int id), { Module.studio.disconnect(id); });
+EM_JS(int, js_connected, (int id), { return Module.studio.connected(id); });
 EM_JS(void, js_print, (const char* s, int level), { Module.studio.print(UTF8ToString(s), level); });
 EM_JS(int, js_global, (const char* name), { return Module.studio.global(UTF8ToString(name)); });
 // The value channel: JS fills `ret` (results of index/call), C fills `args`.
@@ -49,7 +50,7 @@ EM_JS(void, js_arg, (int t, double n, const char* s, double x, double y, double 
 // ------------------------------------------------------------------ state
 static lua_State* L0;
 static double now_s = 0;
-struct Waiter { int thread_ref; double wake; double since; };
+struct Waiter { int thread_ref; double wake; double since; int nargs = 0; };
 static std::vector<Waiter> waiters;
 
 static const char* INST_MT = "Instance";
@@ -61,6 +62,7 @@ static const char* ENUM_MT = "Enum";
 static int enum_cache_ref; // "Type.Name" -> EnumItem userdata, so == is identity
 static int enum_types_ref; // "Type" -> its Enum table (the sandbox makes Enum itself read-only)
 static int inst_cache_ref; // registry table: handle -> userdata (weak values)
+static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yields)
 
 struct Signal { int h; char ev[56]; };
 
@@ -217,6 +219,7 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
 static int inst_index(lua_State* L) {
     int h = check_instance(L, 1);
     const char* key = luaL_checkstring(L, 2);
+    if (!strcmp(key, "WaitForChild")) { lua_getref(L, waitforchild_ref); return 1; }
     js_index(h, key);
     push_ret(L, 0, h, key);
     return 1;
@@ -263,6 +266,7 @@ static int instance_new(lua_State* L) {
         js_args_clear();
         send_arg(L, 2);
         js_newindex(h, "Parent");
+        if (js_ret_count() > 0 && js_ret_tag(0) == T_ERR) push_ret(L, 0, h, "Parent"); // raises
     }
     return 1;
 }
@@ -284,8 +288,9 @@ static int signal_connect(lua_State* L) {
 static int conn_disconnect(lua_State* L) {
     int* c = (int*)luaL_checkudata(L, 1, CONN_MT);
     if (c[0]) {
-        js_disconnect(c[0]);
-        lua_unref(L, c[1]);
+        // If the instance was destroyed, the connection already ended and JS
+        // released its ref; unref only a live one (never twice).
+        if (js_connected(c[0])) { js_disconnect(c[0]); lua_unref(L, c[1]); }
         c[0] = 0;
     }
     return 0;
@@ -304,7 +309,7 @@ static int signal_index(lua_State* L) {
 static int conn_index(lua_State* L) {
     const char* key = luaL_checkstring(L, 2);
     if (!strcmp(key, "Disconnect")) lua_pushcfunction(L, conn_disconnect, "Disconnect");
-    else if (!strcmp(key, "Connected")) lua_pushboolean(L, ((int*)luaL_checkudata(L, 1, CONN_MT))[0] != 0);
+    else if (!strcmp(key, "Connected")) { int id = ((int*)luaL_checkudata(L, 1, CONN_MT))[0]; lua_pushboolean(L, id != 0 && js_connected(id)); }
     else luaL_error(L, "%s is not a valid member of RBXScriptConnection", key);
     return 1;
 }
@@ -318,10 +323,11 @@ static void report_error(lua_State* T) {
 }
 
 // Resume thread T (whose ref is `ref`) with nargs on its stack. Drops the ref unless it yielded.
-static void resume(lua_State* T, int ref, int nargs) {
+static void resume(lua_State* T, int ref, int nargs, lua_State* from = nullptr) {
     // Whatever yields (task.wait, Signal:Wait) takes its own ref to the thread,
-    // so the caller's ref is dropped in every case.
-    int st = lua_resume(T, nullptr, nargs);
+    // so the caller's ref is dropped in every case. `from` (the calling thread,
+    // for task.spawn) keeps nested resumes inside Luau's C-call limit.
+    int st = lua_resume(T, from, nargs);
     if (st != LUA_OK && st != LUA_YIELD) report_error(T);
     lua_unref(L0, ref);
 }
@@ -356,13 +362,21 @@ static lua_State* new_thread_with(int fnref, int& tref) {
 }
 
 static int task_spawn(lua_State* L) {
-    luaL_checktype(L, 1, LUA_TFUNCTION);
     int n = lua_gettop(L);
+    if (lua_type(L, 1) == LUA_TTHREAD) {
+        // task.spawn(thread, ...): resume a thread now with the arguments.
+        lua_State* T = lua_tothread(L, 1);
+        int tref = lua_ref(L, 1);
+        lua_xmove(L, T, n - 1);
+        resume(T, tref, n - 1, L);
+        return 0;
+    }
+    luaL_checktype(L, 1, LUA_TFUNCTION);
     lua_State* T = lua_newthread(L);
     int tref = lua_ref(L, -1);
     lua_pop(L, 1);
     lua_xmove(L, T, n); // function + args
-    resume(T, tref, n - 1);
+    resume(T, tref, n - 1, L);
     return 0;
 }
 
@@ -372,9 +386,25 @@ static int task_delay(lua_State* L) {
     lua_State* T = lua_newthread(L);
     int tref = lua_ref(L, -1);
     lua_pop(L, 1);
-    lua_pushvalue(L, 2);
-    lua_xmove(L, T, 1);
-    waiters.push_back({ tref, now_s + t, -1 }); // since < 0: start the function, don't resume
+    int n = lua_gettop(L);
+    for (int i = 2; i <= n; i++) lua_pushvalue(L, i);
+    lua_xmove(L, T, n - 1); // the function and its arguments
+    waiters.push_back({ tref, now_s + t, -1, n - 2 }); // since < 0: start the function with nargs
+    lua_getref(L, tref); // returns the thread, so task.cancel can stop it (Roblox)
+    return 1;
+}
+
+// task.cancel(thread): it never runs or resumes.
+static int task_cancel(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTHREAD);
+    lua_State* target = lua_tothread(L, 1);
+    for (size_t i = 0; i < waiters.size();) {
+        lua_getref(L, waiters[i].thread_ref);
+        bool same = lua_tothread(L, -1) == target;
+        lua_pop(L, 1);
+        if (same) { lua_unref(L, waiters[i].thread_ref); waiters.erase(waiters.begin() + i); }
+        else i++;
+    }
     return 0;
 }
 
@@ -391,6 +421,13 @@ static int g_print(lua_State* L, int level) {
     js_print(out.c_str(), level);
     return 0;
 }
+static int l_typeof(lua_State* L) {
+    if (lua_type(L, 1) == LUA_TVECTOR) { lua_pushstring(L, "Vector3"); return 1; }
+    lua_pushvalue(L, lua_upvalueindex(1));
+    lua_pushvalue(L, 1);
+    lua_call(L, 1, 1);
+    return 1;
+}
 static int l_print(lua_State* L) { return g_print(L, 0); }
 static int l_warn(lua_State* L) { return g_print(L, 1); }
 
@@ -400,9 +437,38 @@ static int vec_new(lua_State* L) {
     return 1;
 }
 
+// Vector3 methods (Roblox's): a:Dot(b), a:Cross(b), a:Lerp(b, t), a:FuzzyEq(b, eps), a:Angle(b, axis?), Abs/Floor/Ceil/Sign, Min/Max(...).
+static int vec_dot(lua_State* L) { const float* a = luaL_checkvector(L, 1); const float* b = luaL_checkvector(L, 2); lua_pushnumber(L, (double)a[0] * b[0] + (double)a[1] * b[1] + (double)a[2] * b[2]); return 1; }
+static int vec_cross(lua_State* L) { const float* a = luaL_checkvector(L, 1); const float* b = luaL_checkvector(L, 2); lua_pushvector(L, a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]); return 1; }
+static int vec_lerp(lua_State* L) { const float* a = luaL_checkvector(L, 1); const float* b = luaL_checkvector(L, 2); float t = (float)luaL_checknumber(L, 3); lua_pushvector(L, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t); return 1; }
+static int vec_fuzzyeq(lua_State* L) {
+    const float* a = luaL_checkvector(L, 1); const float* b = luaL_checkvector(L, 2); double e = luaL_optnumber(L, 3, 1e-5);
+    lua_pushboolean(L, std::fabs(a[0] - b[0]) <= e && std::fabs(a[1] - b[1]) <= e && std::fabs(a[2] - b[2]) <= e); return 1;
+}
+static int vec_angle(lua_State* L) {
+    const float* a = luaL_checkvector(L, 1); const float* b = luaL_checkvector(L, 2);
+    double cx = a[1] * b[2] - a[2] * b[1], cy = a[2] * b[0] - a[0] * b[2], cz = a[0] * b[1] - a[1] * b[0];
+    double ang = std::atan2(std::sqrt(cx * cx + cy * cy + cz * cz), (double)a[0] * b[0] + (double)a[1] * b[1] + (double)a[2] * b[2]);
+    if (lua_isvector(L, 3)) { const float* ax = lua_tovector(L, 3); if (cx * ax[0] + cy * ax[1] + cz * ax[2] < 0) ang = -ang; } // signed about `axis`
+    lua_pushnumber(L, ang); return 1;
+}
+#define VEC_MAP(name, f) static int name(lua_State* L) { const float* a = luaL_checkvector(L, 1); lua_pushvector(L, f(a[0]), f(a[1]), f(a[2])); return 1; }
+static float sgnf(float x) { return x > 0 ? 1.f : x < 0 ? -1.f : 0.f; }
+VEC_MAP(vec_abs, std::fabs) VEC_MAP(vec_floor, std::floor) VEC_MAP(vec_ceil, std::ceil) VEC_MAP(vec_sign, sgnf)
+static int vec_minmax(lua_State* L, bool mx) {
+    const float* a = luaL_checkvector(L, 1); float r[3] = { a[0], a[1], a[2] };
+    for (int i = 2; i <= lua_gettop(L); i++) { const float* b = luaL_checkvector(L, i); for (int k = 0; k < 3; k++) r[k] = mx ? std::fmax(r[k], b[k]) : std::fmin(r[k], b[k]); }
+    lua_pushvector(L, r[0], r[1], r[2]); return 1;
+}
+static int vec_min(lua_State* L) { return vec_minmax(L, false); }
+static int vec_max(lua_State* L) { return vec_minmax(L, true); }
+
 static int vec_index(lua_State* L) {
     const float* v = luaL_checkvector(L, 1);
     const char* k = luaL_checkstring(L, 2);
+    // Components: the VM's fast path covers most reads, but not every one (a
+    // vector read back out of a table comes here), so answer them too.
+    if ((k[0] == 'X' || k[0] == 'Y' || k[0] == 'Z' || k[0] == 'x' || k[0] == 'y' || k[0] == 'z') && k[1] == 0) { lua_pushnumber(L, v[(k[0] | 32) - 'x']); return 1; }
     double m = std::sqrt((double)v[0] * v[0] + (double)v[1] * v[1] + (double)v[2] * v[2]);
     if (!strcmp(k, "Magnitude")) { lua_pushnumber(L, m); return 1; }
     if (!strcmp(k, "Unit")) {
@@ -410,6 +476,17 @@ static int vec_index(lua_State* L) {
         lua_pushvector(L, v[0] * s, v[1] * s, v[2] * s);
         return 1;
     }
+    if (!strcmp(k, "Dot")) { lua_pushcfunction(L, vec_dot, "Dot"); return 1; }
+    if (!strcmp(k, "Cross")) { lua_pushcfunction(L, vec_cross, "Cross"); return 1; }
+    if (!strcmp(k, "Lerp")) { lua_pushcfunction(L, vec_lerp, "Lerp"); return 1; }
+    if (!strcmp(k, "FuzzyEq")) { lua_pushcfunction(L, vec_fuzzyeq, "FuzzyEq"); return 1; }
+    if (!strcmp(k, "Angle")) { lua_pushcfunction(L, vec_angle, "Angle"); return 1; }
+    if (!strcmp(k, "Abs")) { lua_pushcfunction(L, vec_abs, "Abs"); return 1; }
+    if (!strcmp(k, "Floor")) { lua_pushcfunction(L, vec_floor, "Floor"); return 1; }
+    if (!strcmp(k, "Ceil")) { lua_pushcfunction(L, vec_ceil, "Ceil"); return 1; }
+    if (!strcmp(k, "Sign")) { lua_pushcfunction(L, vec_sign, "Sign"); return 1; }
+    if (!strcmp(k, "Min")) { lua_pushcfunction(L, vec_min, "Min"); return 1; }
+    if (!strcmp(k, "Max")) { lua_pushcfunction(L, vec_max, "Max"); return 1; }
     luaL_error(L, "%s is not a valid member of Vector3", k);
     return 0;
 }
@@ -505,6 +582,7 @@ static int color_tostring(lua_State* L) {
 // ------------------------------------------------------------------ Enum
 static int enumitem_index(lua_State* L) {
     EnumItem* e = to_enum(L, 1);
+    if (!e) luaL_typeerror(L, 1, "EnumItem");
     const char* k = luaL_checkstring(L, 2);
     if (!strcmp(k, "Name")) { lua_pushstring(L, e->name); return 1; }
     if (!strcmp(k, "Value")) { lua_pushinteger(L, e->value); return 1; }
@@ -514,6 +592,7 @@ static int enumitem_index(lua_State* L) {
 }
 static int enumitem_tostring(lua_State* L) {
     EnumItem* e = to_enum(L, 1);
+    if (!e) luaL_typeerror(L, 1, "EnumItem");
     lua_pushfstring(L, "Enum.%s.%s", e->type, e->name);
     return 1;
 }
@@ -534,7 +613,9 @@ static int enum_getitems(lua_State* L) {
     return 1;
 }
 static int enumtype_index(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
     lua_rawgetfield(L, 1, "__name");
+    if (!lua_isstring(L, -1)) luaL_error(L, "invalid Enum");
     std::string type = lua_tostring(L, -1);
     lua_pop(L, 1);
     const char* k = luaL_checkstring(L, 2);
@@ -684,7 +765,15 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setfield(L0, -2, "zero");
     lua_pushvector(L0, 1, 1, 1);
     lua_setfield(L0, -2, "one");
+    lua_pushvector(L0, 1, 0, 0); lua_setfield(L0, -2, "xAxis");
+    lua_pushvector(L0, 0, 1, 0); lua_setfield(L0, -2, "yAxis");
+    lua_pushvector(L0, 0, 0, 1); lua_setfield(L0, -2, "zAxis");
     lua_setglobal(L0, "Vector3");
+
+    // typeof(Vector3.new()) is "Vector3" in Roblox ("vector" is Luau's native name).
+    lua_getglobal(L0, "typeof");
+    lua_pushcclosurek(L0, l_typeof, "typeof", 1, nullptr);
+    lua_setglobal(L0, "typeof");
 
     lua_newtable(L0);
     lua_pushcfunction(L0, color_new, "new");
@@ -706,6 +795,8 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setfield(L0, -2, "spawn");
     lua_pushcfunction(L0, task_delay, "delay");
     lua_setfield(L0, -2, "delay");
+    lua_pushcfunction(L0, task_cancel, "cancel");
+    lua_setfield(L0, -2, "cancel");
     lua_setglobal(L0, "task");
     lua_pushcfunction(L0, task_wait, "wait");
     lua_setglobal(L0, "wait");
@@ -715,13 +806,67 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     push_instance(L0, js_global("workspace"));
     lua_setglobal(L0, "workspace");
 
+    // Instance:WaitForChild(name, timeout?) yields until the child exists (or
+    // the timeout passes, returning nil), warning after 5 s without a timeout.
+    static const char* WAITFORCHILD = R"(
+return function(self, name, timeout)
+  local c = self:FindFirstChild(name)
+  if c then return c end
+  local thread = coroutine.running()
+  local done = false
+  local conn
+  conn = self.ChildAdded:Connect(function(child)
+    if not done and child.Name == name then done = true conn:Disconnect() task.spawn(thread, child) end
+  end)
+  local warning
+  if timeout then
+    local timer
+    timer = task.delay(timeout, function() if not done then done = true conn:Disconnect() task.spawn(thread, nil) end end)
+    warning = timer -- cancelled below once the child arrives
+  else
+    warning = task.delay(5, function()
+      if not done then warn("Infinite yield possible on '" .. self:GetFullName() .. ':WaitForChild("' .. name .. '")' .. "'") end
+    end)
+  end
+  local child = coroutine.yield()
+  if warning then task.cancel(warning) end
+  return child
+end)";
+    size_t wlen;
+    char* wbc = luau_compile(WAITFORCHILD, strlen(WAITFORCHILD), nullptr, &wlen);
+    if (luau_load(L0, "=WaitForChild", wbc, wlen, 0) != 0) js_print(lua_tostring(L0, -1), 2);
+    free(wbc);
+    if (lua_pcall(L0, 0, 1, 0) != LUA_OK) { js_print(lua_tostring(L0, -1), 2); lua_pop(L0, 1); lua_pushnil(L0); }
+    waitforchild_ref = lua_ref(L0, -1);
+    lua_pop(L0, 1);
+
+    // Lock the shared metatables (as Roblox does), so one script can't
+    // rewrite Instance, Color3 or EnumItem behaviour for every script.
+    auto lock = [](int idx) {
+        lua_pushstring(L0, "The metatable is locked");
+        lua_setfield(L0, idx < 0 ? idx - 1 : idx, "__metatable");
+        lua_setreadonly(L0, idx, true);
+    };
+    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
+    lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
+    lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
+
     luaL_sandbox(L0);
 }
+
+// A handler's ref, released when its instance is destroyed (after any queued fires ran).
+EMSCRIPTEN_KEEPALIVE void cs_unref(int ref) { lua_unref(L0, ref); }
 
 // Compile and start a script. Returns 0 on success, else prints the error.
 EMSCRIPTEN_KEEPALIVE int cs_run(const char* chunkname, const char* source, int script_handle) {
     size_t blen;
-    char* bc = luau_compile(source, strlen(source), nullptr, &blen);
+    // typeof is overridden (Vector3), so the compiler mustn't inline it as a builtin.
+    static const char* mutableGlobals[] = { "typeof", nullptr };
+    lua_CompileOptions opts = {};
+    opts.optimizationLevel = 1;
+    opts.debugLevel = 1;
+    opts.mutableGlobals = mutableGlobals;
+    char* bc = luau_compile(source, strlen(source), &opts, &blen);
     lua_State* T = lua_newthread(L0);
     int tref = lua_ref(L0, -1);
     lua_pop(L0, 1);
@@ -753,7 +898,7 @@ EMSCRIPTEN_KEEPALIVE void cs_step(double t) {
         lua_getref(L0, w.thread_ref);
         lua_State* T = lua_tothread(L0, -1);
         lua_pop(L0, 1);
-        if (w.since < 0) { resume(T, w.thread_ref, 0); continue; }
+        if (w.since < 0) { resume(T, w.thread_ref, w.nargs); continue; }
         lua_pushnumber(T, t - w.since);
         resume(T, w.thread_ref, 1);
     }

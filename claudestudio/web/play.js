@@ -14,6 +14,8 @@ import { Character } from './runtime/character.js';
 import { FollowCamera } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
+import { Audio } from './runtime/audio.js';
+import { CharacterSounds } from './runtime/charsounds.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -43,6 +45,10 @@ async function main() {
   R.attachCamera(camera.cam);
   const controls = new Controls(canvas, camera);
   players.onSpawn = () => camera.snapBehind();
+  const audio = new Audio();
+  await audio.load();
+  const sounds = new CharacterSounds(audio, player, camera);
+  players.onDied = () => sounds.died();
 
   // One clock for scripts, physics, the player and animation. Tests step it at a fixed 1/60 s.
   let t = 0;
@@ -50,12 +56,16 @@ async function main() {
   const tick = dt => {
     t += dt;
     vm.step(t);
-    const c = controls.read();
+    const c = controls.read(dt);
     const scriptJump = players.preStep();
-    player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch);
-    player.step(dt, GRAVITY);
+    // No character (not spawned yet, or a script removed it): nothing to drive.
+    if (players.hasCharacter) {
+      player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch);
+      player.step(dt, GRAVITY);
+    }
     players.postStep(t);
     camera.update(dt);
+    sounds.update(dt);
     world.syncFromPhysics();
   };
   if (fixed) scene.getPhysicsEngine().setTimeStep(1 / 60);
@@ -63,7 +73,7 @@ async function main() {
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 1 / 20)); });
   await scene.whenReadyAsync();
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

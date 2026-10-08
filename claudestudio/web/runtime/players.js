@@ -7,6 +7,7 @@
 // death clip, and the player respawns after Players.RespawnTime.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { V3, Instance } from '../datamodel.js';
+import { capsuleHits } from './shapes.js';
 
 const DEG = Math.PI / 180;
 const FALLEN_PARTS_DESTROY_HEIGHT = -500; // Workspace.FallenPartsDestroyHeight default
@@ -20,6 +21,7 @@ export class Players {
     this.service = dm.service('Players');
     this.touching = new Set(); // parts the body overlaps now
     this.respawnAt = null;
+    this.time = 0;
     dm.hooks.loadCharacter = player => this.spawn(player);
     dm.watch((inst, key) => this.changed(inst, key));
   }
@@ -50,7 +52,20 @@ export class Players {
     return { foot: new Vector3(P.x, P.y + S.y / 2, P.z), yaw: (s.props.Orientation.y || 0) * DEG + Math.PI };
   }
 
+  get hasCharacter() { return !!this.humanoid && !this.removed; }
+
+  // The body leaves (respawn, removal): parts it touched get TouchEnded.
+  endTouches() {
+    for (const part of this.touching) if (!part.destroyed) {
+      this.dm.fire(part, 'TouchEnded', [this.root]);
+      if (this.root && !this.root.destroyed) this.dm.fire(this.root, 'TouchEnded', [part]);
+    }
+    this.touching = new Set();
+  }
+
   spawn(player) {
+    this.endTouches();
+    this.removed = false;
     const old = player.props.Character;
     if (old && !old.destroyed) { this.dm.fire(player, 'CharacterRemoving', [old]); this.dm.destroy(old); }
     const model = this.dm.create('Model');
@@ -67,8 +82,7 @@ export class Players {
     this.dm.setParent(root, model);
     model.props.PrimaryPart = root;
     this.model = model; this.humanoid = hum; this.root = root;
-    this.dead = false; this.respawnAt = null;
-    this.touching.clear();
+    this.dead = false; this.respawnAt = null; this.regenAt = null;
     const { foot, yaw } = this.spawnPoint(player);
     this.char.respawn(foot, yaw);
     this.char.setVisible(true);
@@ -98,6 +112,7 @@ export class Players {
     this.char.dead = true;
     this.clearFall();
     this.dm.fire(this.humanoid, 'Died', []);
+    this.onDied && this.onDied();
     this.respawnAt = this.time + this.service.props.RespawnTime;
   }
 
@@ -108,26 +123,26 @@ export class Players {
     const c = this.char, box = c.deadBox;
     if (!box) return;
     const f = c.holder.position.clone();
+    // The lying body as two capsules along its length (the measured die pose,
+    // in the character's frame: feet at the origin, facing +Z), lifted 0.2
+    // off the floor so the floor itself doesn't count.
+    const r = Math.min(0.75, (box.max.x - box.min.x) / 4), y = f.y + 0.2 + r;
     const free = (yaw, shift) => {
-      const ax = yawAxes(yaw), back = [-ax[2][0] * shift, 0, -ax[2][2] * shift];
-      const lo = Math.max(box.min.y, 0.2), hi = Math.max(box.max.y, lo + 0.1);
-      const local = [(box.min.x + box.max.x) / 2, (lo + hi) / 2, (box.min.z + box.max.z) / 2];
-      const cx = f.x + back[0] + ax[0][0] * local[0] + ax[2][0] * local[2], cz = f.z + back[2] + ax[0][2] * local[0] + ax[2][2] * local[2];
-      const body = { c: [cx, f.y + local[1], cz], h: [(box.max.x - box.min.x) / 2, (hi - lo) / 2, (box.max.z - box.min.z) / 2], axes: ax };
-      for (const [inst, e] of this.world.parts) {
-        if (inst.isCharacter || !inst.props.CanCollide) continue;
-        const P = inst.props;
-        const hit = P.Shape === 'Ball' ? sphereBox([P.Position.x, P.Position.y, P.Position.z], P.Size.x / 2, body)
-          : boxBox(body, { c: [P.Position.x, P.Position.y, P.Position.z], h: [P.Size.x / 2, P.Size.y / 2, P.Size.z / 2], axes: rotAxes(e.mesh.rotationQuaternion) });
-        if (hit) return false;
+      const cs = Math.cos(yaw), sn = Math.sin(yaw);
+      const at = (lx, lz) => [f.x + lx * cs + (lz - shift) * sn, f.z - lx * sn + (lz - shift) * cs];
+      for (const lx of [box.min.x + r, box.max.x - r]) {
+        const [x0, z0] = at(lx, box.min.z + r), [x1, z1] = at(lx, box.max.z - r);
+        for (const [inst, e] of this.world.parts) {
+          if (inst.isCharacter || !inst.props.CanCollide) continue;
+          if (capsuleHits(x0, y, z0, x1, y, z1, r, e.shape)) return false;
+        }
       }
       return true;
     };
     for (const shift of [0, 0.5, 1, 1.5, 2]) for (const turn of [0, Math.PI, Math.PI / 2, -Math.PI / 2]) {
       if (!free(c.yaw + turn, shift)) continue;
-      const ax = yawAxes(c.yaw + turn);
       c.yaw += turn;
-      if (shift) c.teleport(new Vector3(f.x - ax[2][0] * shift, f.y, f.z - ax[2][2] * shift));
+      if (shift) c.teleport(new Vector3(f.x - Math.sin(c.yaw) * shift, f.y, f.z - Math.cos(c.yaw) * shift));
       c.dead = true;
       return;
     }
@@ -156,6 +171,18 @@ export class Players {
     this.time = t;
     if (this.pendingSpawn) { this.pendingSpawn = false; this.spawn(this.player); return; }
     if (!this.humanoid) return;
+    // A script removed the character (Destroy, or parented it away): no body
+    // to drive; it comes back after RespawnTime like a death.
+    if (!this.removed && (this.model.destroyed || !this.world.inWorkspace(this.model) || this.humanoid.destroyed || this.root.destroyed)) {
+      this.endTouches();
+      this.removed = true; this.dead = true; this.char.dead = true;
+      this.char.setVisible(false);
+      this.respawnAt = t + this.service.props.RespawnTime;
+    }
+    if (this.removed) {
+      if (this.respawnAt !== null && t >= this.respawnAt && this.service.props.CharacterAutoLoads) this.spawn(this.player);
+      return;
+    }
     const c = this.char;
     this.syncRoot();
     const md = c.moveDir;
@@ -168,8 +195,20 @@ export class Players {
       this.lastState = c.state;
     }
     if (!this.dead) this.touches();
+    if (!this.dead) this.regen(t);
     if (!this.dead && c.footY < FALLEN_PARTS_DESTROY_HEIGHT) this.dm.set(this.humanoid, 'Health', 0);
     if (this.dead && this.respawnAt !== null && t >= this.respawnAt && this.service.props.CharacterAutoLoads) this.spawn(this.player);
+  }
+
+  // Roblox's default Health script: while hurt, every 1 s regain 1% of MaxHealth per second elapsed.
+  regen(t) {
+    const h = this.humanoid.props;
+    if (h.Health >= h.MaxHealth) { this.regenAt = null; return; }
+    if (this.regenAt == null) this.regenAt = t + 1;
+    if (t >= this.regenAt - 1e-6) {
+      this.dm.set(this.humanoid, 'Health', Math.min(h.MaxHealth, h.Health + 0.01 * h.MaxHealth));
+      this.regenAt += 1; // from the last mark, so the steps don't drift a frame late each time
+    }
   }
 
   syncRoot() {
@@ -181,20 +220,17 @@ export class Players {
     this.root.props.Orientation = new V3(0, oy, 0);
   }
 
-  // Touched / TouchEnded: the body's box (yaw-aligned, 2 x 5 x 1.2 studs,
-  // reaching 0.05 below the soles so standing on a part touches it) against
-  // every part's box (balls as spheres). Exact separating-axis tests.
+  // Touched / TouchEnded: the body as a capsule from the soles to the top of
+  // the head, radius = the collision capsule's plus a 0.15-stud skin, so a
+  // part the body presses against (a floor, a wall, a ceiling) touches it,
+  // tested exactly against each part's shape (box, ball, cylinder, wedge).
   touches() {
-    const c = this.char, f = c.holder.position;
-    const body = { c: [f.x, f.y + 2.5 - 0.025, f.z], h: [1, 2.525, 0.6], axes: yawAxes(c.yaw) };
+    const c = this.char, f = c.holder.position, R = c.p.Radius + 0.15, H = c.p.Height;
+    const ax = f.x, ay = f.y + R - 0.15, az = f.z, by = f.y + H - R + 0.15;
     const now = new Set();
     for (const [inst, e] of this.world.parts) {
       if (inst.isCharacter || inst.props.CanTouch === false) continue;
-      const P = inst.props;
-      const hit = P.Shape === 'Ball'
-        ? sphereBox([P.Position.x, P.Position.y, P.Position.z], P.Size.x / 2, body)
-        : boxBox(body, { c: [P.Position.x, P.Position.y, P.Position.z], h: [P.Size.x / 2, P.Size.y / 2, P.Size.z / 2], axes: rotAxes(e.mesh.rotationQuaternion) });
-      if (hit) now.add(inst);
+      if (capsuleHits(ax, ay, az, ax, by, az, R, e.shape)) now.add(inst);
     }
     for (const part of now) if (!this.touching.has(part)) {
       this.dm.fire(part, 'Touched', [this.root]);
@@ -207,39 +243,4 @@ export class Players {
     }
     this.touching = now;
   }
-}
-
-// ------------------------------------------------------------------ geometry
-function yawAxes(yaw) { const c = Math.cos(yaw), s = Math.sin(yaw); return [[c, 0, -s], [0, 1, 0], [s, 0, c]]; }
-function rotAxes(q) {
-  if (!q) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-  const { x, y, z, w } = q;
-  // Columns of the rotation matrix: where the local X, Y, Z axes point.
-  return [
-    [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)],
-    [2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)],
-    [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)],
-  ];
-}
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-function boxBox(A, B) {
-  const d = [B.c[0] - A.c[0], B.c[1] - A.c[1], B.c[2] - A.c[2]];
-  const axes = [...A.axes, ...B.axes];
-  for (const a of A.axes) for (const b of B.axes) { const x = cross(a, b); if (dot(x, x) > 1e-10) axes.push(x); }
-  for (const L of axes) {
-    const ra = A.h.reduce((s, h, i) => s + h * Math.abs(dot(A.axes[i], L)), 0);
-    const rb = B.h.reduce((s, h, i) => s + h * Math.abs(dot(B.axes[i], L)), 0);
-    if (Math.abs(dot(d, L)) > ra + rb) return false;
-  }
-  return true;
-}
-function sphereBox(c, r, B) {
-  const d = [c[0] - B.c[0], c[1] - B.c[1], c[2] - B.c[2]];
-  let dist2 = 0;
-  for (let i = 0; i < 3; i++) {
-    const p = dot(d, B.axes[i]), e = Math.max(-B.h[i], Math.min(B.h[i], p));
-    dist2 += (p - e) * (p - e);
-  }
-  return dist2 <= r * r;
 }

@@ -304,6 +304,10 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Alpha-blended overlays blend in linear light.** A 10% dark line drawn over a surface is fainter than the same line baked into an sRGB texture. 0.21 alpha matched the old look.
 - **Event order is part of the API.** `CharacterAdded` firing in the same frame as `PlayerAdded` meant the usual `PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(...))` missed the first character. Roblox loads the character after the join, and so does this now.
 - **A dead body is a visual asset too.** The die clip laid the legs inside the kill brick. Measure the pose's footprint from the clip, and place the body clear of parts.
+- **Goldens prove consistency, not correctness.** The wedge rendered inside-out (an open trough) and I saved it as a golden after "judging" it in small shots. An independent review agent caught it by checking the winding against Babylon's own box. Correctness needs code checks (normals, winding, footprints), and visual judgement needs close views of each new shape, not just the overview.
+- **Independent review works.** A fresh agent told to "verify by probe" found 4 high bugs I had shipped: the inside-out wedge, Touched never firing on walls, the dead-body box measured as the standing pose (NaN weights), and queued events running after Disconnect. Use one after every big batch.
+- **Python heredocs eat backslashes.** A `\'` in Luau source written through Python became `'`, and the prelude failed to parse silently (until `luau_load`'s error was printed). Write escape-free source, or use raw strings, and always print load errors.
+- **Luau inlines builtins.** The compiler turns `typeof` into a fast call, so overriding the global did nothing until scripts were compiled with `mutableGlobals = {"typeof"}`. Vector component reads also don't all take the VM's fast path: handle `X/Y/Z` in `__index` too.
 
 ## 5. Ways to work that held up
 

@@ -14,7 +14,13 @@ run --phone --scenario test/scenarios/touch.mjs
 run --noshots --place places/movement-lab.luau --scenario test/scenarios/slopes.mjs
 run --noshots --place places/movement-lab.luau --scenario test/scenarios/autojump.mjs
 run --place places/players-lab.luau --scenario test/scenarios/players.mjs
+run --noshots --place places/parts-lab.luau --scenario test/scenarios/meshes.mjs
 run --place places/parts-lab.luau --scenario test/scenarios/parts.mjs
+run --noshots --place places/touch-lab.luau --scenario test/scenarios/touch-shapes.mjs
+run --noshots --place places/touch-lab.luau --scenario test/scenarios/death-clear.mjs
+run --noshots --scenario test/scenarios/defaults.mjs
+run --noshots --phone --scenario test/scenarios/defaults.mjs
+run --noshots --scenario test/scenarios/sounds.mjs
 run --noshots --place places/obby.luau --scenario test/scenarios/obby.mjs
 run --place places/obby.luau --scenario test/scenarios/obby-look.mjs
 node test/luau.test.mjs | tail -1
