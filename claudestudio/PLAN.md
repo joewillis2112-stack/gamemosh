@@ -221,7 +221,12 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 1. Moving and spinning parts.
    - Done: the character is carried by its floor's velocity at the contact point (linear + angular × r), and parts have `AssemblyLinearVelocity`/`AssemblyAngularVelocity` (plus the deprecated `Velocity`/`RotVelocity`). Physics writes these for unanchored parts; on anchored ones they're a conveyor. A part moved only by CFrame or a tween has no velocity and doesn't carry, as in Roblox (its engineers advise setting the velocity too, or moving it with constraints). Jumping off keeps no momentum beyond what air control bleeds off (the legacy Humanoid). `test/scenarios/platforms.mjs`, mutation-checked.
    - Unknown, so not modelled: whether a spinning floor turns the character's facing.
-   - Next: TweenService; constraints (Prismatic, Hinge motors, AlignPosition) later.
+   - Done: TweenService (`web/tween.js`, `TweenService`/`Tween` in `web/datamodel.js`, `TweenInfo` userdata in the binding, which can now also pass Luau tables to the engine).
+     - Follows the docs: `TweenInfo.new` defaults (1, Quad, Out, 0, false, 0); Play starts from current values; a newer tween on the same property cancels the older; Pause keeps progress (Playing only); Cancel resets progress but leaves the properties; `Completed(PlaybackState)` on finish or Cancel, not Pause; PlaybackState Begin/Delayed/Playing/Paused/Completed/Cancelled; numbers, bools, enums, Vector3, Color3 and CFrame (slerp) tween; mismatched types error.
+     - Easing: Penner curves, with Back and Elastic in the forms a DevForum author fitted to Roblox's `GetValue`. Only `GetValue(0.5, Bounce, In) = 0.234375` is checked against a printed Roblox value; the rest needs Roblox itself to confirm.
+     - Ours where Roblox is silent: the delay is waited once; a reversing cycle is there and back; tweens step just before physics.
+     - Tests: `test/tween.test.mjs` (mutation-checked) and a tween in `platforms.mjs`.
+   - Later: constraints (Prismatic, Hinge motors, AlignPosition).
 2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.

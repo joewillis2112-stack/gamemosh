@@ -63,6 +63,7 @@ async function main() {
   const beforePhysics = dt => {
     fire('PreAnimation', [dt]);
     fire('PreSimulation', [dt]); fire('Stepped', [t, dt]);
+    dm.stepTweens(dt); vm.flush(); // tweens move parts before physics sees them
   };
   const tick = dt => {
     t += dt;

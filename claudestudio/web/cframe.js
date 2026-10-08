@@ -53,6 +53,16 @@ export class CF {
       2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
       2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]);
   }
+  // Position linear, rotation slerp the short way round (as CFrame:Lerp).
+  lerp(b, t) {
+    const qa = this.toQuat(), qb = b.toQuat();
+    let d = qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3];
+    if (d < 0) { d = -d; for (let i = 0; i < 4; i++) qb[i] = -qb[i]; }
+    let wa = 1 - t, wb = t;
+    if (d <= 0.9995) { const th = Math.acos(d), s = Math.sin(th); wa = Math.sin((1 - t) * th) / s; wb = Math.sin(t * th) / s; }
+    const q = qa.map((v, i) => v * wa + qb[i] * wb), p = [0, 1, 2].map(i => this.m[i] + (b.m[i] - this.m[i]) * t);
+    return CF.fromQuat(...p, ...q);
+  }
   mul(b) {
     const a = this.m, B = b.m, o = new Array(12);
     for (let r = 0; r < 3; r++) {

@@ -3,8 +3,13 @@
 // Luau reaches it through `host` (see bridge in luau.js): values cross as
 // {t, n, s, v} with the tags in binding.cpp.
 import { CF } from './cframe.js';
+import { ease, lerpValue } from './tween.js';
 export { CF };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12 };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14 };
+// TweenInfo: Roblox's fields; style and direction by EasingStyle/EasingDirection name.
+export class TweenInfo { constructor(time = 1, style = 'Quad', dir = 'Out', repeat = 0, reverses = false, delay = 0) { Object.assign(this, { time, style, dir, repeat, reverses, delay }); } }
+// A Luau table passed to the engine (keys and values converted).
+export class LuaTable { constructor(entries) { this.entries = entries; } }
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
 // Color3: components 0..1 (sRGB, as Roblox stores them).
@@ -23,6 +28,9 @@ export const ENUMS = {
   },
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+  EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
+  EasingDirection: { In: 0, Out: 1, InOut: 2 },
+  PlaybackState: { Begin: 0, Delayed: 1, Playing: 2, Paused: 3, Completed: 4, Cancelled: 5 },
 };
 export class EnumItem { constructor(type, name, value) { this.type = type; this.name = name; this.value = value; } }
 function enumItem(type, nameOrValue) {
@@ -85,6 +93,51 @@ defineClass('RunService', 'Instance', {
   creatable: false, service: true,
   methods: { IsClient() { return [true]; }, IsServer() { return [true]; }, IsStudio() { return [false]; }, IsRunning() { return [true]; }, IsEdit() { return [false]; } },
   events: ['PreAnimation', 'PreSimulation', 'Stepped', 'PostSimulation', 'Heartbeat', 'PreRender', 'RenderStepped'],
+});
+// TweenService (create.roblox.com/docs/reference/engine/classes/TweenService).
+// Play starts from the properties' current values; a newer tween on the same
+// property cancels the older; Pause keeps progress and works only while
+// Playing; Cancel resets progress but leaves the properties where they are;
+// Completed fires on finishing or Cancel (not Pause) with the PlaybackState.
+// Ours, where Roblox documents nothing: DelayTime is waited once, before the
+// first cycle; a cycle with Reverses is there and back; tweens step once per
+// frame just before physics, so physics sees where a tween put a part.
+const enumName = v => v instanceof EnumItem ? v.name : v;
+defineClass('TweenBase', 'Instance', {
+  creatable: false,
+  props: { PlaybackState: ['Enum.PlaybackState', 'Begin'] },
+  methods: {
+    Play(self) { self.dm.tweenPlay(self); return []; },
+    Pause(self) { if (self.props.PlaybackState === 'Playing') self.dm.set(self, 'PlaybackState', 'Paused'); return []; },
+    Cancel(self) { self.dm.tweenEnd(self, 'Cancelled'); self.elapsed = 0; return []; },
+  },
+  events: ['Completed'],
+});
+defineClass('Tween', 'TweenBase', { creatable: false, props: { Instance: ['Instance', null], TweenInfo: ['TweenInfo', null] } });
+defineClass('TweenService', 'Instance', {
+  creatable: false, service: true,
+  methods: {
+    Create(self, inst, info, goals) {
+      if (!(inst instanceof Instance)) throw new Error('Unable to cast value to Object');
+      if (!(info instanceof TweenInfo)) throw new Error('Unable to cast value to TweenInfo');
+      if (!(goals instanceof LuaTable)) throw new Error('Unable to cast to Dictionary');
+      const list = [];
+      for (const [k, v] of goals.entries) {
+        const ty = typeof k === 'string' ? typeOf(inst.ClassName, k) : undefined;
+        if (!ty) throw new Error(`TweenService:Create no property named '${k}' for object '${inst.Name}'`);
+        const given = v instanceof V3 ? 'Vector3' : v instanceof C3 ? 'Color3' : v instanceof CF ? 'CFrame' : v instanceof EnumItem ? 'Enum.' + v.type : typeof v === 'boolean' ? 'bool' : typeof v;
+        if (!['number', 'bool', 'Vector3', 'Color3', 'CFrame'].includes(ty) && !ty.startsWith('Enum.')) throw new Error(`TweenService:Create property named '${k}' on object '${inst.Name}' is not a data type that can be tweened`);
+        if (given !== ty) throw new Error(`TweenService:Create property named '${k}' cannot be tweened due to type mismatch (property is a '${ty}', but given type is '${given}')`);
+        list.push([k, v instanceof EnumItem ? v.name : v]);
+      }
+      const tw = new Instance(self.dm, 'Tween');
+      tw.props.Name = 'Tween';
+      tw.props.Instance = inst; tw.props.TweenInfo = info;
+      tw.goals = list; tw.elapsed = 0;
+      return [tw];
+    },
+    GetValue(self, alpha, style, dir) { return [ease(alpha, enumName(style), enumName(dir))]; },
+  },
 });
 // Roblox's standard containers. Nothing replicates (one local session), so they only hold things.
 for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterGui', 'StarterPack', 'StarterPlayer'])
@@ -210,6 +263,7 @@ export class DataModel {
     this.nextConn = 1;
     this.onFire = null; // (ref, args) -> void, set by the Luau bridge
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
+    this.tweens = new Set(); // playing (or delayed or paused) tweens
     this.hooks = {};    // runtime callbacks the API needs (e.g. Player:LoadCharacter)
     this.game = new Instance(this, 'DataModel');
     this.game.props.Name = 'Game';
@@ -308,6 +362,43 @@ export class DataModel {
     this.notify(inst, 'CFrame');
     for (const k of changed) this.fire(inst, 'Changed', [k]);
   }
+  // ---- tweens (TweenService)
+  tweenPlay(tw) {
+    const st = tw.props.PlaybackState, inst = tw.props.Instance;
+    if (st === 'Playing' || st === 'Delayed') return;
+    if (st === 'Paused') return this.set(tw, 'PlaybackState', tw.elapsed < tw.props.TweenInfo.delay ? 'Delayed' : 'Playing');
+    if (!inst || inst.destroyed) return;
+    tw.from = tw.goals.map(([k]) => inst.props[k]);
+    tw.elapsed = 0;
+    for (const o of [...this.tweens]) if (o !== tw && o.props.Instance === inst && o.goals.some(([k]) => tw.goals.some(([k2]) => k2 === k))) this.tweenEnd(o, 'Cancelled');
+    this.tweens.add(tw);
+    this.set(tw, 'PlaybackState', tw.props.TweenInfo.delay > 0 ? 'Delayed' : 'Playing');
+  }
+  tweenEnd(tw, state) {
+    if (!this.tweens.has(tw)) return;
+    this.tweens.delete(tw);
+    this.set(tw, 'PlaybackState', state);
+    this.fire(tw, 'Completed', [new EnumItem('PlaybackState', state, ENUMS.PlaybackState[state])]);
+  }
+  stepTweens(dt) {
+    for (const tw of [...this.tweens]) {
+      const inst = tw.props.Instance, I = tw.props.TweenInfo;
+      if (!inst || inst.destroyed) { this.tweens.delete(tw); continue; }
+      if (tw.props.PlaybackState === 'Paused') continue;
+      tw.elapsed += dt;
+      if (tw.elapsed < I.delay) continue;
+      if (tw.props.PlaybackState === 'Delayed') this.set(tw, 'PlaybackState', 'Playing');
+      const t = tw.elapsed - I.delay, cycle = I.time * (I.reverses ? 2 : 1);
+      const total = I.repeat < 0 ? Infinity : cycle * (I.repeat + 1);
+      if (t >= total) { this.tweenApply(tw, I.reverses ? 0 : 1); this.tweenEnd(tw, 'Completed'); continue; }
+      const c = cycle > 0 ? t % cycle : 0;
+      this.tweenApply(tw, I.time <= 0 ? 1 : c < I.time ? c / I.time : 1 - (c - I.time) / I.time);
+    }
+  }
+  tweenApply(tw, alpha) {
+    const I = tw.props.TweenInfo, e = ease(alpha, I.style, I.dir), inst = tw.props.Instance;
+    tw.goals.forEach(([k, to], i) => this.set(inst, k, lerpValue(tw.from[i], to, alpha >= 1 ? 1 : alpha <= 0 ? 0 : e)));
+  }
   watch(fn) { this.watchers.push(fn); }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }
 }
@@ -321,7 +412,7 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-const READ_ONLY = new Set(['Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
+const READ_ONLY = new Set(['TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host
@@ -346,14 +437,30 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
       else if (v instanceof C3) o.push({ t: T.COLOR, v: [v.r, v.g, v.b] });
       else if (v instanceof CF) o.push({ t: T.CFRAME, v: v.m });
+      else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
     },
     out(v) { return host.put([], v)[0]; },
+    // Arguments arrive flat; a table is {DICT, n} then n key/value pairs.
+    readArgs(list) {
+      let i = 0;
+      const one = () => {
+        const a = list[i++];
+        if (a.t !== T.DICT) return host.in(a);
+        const entries = [];
+        for (let k = 0; k < a.n; k++) { const key = one(); entries.push([key, one()]); }
+        return new LuaTable(entries);
+      };
+      const out = [];
+      while (i < list.length) out.push(one());
+      return out;
+    },
     in(a) {
       switch (a.t) {
+        case T.TWEENINFO: { const [style, dir] = a.s.split(','); return new TweenInfo(a.n, style, dir, a.v[0], !!a.v[1], a.v[2]); }
         case T.NIL: return null;
         case T.BOOL: return !!a.n;
         case T.NUM: return a.n;
@@ -394,7 +501,7 @@ export function makeHost(dm, log = console.log) {
     newindex(h, key) {
       const inst = dm.byHandle[h];
       if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
-      const v = host.in(host.args[0]);
+      const v = host.readArgs(host.args)[0];
       host.ret = [];
       if (key === 'Parent') {
         if (v !== null && !(v instanceof Instance)) return host.err('Parent must be an Instance');
@@ -424,7 +531,7 @@ export function makeHost(dm, log = console.log) {
       const fn = lookup(inst.ClassName, 'methods', method);
       if (!fn) { host.err(`${method} is not a valid member of ${inst.ClassName}`); return 1; }
       let res;
-      try { res = fn(inst, ...host.args.map(host.in)); } catch (e) { host.err(e.message); return 1; }
+      try { res = fn(inst, ...host.readArgs(host.args)); } catch (e) { host.err(e.message); return 1; }
       host.ret = [];
       res.forEach(r => host.put(host.ret, r));
       return res.length;

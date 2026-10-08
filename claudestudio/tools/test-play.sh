@@ -27,6 +27,7 @@ run --noshots --phone --scenario test/scenarios/defaults.mjs
 run --noshots --scenario test/scenarios/sounds.mjs
 run --noshots --place places/obby.luau --scenario test/scenarios/obby.mjs
 run --place places/obby.luau --scenario test/scenarios/obby-look.mjs
-node test/luau.test.mjs | tail -1
+node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
+node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
 [ $fail -eq 0 ] && echo "ALL PASSED" || echo "SOME FAILED"
 exit $fail

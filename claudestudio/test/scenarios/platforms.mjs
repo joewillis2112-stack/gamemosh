@@ -63,6 +63,21 @@ export default async function (t) {
   console.log('CFrame-moved part with velocity set, 1 s: part', (p1 - p0).toFixed(2), 'character', (c1.x - c0.x).toFixed(2));
   check(Math.abs((c1.x - c0.x) - (p1 - p0)) < 0.4 && c1.grounded, 'with AssemblyLinearVelocity set to match, it carries the character along');
 
+  // TweenService in the running frame loop: a 1 s Linear tween of an anchored
+  // part's CFrame lands exactly, Completed fires, and (no velocity) a
+  // character standing on it isn't carried.
+  await put(0, 4.5, 100); await t.sim(10); const w0 = await S();
+  await t.eval(() => window.studio.vm.run('tween', `
+    local p = Instance.new("Part") p.Name = "Tweened" p.Anchored = true p.Size = Vector3.new(60, 1, 10) p.Position = Vector3.new(0, 4, 100) p.Parent = workspace
+    local tw = game:GetService("TweenService"):Create(p, TweenInfo.new(1, Enum.EasingStyle.Linear), { CFrame = p.CFrame + Vector3.new(8, 0, 0) })
+    tw.Completed:Connect(function(s) print("tween done", s.Name, p.Position.X) end)
+    tw:Play()
+  `));
+  await t.sim(70); const w1 = await S();
+  const tweenLine = t.logs.map(l => l.replace(/^\w+ \[luau\] /, '')).find(l => l.startsWith('tween done')) || '';
+  console.log(tweenLine, '; character moved', (w1.x - w0.x).toFixed(2));
+  check(tweenLine === 'tween done Completed 8' && Math.abs(w1.x - w0.x) < 0.3, 'a TweenService tween moves the part 8 studs in 1 s; it carries no one');
+
   // Unanchored: velocity reads back from physics.
   await t.eval(() => window.studio.vm.run('drop', `
     local d = Instance.new("Part") d.Name = "Dropped" d.Size = Vector3.new(2, 2, 2) d.Position = Vector3.new(40, 60, -30) d.CanCollide = false d.Parent = workspace

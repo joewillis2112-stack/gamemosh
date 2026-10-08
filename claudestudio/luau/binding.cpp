@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -71,6 +71,25 @@ static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yield
 struct Signal { int h; char ev[56]; };
 
 #include "cframe.h"
+
+// TweenInfo: immutable, as Roblox's. Enum fields are kept by name.
+static const char* TWEENINFO_MT = "TweenInfo";
+struct TI { double time, delay; int repeat, reverses; char style[16], dir[8]; };
+static TI* to_ti(lua_State* L, int idx) {
+    if (lua_type(L, idx) != LUA_TUSERDATA || !lua_getmetatable(L, idx)) return nullptr;
+    luaL_getmetatable(L, TWEENINFO_MT);
+    bool ok = lua_rawequal(L, -1, -2);
+    lua_pop(L, 2);
+    return ok ? (TI*)lua_touserdata(L, idx) : nullptr;
+}
+static void push_ti(lua_State* L, double time, const char* style, const char* dir, int repeat, int reverses, double delay) {
+    TI* t = (TI*)lua_newuserdata(L, sizeof(TI));
+    t->time = time; t->delay = delay; t->repeat = repeat; t->reverses = reverses;
+    strncpy(t->style, style, sizeof t->style - 1); t->style[sizeof t->style - 1] = 0;
+    strncpy(t->dir, dir, sizeof t->dir - 1); t->dir[sizeof t->dir - 1] = 0;
+    luaL_getmetatable(L, TWEENINFO_MT);
+    lua_setmetatable(L, -2);
+}
 
 
 // ------------------------------------------------------------------ marshalling
@@ -154,6 +173,7 @@ static int to_instance(lua_State* L, int idx) {
 }
 
 // Send stack value idx to JS as one arg.
+static int send_depth = 0;
 static void send_arg(lua_State* L, int idx) {
     switch (lua_type(L, idx)) {
     case LUA_TNIL: js_arg(T_NIL, 0, nullptr, 0, 0, 0); break;
@@ -166,8 +186,22 @@ static void send_arg(lua_State* L, int idx) {
         if (h) { js_arg(T_INST, h, nullptr, 0, 0, 0); break; }
         if (Color* c = to_color(L, idx)) { js_arg(T_COLOR, 0, nullptr, c->r, c->g, c->b); break; }
         if (CF* c = to_cf(L, idx)) { js_arg_cf(c->m); break; }
+        if (TI* t = to_ti(L, idx)) { std::string k = std::string(t->style) + "," + t->dir; js_arg(T_TWEENINFO, t->time, k.c_str(), t->repeat, t->reverses, t->delay); break; }
         if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
+    }
+    case LUA_TTABLE: {
+        // A table: {T_DICT, n} then its n key/value pairs, each sent the same way.
+        if (send_depth > 8) luaL_error(L, "table nested too deeply to pass to the engine");
+        int t = idx < 0 ? lua_gettop(L) + idx + 1 : idx, n = 0;
+        lua_pushnil(L);
+        while (lua_next(L, t)) { n++; lua_pop(L, 1); }
+        js_arg(T_DICT, n, nullptr, 0, 0, 0);
+        send_depth++;
+        lua_pushnil(L);
+        while (lua_next(L, t)) { send_arg(L, -2); send_arg(L, -1); lua_pop(L, 1); }
+        send_depth--;
+        break;
     }
     default: luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
     }
@@ -198,6 +232,14 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_INST: push_instance(L, (int)js_ret_num(i)); break;
     case T_COLOR: push_color(L, js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
     case T_CFRAME: { double m[12]; for (int k = 0; k < 12; k++) m[k] = js_ret_vec(i, k); push_cf(L, m); break; }
+    case T_TWEENINFO: {
+        char* s = js_ret_str(i);
+        std::string k = s ? s : "Quad,Out";
+        free(s);
+        size_t c = k.find(',');
+        push_ti(L, js_ret_num(i), k.substr(0, c).c_str(), c == std::string::npos ? "Out" : k.substr(c + 1).c_str(), (int)js_ret_vec(i, 0), (int)js_ret_vec(i, 1), js_ret_vec(i, 2));
+        break;
+    }
     case T_ENUM: {
         char* s = js_ret_str(i);
         std::string full = s ? s : "";
@@ -592,6 +634,54 @@ static int color_tostring(lua_State* L) {
     return 1;
 }
 
+// ------------------------------------------------------------------ TweenInfo
+// TweenInfo.new(time = 1, EasingStyle.Quad, EasingDirection.Out, repeatCount = 0, reverses = false, delayTime = 0)
+static const char* enum_arg(lua_State* L, int idx, const char* type, const char* dflt) {
+    if (lua_isnoneornil(L, idx)) return dflt;
+    EnumItem* e = to_enum(L, idx);
+    if (!e || strcmp(e->type, type)) luaL_error(L, "TweenInfo.new: argument %d must be an Enum.%s", idx, type);
+    return e->name;
+}
+static int ti_new(lua_State* L) {
+    double time = luaL_optnumber(L, 1, 1);
+    const char* style = enum_arg(L, 2, "EasingStyle", "Quad");
+    const char* dir = enum_arg(L, 3, "EasingDirection", "Out");
+    int repeat = (int)luaL_optnumber(L, 4, 0);
+    int reverses = lua_toboolean(L, 5);
+    double delay = luaL_optnumber(L, 6, 0);
+    push_ti(L, time, style, dir, repeat, reverses, delay);
+    return 1;
+}
+static int ti_index(lua_State* L) {
+    TI* t = to_ti(L, 1); if (!t) luaL_typeerror(L, 1, "TweenInfo");
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "Time")) { lua_pushnumber(L, t->time); return 1; }
+    if (!strcmp(k, "DelayTime")) { lua_pushnumber(L, t->delay); return 1; }
+    if (!strcmp(k, "RepeatCount")) { lua_pushinteger(L, t->repeat); return 1; }
+    if (!strcmp(k, "Reverses")) { lua_pushboolean(L, t->reverses); return 1; }
+    if (!strcmp(k, "EasingStyle") || !strcmp(k, "EasingDirection")) {
+        bool st = k[6] == 'S';
+        const char* type = st ? "EasingStyle" : "EasingDirection", *name = st ? t->style : t->dir;
+        int v = js_enum_value(type, name);
+        push_enum(L, type, name, v);
+        return 1;
+    }
+    luaL_error(L, "%s is not a valid member of TweenInfo", k);
+    return 0;
+}
+static int ti_tostring(lua_State* L) {
+    TI* t = to_ti(L, 1); if (!t) luaL_typeerror(L, 1, "TweenInfo");
+    char buf[160];
+    snprintf(buf, sizeof buf, "Time:%g DelayTime:%g RepeatCount:%d Reverses:%s EasingDirection:%s EasingStyle:%s", t->time, t->delay, t->repeat, t->reverses ? "true" : "false", t->dir, t->style);
+    lua_pushstring(L, buf);
+    return 1;
+}
+static int ti_eq(lua_State* L) {
+    TI* a = to_ti(L, 1); TI* b = to_ti(L, 2);
+    lua_pushboolean(L, a && b && a->time == b->time && a->delay == b->delay && a->repeat == b->repeat && a->reverses == b->reverses && !strcmp(a->style, b->style) && !strcmp(a->dir, b->dir));
+    return 1;
+}
+
 // ------------------------------------------------------------------ Enum
 static int enumitem_index(lua_State* L) {
     EnumItem* e = to_enum(L, 1);
@@ -806,6 +896,16 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setglobal(L0, "Color3");
 
     register_cframe(L0);
+    luaL_newmetatable(L0, TWEENINFO_MT);
+    lua_pushcfunction(L0, ti_index, "__index"); lua_setfield(L0, -2, "__index");
+    lua_pushcfunction(L0, color_newindex, "__newindex"); lua_setfield(L0, -2, "__newindex");
+    lua_pushcfunction(L0, ti_tostring, "__tostring"); lua_setfield(L0, -2, "__tostring");
+    lua_pushcfunction(L0, ti_eq, "__eq"); lua_setfield(L0, -2, "__eq");
+    lua_pushstring(L0, "TweenInfo"); lua_setfield(L0, -2, "__type");
+    lua_pop(L0, 1);
+    lua_newtable(L0);
+    lua_pushcfunction(L0, ti_new, "new"); lua_setfield(L0, -2, "new");
+    lua_setglobal(L0, "TweenInfo");
 
     lua_newtable(L0);
     lua_pushcfunction(L0, task_wait, "wait");
@@ -866,7 +966,7 @@ end)";
         lua_setfield(L0, idx < 0 ? idx - 1 : idx, "__metatable");
         lua_setreadonly(L0, idx, true);
     };
-    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
+    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT, TWEENINFO_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
     lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
     lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
 
