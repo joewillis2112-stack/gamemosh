@@ -13,7 +13,9 @@ export default async function (t) {
   await kb.down('KeyD');
   await t.sim(30, 'live'); await kb.up('KeyD');
   b = await P();
-  console.log('D 0.5 s:', (b.x - a.x).toFixed(2), 'studs right (+X)');
+  // Along the camera's right (right-handed: forward x up).
+  const right = (b.x - a.x) * Math.cos(b.yaw) - (b.z - a.z) * Math.sin(b.yaw), side = (b.x - a.x) * Math.sin(b.yaw) + (b.z - a.z) * Math.cos(b.yaw);
+  console.log('D 0.5 s:', right.toFixed(2), 'studs to the camera\'s right, off-axis', side.toFixed(2));
   await t.sim(20, 'live');
   await kb.down('Space'); await t.sim(2, 'live'); await kb.up('Space');
   console.log('Space: vy', (await P()).vy.toFixed(1));
@@ -22,7 +24,13 @@ export default async function (t) {
   a = await P();
   await mouse.move(640, 360); await mouse.down({ button: 'right' }); await mouse.move(740, 360, { steps: 5 }); await mouse.up({ button: 'right' });
   b = await P();
-  console.log('right-drag 100 px: yaw', ((b.yaw - a.yaw) * 180 / Math.PI).toFixed(1), 'deg');
+  // "Looks right": the new view direction leans toward the old view's right.
+  const lean = await t.eval(([y0]) => {
+    const c = window.studio.camera, fwd = y => [-Math.sin(y), -Math.cos(y)];
+    const f0 = fwd(y0), right0 = [-f0[1], f0[0]], f1 = fwd(c.yaw);
+    return f1[0] * right0[0] + f1[1] * right0[1];
+  }, [a.yaw]);
+  console.log('right-drag 100 px: turned', Math.abs((b.yaw - a.yaw) * 180 / Math.PI).toFixed(1), 'deg', lean > 0 ? 'to the right' : 'to the LEFT (wrong)');
   await mouse.wheel(0, 300); await t.page.waitForTimeout(50);
   console.log('wheel out: zoom', a.zoom.toFixed(2), '->', (await P()).zoom.toFixed(2));
   // Occlusion: a wall 4 studs behind the player, camera looking through it.

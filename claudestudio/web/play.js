@@ -13,6 +13,7 @@ import { World } from './runtime/world.js';
 import { Character } from './runtime/character.js';
 import { FollowCamera } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
+import { Players } from './runtime/players.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -33,14 +34,15 @@ async function main() {
   const place = await (await fetch(q.get('place') || '../places/baseplate.luau')).text();
   vm.run('place', place);
 
-  // The player spawns on the first SpawnLocation, else at the origin.
-  const spawnPart = findSpawn(dm.workspace);
-  const spawn = spawnPart ? new Vector3(spawnPart.props.Position.x, spawnPart.props.Position.y + spawnPart.props.Size.y / 2, spawnPart.props.Position.z) : Vector3.Zero();
-  const player = await Character.load(scene, '../assets/characters/character-a.glb', R.shadows, spawn);
+  // The player joins after the place's scripts (as in Roblox) and spawns on a SpawnLocation.
+  const player = await Character.load(scene, '../assets/characters/character-a.glb', R.shadows, Vector3.Zero());
+  const players = new Players(dm, world, player, GRAVITY);
+  players.join();
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
   const controls = new Controls(canvas, camera);
+  players.onSpawn = () => camera.snapBehind();
 
   // One clock for scripts, physics, the player and animation. Tests step it at a fixed 1/60 s.
   let t = 0;
@@ -49,8 +51,10 @@ async function main() {
     t += dt;
     vm.step(t);
     const c = controls.read();
-    player.setInput(c.dx, c.dz, c.jump, c.touch);
+    const scriptJump = players.preStep();
+    player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch);
     player.step(dt, GRAVITY);
+    players.postStep(t);
     camera.update(dt);
     world.syncFromPhysics();
   };
@@ -59,7 +63,7 @@ async function main() {
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 1 / 20)); });
   await scene.whenReadyAsync();
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, player, controls, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.
@@ -71,9 +75,5 @@ async function main() {
     },
   };
   if (!q.get('test')) engine.runRenderLoop(() => scene.render());
-}
-function findSpawn(inst) {
-  for (const c of inst.children) { if (c.ClassName === 'SpawnLocation') return c; const f = findSpawn(c); if (f) return f; }
-  return null;
 }
 main().catch(e => { console.error(e); window.studio = { error: String(e && e.stack || e) }; });

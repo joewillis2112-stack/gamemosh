@@ -155,7 +155,10 @@ export class Character {
 
   constructor(scene, res, shadows, spawn) {
     this.scene = scene;
-    const H = HUMANOID;
+    // This character's numbers: Roblox's defaults, overridden live from its
+    // Humanoid (WalkSpeed, JumpPower, ...) by bindHumanoid.
+    this.p = { ...HUMANOID };
+    const H = this.p;
     // Visual: the glTF root under a holder we move and turn; feet at holder origin.
     this.holder = new TransformNode('character', scene);
     const root = res.meshes[0];
@@ -177,6 +180,8 @@ export class Character {
     this.legLength = leg.getAbsolutePosition().y - this.holder.position.y;
     this.walkNatural = clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
     this.sprintNatural = clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
+    if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
+    this.deadBox = this.measurePose('die', this.anim.duration('die'), res.meshes);
     this.anim.play('idle', 0);
 
     // Physics, Roblox's way: the body hovers. The collision capsule starts
@@ -203,19 +208,47 @@ export class Character {
 
   /** Put the feet at `foot` (world), standing still. */
   teleport(foot, yaw = this.yaw) {
-    this.ctrl.setPosition(new Vector3(foot.x, foot.y + HUMANOID.StepUp + this.capH / 2, foot.z));
+    this.ctrl.setPosition(new Vector3(foot.x, foot.y + this.p.StepUp + this.capH / 2, foot.z));
     this.ctrl.setVelocity(Vector3.Zero());
     this.vy = 0; this.yaw = yaw; this.grounded = true; this.airTime = 0; this.justJumped = 0;
     this.place();
   }
 
-  get footY() { return this.ctrl.getPosition().y - this.capH / 2 - HUMANOID.StepUp; }
+  // The box a clip's pose occupies at time `t`, in the character's own frame
+  // (feet at the origin, facing +Z): {min, max} in studs.
+  measurePose(clip, t, meshes) {
+    if (!this.anim.clips[clip]) return null;
+    this.anim.layers = [{ clip, time: t, weight: 1, target: 1, speed: 0 }];
+    this.anim.update(0);
+    const inv = this.holder.computeWorldMatrix(true).clone().invert();
+    const min = new Vector3(Infinity, Infinity, Infinity), max = min.scale(-1);
+    for (const m of meshes) {
+      if (!m.getTotalVertices()) continue;
+      m.computeWorldMatrix(true);
+      for (const c of m.getBoundingInfo().boundingBox.vectorsWorld) {
+        const l = Vector3.TransformCoordinates(c, inv);
+        min.minimizeInPlace(l); max.maximizeInPlace(l);
+      }
+    }
+    this.anim.layers = [];
+    return { min, max };
+  }
+
+  /** Back to life at `foot`: standing, idle, facing `yaw`. */
+  respawn(foot, yaw = 0) {
+    this.dead = false;
+    this.anim.layers = [];
+    this.anim.play('idle', 0);
+    this.teleport(foot, yaw);
+  }
+
+  get footY() { return this.ctrl.getPosition().y - this.capH / 2 - this.p.StepUp; }
 
   // The floor under the body: physics rays (so CanCollide=false parts don't
   // count) from the capsule centre and four points around it, down past the
   // feet. Returns the highest walkable hit at most StepUp above the feet.
   probeFloor() {
-    const H = HUMANOID, c = this.ctrl.getPosition(), foot = this.footY;
+    const H = this.p, c = this.ctrl.getPosition(), foot = this.footY;
     const eng = this.scene.getPhysicsEngine();
     const minNy = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
     let best = null;
@@ -225,13 +258,14 @@ export class Character {
       if (!this.ray.hasHit) continue;
       const y = this.ray.hitPointWorld.y, n = this.ray.hitNormalWorld;
       if (n.y < minNy || y > foot + H.StepUp + 0.05) continue;
-      if (!best || y > best.y + 1e-4 || (ox === 0 && oz === 0 && Math.abs(y - best.y) <= 1e-4)) best = { y, n: n.clone() };
+      if (!best || y > best.y + 1e-4 || (ox === 0 && oz === 0 && Math.abs(y - best.y) <= 1e-4)) best = { y, n: n.clone(), node: this.ray.body && this.ray.body.transformNode };
     }
     return best;
   }
 
   // Input for this frame: world-space direction (x, z), length <= 1; jump pressed.
   setInput(dirX, dirZ, jump, touch = false) {
+    if (this.dead) { dirX = dirZ = 0; jump = false; }
     this.moveDir.set(dirX, 0, dirZ);
     if (this.moveDir.lengthSquared() > 1) this.moveDir.normalize();
     this.jumpHeld = jump;
@@ -241,7 +275,7 @@ export class Character {
   // Auto-jump (touch): walking into something, held back for a moment, and
   // the thing ahead has a top we can land on within jump reach.
   wantsAutoJump(dt, horiz, gravity) {
-    const H = HUMANOID;
+    const H = this.p;
     const wish = this.moveDir.length();
     const blocked = wish > 0.5 && horiz.length() < 0.5 * wish * H.WalkSpeed;
     this.blockedTime = blocked ? (this.blockedTime || 0) + dt : 0;
@@ -256,7 +290,7 @@ export class Character {
   }
 
   step(dt, gravity) {
-    const H = HUMANOID;
+    const H = this.p;
     const g = new Vector3(0, -gravity, 0);
     this.justJumped = Math.max(0, (this.justJumped || 0) - dt);
     const v = this.ctrl.getVelocity();
@@ -270,6 +304,7 @@ export class Character {
       grounded = this.grounded ? gap <= H.SnapDown : this.vy <= 0 && gap <= Math.max(0.05, -this.vy * dt + 0.05);
     }
     this.lastSupport = floor ? +floor.n.y.toFixed(3) : null;
+    this.floorPart = floor && floor.node && floor.node.metadata ? floor.node.metadata.instance : null;
 
     const want = this.moveDir.scale(H.WalkSpeed);
     const k = 1 - Math.exp(-(grounded ? H.Accel : H.AirAccel) * dt);
@@ -317,10 +352,11 @@ export class Character {
     }
 
     // Animation state.
-    let state;
     // Airborne only after a moment off the ground (or a jump), so stepping
     // off a ledge edge or a contact flicker on landing doesn't pop the pose.
-    if (!this.grounded && (this.justJumped > 0 || this.vy > 0 || this.airTime > 0.12)) state = this.vy > 0 ? 'jump' : 'fall';
+    let state;
+    if (this.dead) state = 'die';
+    else if (!this.grounded && (this.justJumped > 0 || this.vy > 0 || this.airTime > 0.12)) state = this.vy > 0 ? 'jump' : 'fall';
     else if (sp > (this.state === 'walk' ? 0.3 : 0.8)) state = 'walk'; // hysteresis: no flicker when pushing into a wall
     else state = 'idle';
     if (state === 'walk') {
@@ -349,5 +385,5 @@ export class Character {
   faceYaw(yaw) { this.yaw = yaw; }
 
   get footPosition() { return this.holder.position; }
-  get headPosition() { return this.holder.position.add(new Vector3(0, HUMANOID.Height - 0.8, 0)); }
+  get headPosition() { return this.holder.position.add(new Vector3(0, this.p.Height - 0.8, 0)); }
 }

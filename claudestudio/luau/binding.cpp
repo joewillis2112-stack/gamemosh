@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -37,6 +37,11 @@ EM_JS(double, js_ret_num, (int i), { return Module.studio.ret[i].n; });
 EM_JS(double, js_ret_vec, (int i, int k), { return Module.studio.ret[i].v[k]; });
 EM_JS(char*, js_ret_str, (int i), { return stringToNewUTF8(Module.studio.ret[i].s); });
 EM_JS(void, js_args_clear, (), { Module.studio.args = []; });
+// Enums: does Enum.<type> exist; the value of Enum.<type>.<name> (or -2147483648);
+// Enum.<type>:GetEnumItems() into the ret channel (returns the count).
+EM_JS(int, js_enum_type, (const char* type), { return Module.studio.enumType(UTF8ToString(type)) ? 1 : 0; });
+EM_JS(int, js_enum_value, (const char* type, const char* name), { const v = Module.studio.enumValue(UTF8ToString(type), UTF8ToString(name)); return v === null ? -2147483648 : v; });
+EM_JS(int, js_enum_items, (const char* type), { return Module.studio.enumItems(UTF8ToString(type)); });
 EM_JS(void, js_arg, (int t, double n, const char* s, double x, double y, double z), {
     Module.studio.args.push({ t: t, n: n, s: s ? UTF8ToString(s) : null, v: [x, y, z] });
 });
@@ -51,6 +56,10 @@ static const char* INST_MT = "Instance";
 static const char* SIGNAL_MT = "RBXScriptSignal";
 static const char* CONN_MT = "RBXScriptConnection";
 static const char* COLOR_MT = "Color3";
+static const char* ENUMITEM_MT = "EnumItem";
+static const char* ENUM_MT = "Enum";
+static int enum_cache_ref; // "Type.Name" -> EnumItem userdata, so == is identity
+static int enum_types_ref; // "Type" -> its Enum table (the sandbox makes Enum itself read-only)
 static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 
 struct Signal { int h; char ev[56]; };
@@ -99,6 +108,33 @@ static Color* check_color(lua_State* L, int idx) {
     return c;
 }
 
+// EnumItem: one per "Type.Name", cached, immutable.
+struct EnumItem { int value; char type[40]; char name[56]; };
+static void push_enum_type(lua_State* L, const char* type);
+static void push_enum(lua_State* L, const char* type, const char* name, int value) {
+    std::string key = std::string(type) + "." + name;
+    lua_getref(L, enum_cache_ref);
+    lua_getfield(L, -1, key.c_str());
+    if (!lua_isnil(L, -1)) { lua_remove(L, -2); return; }
+    lua_pop(L, 1);
+    EnumItem* e = (EnumItem*)lua_newuserdata(L, sizeof(EnumItem));
+    e->value = value;
+    strncpy(e->type, type, sizeof(e->type) - 1); e->type[sizeof(e->type) - 1] = 0;
+    strncpy(e->name, name, sizeof(e->name) - 1); e->name[sizeof(e->name) - 1] = 0;
+    luaL_getmetatable(L, ENUMITEM_MT);
+    lua_setmetatable(L, -2);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, key.c_str());
+    lua_remove(L, -2);
+}
+static EnumItem* to_enum(lua_State* L, int idx) {
+    if (lua_type(L, idx) != LUA_TUSERDATA || !lua_getmetatable(L, idx)) return nullptr;
+    luaL_getmetatable(L, ENUMITEM_MT);
+    bool ok = lua_rawequal(L, -1, -2);
+    lua_pop(L, 2);
+    return ok ? (EnumItem*)lua_touserdata(L, idx) : nullptr;
+}
+
 static int to_instance(lua_State* L, int idx) {
     if (lua_type(L, idx) != LUA_TUSERDATA) return 0;
     if (!lua_getmetatable(L, idx)) return 0;
@@ -120,6 +156,7 @@ static void send_arg(lua_State* L, int idx) {
         int h = to_instance(L, idx);
         if (h) { js_arg(T_INST, h, nullptr, 0, 0, 0); break; }
         if (Color* c = to_color(L, idx)) { js_arg(T_COLOR, 0, nullptr, c->r, c->g, c->b); break; }
+        if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
     }
     default: luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
@@ -150,6 +187,14 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_VEC: lua_pushvector(L, (float)js_ret_vec(i, 0), (float)js_ret_vec(i, 1), (float)js_ret_vec(i, 2)); break;
     case T_INST: push_instance(L, (int)js_ret_num(i)); break;
     case T_COLOR: push_color(L, js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
+    case T_ENUM: {
+        char* s = js_ret_str(i);
+        std::string full = s ? s : "";
+        free(s);
+        size_t dot = full.find('.');
+        push_enum(L, full.substr(0, dot).c_str(), dot == std::string::npos ? "" : full.substr(dot + 1).c_str(), (int)js_ret_num(i));
+        break;
+    }
     case T_METHOD:
         lua_pushstring(L, key);
         lua_pushcclosurek(L, method_call, key, 1, nullptr);
@@ -457,6 +502,77 @@ static int color_tostring(lua_State* L) {
     return 1;
 }
 
+// ------------------------------------------------------------------ Enum
+static int enumitem_index(lua_State* L) {
+    EnumItem* e = to_enum(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "Name")) { lua_pushstring(L, e->name); return 1; }
+    if (!strcmp(k, "Value")) { lua_pushinteger(L, e->value); return 1; }
+    if (!strcmp(k, "EnumType")) { push_enum_type(L, e->type); return 1; }
+    luaL_error(L, "%s is not a valid member of \"Enum.%s.%s\"", k, e->type, e->name);
+    return 0;
+}
+static int enumitem_tostring(lua_State* L) {
+    EnumItem* e = to_enum(L, 1);
+    lua_pushfstring(L, "Enum.%s.%s", e->type, e->name);
+    return 1;
+}
+static int enumitem_eq(lua_State* L) {
+    EnumItem* a = to_enum(L, 1); EnumItem* b = to_enum(L, 2);
+    lua_pushboolean(L, a && b && !strcmp(a->type, b->type) && !strcmp(a->name, b->name));
+    return 1;
+}
+// An Enum type (Enum.Material): a table holding its name; items resolve on index.
+static int enum_getitems(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    lua_rawgetfield(L, 1, "__name");
+    std::string type = luaL_checkstring(L, -1);
+    lua_pop(L, 1);
+    int n = js_enum_items(type.c_str());
+    lua_createtable(L, n, 0);
+    for (int i = 0; i < n; i++) { push_ret(L, i, 0, ""); lua_rawseti(L, -2, i + 1); }
+    return 1;
+}
+static int enumtype_index(lua_State* L) {
+    lua_rawgetfield(L, 1, "__name");
+    std::string type = lua_tostring(L, -1);
+    lua_pop(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "GetEnumItems")) { lua_pushcfunction(L, enum_getitems, "GetEnumItems"); return 1; }
+    int v = js_enum_value(type.c_str(), k);
+    if (v == (int)-2147483648) luaL_error(L, "%s is not a valid member of \"Enum.%s\"", k, type.c_str());
+    push_enum(L, type.c_str(), k, v);
+    return 1;
+}
+static int enumtype_tostring(lua_State* L) {
+    lua_rawgetfield(L, 1, "__name");
+    return 1;
+}
+static void push_enum_type(lua_State* L, const char* type) {
+    lua_getglobal(L, "Enum");
+    lua_getfield(L, -1, type);
+    lua_remove(L, -2);
+}
+static int enum_index(lua_State* L) {
+    const char* k = luaL_checkstring(L, 2);
+    lua_getref(L, enum_types_ref);
+    lua_rawgetfield(L, -1, k);
+    if (!lua_isnil(L, -1)) return 1;
+    lua_pop(L, 2);
+    if (!js_enum_type(k)) luaL_error(L, "%s is not a valid member of \"Enum\"", k);
+    lua_newtable(L);
+    lua_pushstring(L, k);
+    lua_rawsetfield(L, -2, "__name");
+    luaL_getmetatable(L, ENUM_MT);
+    lua_setmetatable(L, -2);
+    lua_setreadonly(L, -1, true);
+    lua_getref(L, enum_types_ref);
+    lua_pushvalue(L, -2);
+    lua_rawsetfield(L, -2, k);
+    lua_pop(L, 1);
+    return 1;
+}
+
 // ------------------------------------------------------------------ exports
 extern "C" {
 
@@ -509,6 +625,39 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_pushstring(L0, "Color3");
     lua_setfield(L0, -2, "__type");
     lua_pop(L0, 1);
+
+    lua_newtable(L0);
+    enum_cache_ref = lua_ref(L0, -1);
+    lua_pop(L0, 1);
+    lua_newtable(L0);
+    enum_types_ref = lua_ref(L0, -1);
+    lua_pop(L0, 1);
+    luaL_newmetatable(L0, ENUMITEM_MT);
+    lua_pushcfunction(L0, enumitem_index, "__index");
+    lua_setfield(L0, -2, "__index");
+    lua_pushcfunction(L0, enumitem_tostring, "__tostring");
+    lua_setfield(L0, -2, "__tostring");
+    lua_pushcfunction(L0, enumitem_eq, "__eq");
+    lua_setfield(L0, -2, "__eq");
+    lua_pushstring(L0, "EnumItem");
+    lua_setfield(L0, -2, "__type");
+    lua_pop(L0, 1);
+    luaL_newmetatable(L0, ENUM_MT);
+    lua_pushcfunction(L0, enumtype_index, "__index");
+    lua_setfield(L0, -2, "__index");
+    lua_pushcfunction(L0, enumtype_tostring, "__tostring");
+    lua_setfield(L0, -2, "__tostring");
+    lua_pushstring(L0, "Enum");
+    lua_setfield(L0, -2, "__type");
+    lua_pop(L0, 1);
+    lua_newtable(L0);               // the global Enum: types resolve on first use
+    lua_newtable(L0);
+    lua_pushcfunction(L0, enum_index, "__index");
+    lua_setfield(L0, -2, "__index");
+    lua_pushstring(L0, "Enums");
+    lua_setfield(L0, -2, "__type");
+    lua_setmetatable(L0, -2);
+    lua_setglobal(L0, "Enum");
 
     // vector metatable: .X/.Y/.Z are native; Magnitude and Unit here.
     lua_pushvector(L0, 0, 0, 0);

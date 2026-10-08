@@ -6,7 +6,7 @@
     "build": "node tools/build.mjs",
     "test": "node test/luau.test.mjs",
     "play": "node tools/play.mjs",
-    "test:play": "node tools/play.mjs --scenario test/scenarios/move.mjs && node tools/play.mjs --noshots --scenario test/scenarios/feet.mjs && node tools/play.mjs --scenario test/scenarios/desktop.mjs && node tools/play.mjs --phone --scenario test/scenarios/touch.mjs"
+    "test:play": "bash tools/test-play.sh"
   },
   "dependencies": {
     "@babylonjs/core": "9.29.0",

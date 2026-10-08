@@ -30,7 +30,7 @@ if (err) { console.log('ERROR', err, '\n' + logs.join('\n')); process.exit(1); }
 
 // The test clock: render frames at a fixed 1/60 s so runs are repeatable.
 const api = {
-  page, outDir,
+  page, outDir, logs, // logs: console lines from the page (Luau prints arrive as '[luau] ...')
   async frames(n, input = null) { if (noShots) return; await page.evaluate(([n, input]) => window.studio.frames(n, input), [n, input]); },
   async sim(n, input = null) { await page.evaluate(([n, input]) => window.studio.sim(n, input), [n, input]); },
   async shot(name) { if (noShots) return null; const f = path.join(outDir, name + '.png'); await page.screenshot({ path: f, timeout: 300000 }); console.log('shot', f); return f; },

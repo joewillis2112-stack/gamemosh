@@ -134,8 +134,50 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - the keyboard stays blocked;
   - a 10-stud wall never triggers it.
 
+**2026-10-08, later:**
+- **Right-handed, like Roblox.** The scene used Babylon's default left-handed system, which mirrored every place: looking down -Z, +X was on the left. Physics and data were unaffected, because the math is the same and only the view mirrored. Now:
+  - the scene is right-handed;
+  - camera-relative right is forward × up;
+  - dragging right looks right (the test checks what "right" means on screen, not a sign);
+  - `Orientation.Y = 0` means facing -Z, as in Roblox;
+  - the camera snaps behind the character on spawn.
+
+  Every golden was re-judged and re-saved. The turntable's side view is labelled for what it actually shows: the character's left, seen from +X.
+- **`Enum`.** `Enum.Material.*`, `Enum.PartType.*` and `Enum.NormalId.*` use Roblox's documented values. EnumItems are cached, so `==` works, and they expose `Name`, `Value`, `EnumType` and `:GetEnumItems()`. Enum properties accept an item, its name or its number, and reject anything else with Roblox-style errors.
+- **`Decal` and `Texture`** on any face, drawn as an overlay with a depth offset. A Texture tiles in studs. The baseplate is now Roblox-shaped: Plastic with a `studio://grid` Texture on top. My invented "Baseplate" material is gone.
+  - Plastic's roughness went to 0.75 (matte, as Roblox's reads), which restores the judged look; the goldens differ by 1.7%, from grid-line antialiasing only.
+  - The grid's alpha is 0.21, because blending happens in linear light.
+- **Players, Player, character Model, Humanoid, HumanoidRootPart** (`web/runtime/players.js`). `places/players-lab.luau` with `test/scenarios/players.mjs` runs obby scripts written the Roblox way. Covered:
+  - PlayerAdded, then CharacterAdded a frame later (so handlers connect in time);
+  - Touched and TouchEnded from exact oriented-box tests;
+  - a live speed pad (31 studs/s measured at WalkSpeed 32);
+  - a checkpoint (`RespawnLocation`);
+  - a kill brick: Died and the die clip, then respawn after `RespawnTime` at the checkpoint with a new character;
+  - a teleporter (`HumanoidRootPart.Position`), `Humanoid.Jump` set from scripts, `TakeDamage`, `FallenPartsDestroyHeight`.
+
+  The dead body is placed so its measured lying footprint doesn't cut into parts.
+- **`WedgePart`** (and `Part.Shape = Wedge`): the slope faces front (-Z) as in Roblox, flat-shaded, with a convex-hull collider. `places/parts-lab.luau` with `test/scenarios/parts.mjs` shows every shape from the front, the side, behind and above, with goldens.
+- **`tools/test-play.sh`** runs every scenario and fails on any golden mismatch (`npm run test:play`).
+
+- **The reference obby: `places/obby.luau`.** Six stages over dark lava with a checkpoint after each:
+  1. stepping stones;
+  2. offset beams beside a neon kill strip;
+  3. a wedge climb to a ledge, then a jump down;
+  4. upright cylinder pillars;
+  5. platforms that vanish 0.6 s after you touch them and return 3 s later;
+  6. 3-stud jump stairs to a neon finish.
+
+  It's built only from parts that passed the gate, and its scripts are written the way Roblox creators write them.
+  - `test/scenarios/obby.mjs` is a playtest bot. It steers to each platform and jumps when the ground ends or a step is too tall, through real physics, and **finishes in 15.9 s with no deaths**. The checkpoint and finish scripts fire.
+  - `obby-look.mjs` shoots each stage; the overview and wedge shots are goldens.
+  - The floor was chosen by comparison. Bright lava swamped every frame. A sky void gave no shadows to judge landings by, and showed the HDR's streaky lower half. Dark lava (120, 28, 12) won.
+
+**Known gaps:**
+- Places with no ground show the HDR sky's mirrored lower half. A flat haze disc looked worse (a white floor with a hard horizon). The fix belongs in the sky shader: a gradient below the horizon.
+
 **Not done yet, in order:**
-1. Moving platforms. Roblox carries players only on physics-moved parts, so this needs `AssemblyLinearVelocity` or constraints first.
-2. The reference obby, part by part through the gate.
+1. Moving and spinning parts. Moving an anchored part rebuilds its physics body today. It needs kinematic bodies, and Roblox carries players only on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService).
+2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.
+5. Then phase 2 (the editor) and the creator suite, starting with Animate.

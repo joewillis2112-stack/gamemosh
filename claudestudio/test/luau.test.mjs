@@ -1,5 +1,5 @@
 // Luau in wasm driving the JS DataModel: properties, parenting, lists,
-// vectors, Color3, events, task.wait, Signal:Wait, errors.
+// vectors, Color3, Enum, events, task.wait, Signal:Wait, errors.
 import createLuau from '../web/luau.mjs';
 import { DataModel, V3 } from '../web/datamodel.js';
 import { startLuau } from '../web/luau.js';
@@ -52,6 +52,24 @@ ok, err = pcall(function() c.R = 0 end)
 print("color readonly", ok, err)
 `);
 
+vm.run('enum', `
+local part = Instance.new("Part")
+print("enum default", part.Material, part.Material == Enum.Material.Plastic, typeof(part.Material), part.Shape.Name)
+part.Material = Enum.Material.Neon
+print("enum set", part.Material.Name, part.Material.Value, part.Material == Enum.Material.Neon, tostring(Enum.Material.Neon))
+part.Material = "Wood"
+print("enum string", part.Material.Name)
+part.Shape = 0
+print("enum number", part.Shape.Name, part.Shape.EnumType == Enum.PartType, tostring(Enum.PartType))
+print("enum items", #Enum.PartType:GetEnumItems(), Enum.PartType:GetEnumItems()[2].Name)
+local ok, err = pcall(function() part.Material = Enum.PartType.Ball end)
+print("enum wrong type", ok, err)
+ok, err = pcall(function() part.Material = "Lava" end)
+print("enum bad name", ok, err)
+ok, err = pcall(function() return Enum.Material.Lava end)
+print("enum bad item", ok, err)
+`);
+
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -84,6 +102,11 @@ const expect = [
   'tohsv 1 1 1',
   'lerp 0.5 0 0.5 1, 0.5, 0',
   'part color 0d69ac Color3',
+  'enum default Enum.Material.Plastic true EnumItem Block',
+  'enum set Neon 288 true Enum.Material.Neon',
+  'enum string Wood',
+  'enum number Ball true PartType', // Roblox: tostring(Enum.PartType) is "PartType"
+  'enum items 5 Block',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
@@ -92,8 +115,9 @@ const broken = out.find(l => l.startsWith('ERR') && l.includes('attempt to index
 const t1 = out.includes('t1 1');
 const colorType = out.find(l => l.startsWith('color type false') && l.includes('Color3 expected'));
 const colorRO = out.find(l => l.startsWith('color readonly false') && l.includes('R cannot be assigned to'));
-if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, waiting: vm.waiting() });
+const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
+if (missing.length || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || vm.waiting() !== 0) {
+  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

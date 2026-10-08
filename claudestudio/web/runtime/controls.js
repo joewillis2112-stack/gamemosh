@@ -39,7 +39,7 @@ export class Controls {
     addEventListener('pointerup', e => { if (e.pointerType === 'mouse') drag = null; });
     addEventListener('pointermove', e => {
       if (!drag || e.pointerType !== 'mouse') return;
-      camera.turn((e.clientX - drag.x) * 0.006, (e.clientY - drag.y) * 0.006); // drag right looks right
+      camera.turn(-(e.clientX - drag.x) * 0.006, (e.clientY - drag.y) * 0.006); // drag right looks right
       drag = { x: e.clientX, y: e.clientY };
     });
     canvas.addEventListener('wheel', e => { e.preventDefault(); camera.zoomBy(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
@@ -80,7 +80,7 @@ export class Controls {
           const m = Math.min(1, Math.max(0, (d - 6) / (R * 0.85 - 6))); // full speed a little before the rim
           this.move = d > 0 ? { x: (dx / Math.min(d, R)) * m, y: (-dy / Math.min(d, R)) * m } : { x: 0, y: 0 };
         } else if (s.kind === 'look') {
-          if (this.lookTouches().length === 1) camera.turn((t.clientX - s.x) * 0.008, (t.clientY - s.y) * 0.008);
+          if (this.lookTouches().length === 1) camera.turn(-(t.clientX - s.x) * 0.008, (t.clientY - s.y) * 0.008);
           s.x = t.clientX; s.y = t.clientY;
         }
       }

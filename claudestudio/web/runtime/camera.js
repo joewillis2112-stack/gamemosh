@@ -25,6 +25,9 @@ export class FollowCamera {
     this.update(0);
   }
 
+  // Behind the character, as Roblox places the camera on spawn.
+  snapBehind() { this.yaw = this.char.yaw + Math.PI; this.dist = this.zoom; }
+
   turn(dYaw, dPitch) {
     this.yaw += dYaw;
     const lim = d => d * Math.PI / 180;
@@ -35,16 +38,17 @@ export class FollowCamera {
   // Flat forward and right vectors of the view, for camera-relative movement.
   basis() {
     const f = new Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    return { forward: f, right: new Vector3(f.z, 0, -f.x) }; // left-handed: +X is right of +Z
+    return { forward: f, right: new Vector3(-f.z, 0, f.x) }; // right-handed: forward x up
   }
 
   update(dt) {
-    const target = this.char.headPosition;
+    // focus: a fixed point to orbit instead of the head (tests and cutscenes).
+    const target = this.focus ? new Vector3(...this.focus) : this.char.headPosition;
     // Direction from head to camera.
     const dir = new Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
     // Pull in when something blocks the view; ease back out.
     let want = this.zoom;
-    if (this.zoom > CAMERA.FirstPerson) {
+    if (this.zoom > CAMERA.FirstPerson && !this.focus) { // a fixed focus is a scripted view: no pull-in
       const own = new Set(this.char.meshes);
       const hit = this.scene.pickWithRay(new Ray(target, dir, this.zoom), m => m.isPickable && m.isVisible && !own.has(m) && m.name !== 'skyBox' && !m.name.startsWith('hdrSkyBox'));
       if (hit && hit.hit) want = Math.max(CAMERA.MinZoom, hit.distance - 0.6);

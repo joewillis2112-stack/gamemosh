@@ -2,11 +2,34 @@
 // shapes in Roblox's public API reference so Luau scripts read the same.
 // Luau reaches it through `host` (see bridge in luau.js): values cross as
 // {t, n, s, v} with the tags in binding.cpp.
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10 };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11 };
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
 // Color3: components 0..1 (sRGB, as Roblox stores them).
 export class C3 { constructor(r, g, b) { this.r = r; this.g = g; this.b = b; } }
+
+// Enums, with Roblox's documented values. Enum-typed properties store the
+// item's name (what the renderer reads); scripts see EnumItems.
+export const ENUMS = {
+  Material: {
+    Plastic: 256, SmoothPlastic: 272, Neon: 288, Wood: 512, WoodPlanks: 528, Marble: 784, Basalt: 788, Slate: 800,
+    CrackedLava: 804, Concrete: 816, Limestone: 820, Granite: 832, Pavement: 836, Brick: 848, Pebble: 864, Cobblestone: 880,
+    Rock: 896, Sandstone: 912, CorrodedMetal: 1040, DiamondPlate: 1056, Foil: 1072, Metal: 1088, Grass: 1280, LeafyGrass: 1284,
+    Sand: 1296, Fabric: 1312, Snow: 1328, Mud: 1344, Ground: 1360, Asphalt: 1376, Salt: 1392, Ice: 1536, Glacier: 1552,
+    Glass: 1568, ForceField: 1584, Air: 1792, Water: 2048, Cardboard: 2304, Carpet: 2305, CeramicTiles: 2306,
+    ClayRoofTiles: 2307, RoofShingles: 2308, Leather: 2309, Plaster: 2310, Rubber: 2311,
+  },
+  PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
+  NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+};
+export class EnumItem { constructor(type, name, value) { this.type = type; this.name = name; this.value = value; } }
+function enumItem(type, nameOrValue) {
+  const E = ENUMS[type];
+  if (!E) return null;
+  if (typeof nameOrValue === 'string') return nameOrValue in E ? new EnumItem(type, nameOrValue, E[nameOrValue]) : null;
+  const name = Object.keys(E).find(k => E[k] === nameOrValue);
+  return name ? new EnumItem(type, name, E[name]) : null;
+}
 
 // ------------------------------------------------------------------ classes
 // Each class: parent class, properties {name: [type, default]}, methods, events.
@@ -57,13 +80,19 @@ defineClass('BasePart', 'Instance', {
   creatable: false,
   props: {
     Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
-    Anchored: ['bool', false], CanCollide: ['bool', true], Transparency: ['number', 0],
-    Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['string', 'Plastic'], Reflectance: ['number', 0],
+    Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], Transparency: ['number', 0],
+    Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
   },
   events: ['Touched', 'TouchEnded'],
 });
-defineClass('Part', 'BasePart', { props: { Shape: ['string', 'Block'] } });
+defineClass('Part', 'BasePart', { props: { Shape: ['Enum.PartType', 'Block'] } });
 defineClass('SpawnLocation', 'Part');
+// A wedge: its sloped face is the front (-Z), rising to the back (+Z) top edge.
+defineClass('WedgePart', 'BasePart');
+// Images on a part's face. Texture tiles in studs; Decal stretches. Built-in
+// images: "studio://grid" (the baseplate grid). Roblox asset ids aren't available.
+defineClass('Decal', 'Instance', { props: { Texture: ['string', ''], Face: ['Enum.NormalId', 'Front'], Transparency: ['number', 0], Color3: ['Color3', [1, 1, 1]] } });
+defineClass('Texture', 'Decal', { props: { StudsPerTileU: ['number', 2], StudsPerTileV: ['number', 2], OffsetStudsU: ['number', 0], OffsetStudsV: ['number', 0] } });
 defineClass('LuaSourceContainer', 'Instance', { creatable: false, props: { Source: ['string', ''], Enabled: ['bool', true] } });
 defineClass('Script', 'LuaSourceContainer');
 defineClass('LocalScript', 'LuaSourceContainer');
@@ -90,7 +119,7 @@ defineClass('Humanoid', 'Instance', {
   props: {
     Health: ['number', 100], MaxHealth: ['number', 100], WalkSpeed: ['number', 16], JumpPower: ['number', 50],
     JumpHeight: ['number', 7.2], UseJumpPower: ['bool', true], AutoJumpEnabled: ['bool', true], MaxSlopeAngle: ['number', 89],
-    HipHeight: ['number', 2], Jump: ['bool', false], MoveDirection: ['Vector3', [0, 0, 0]], FloorMaterial: ['string', 'Air'],
+    HipHeight: ['number', 2], Jump: ['bool', false], MoveDirection: ['Vector3', [0, 0, 0]], FloorMaterial: ['Enum.Material', 'Air'],
   },
   methods: {
     TakeDamage(self, amount) { self.dm.set(self, 'Health', Math.max(0, self.props.Health - (+amount || 0))); return []; },
@@ -200,6 +229,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof Instance) o.push({ t: T.INST, n: v.handle });
       else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
       else if (v instanceof C3) o.push({ t: T.COLOR, v: [v.r, v.g, v.b] });
+      else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
@@ -213,18 +243,27 @@ export function makeHost(dm, log = console.log) {
         case T.STR: return a.s;
         case T.VEC: return new V3(a.v[0], a.v[1], a.v[2]);
         case T.COLOR: return new C3(a.v[0], a.v[1], a.v[2]);
+        case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
       }
       return null;
     },
     err(msg) { host.ret = [{ t: T.ERR, s: msg }]; },
+    enumType(type) { return !!ENUMS[type]; },
+    enumValue(type, name) { const E = ENUMS[type]; return E && name in E ? E[name] : null; },
+    enumItems(type) { const E = ENUMS[type] || {}; host.ret = Object.entries(E).map(([k, v]) => ({ t: T.ENUM, s: type + '.' + k, n: v })); return host.ret.length; },
     global(name) { return name === 'game' ? dm.game.handle : name === 'workspace' ? dm.workspace.handle : 0; },
     newInstance(cls) { const i = dm.create(cls); return i ? i.handle : 0; },
     index(h, key) {
       const inst = dm.byHandle[h];
       if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
-      if (key in inst.props) { host.ret = host.put([], inst.props[key]); return 1; }
+      if (key in inst.props) {
+        const ty = typeOf(inst.ClassName, key);
+        const v = inst.props[key];
+        host.ret = host.put([], ty && ty.startsWith('Enum.') && typeof v === 'string' ? enumItem(ty.slice(5), v) : v);
+        return 1;
+      }
       if (lookup(inst.ClassName, 'methods', key)) { host.ret = [{ t: T.METHOD }]; return 1; }
       if (hasEvent(inst.ClassName, key)) { host.ret = [{ t: T.SIGNAL }]; return 1; }
       const child = inst.children.find(c => c.Name === key);
@@ -248,6 +287,13 @@ export function makeHost(dm, log = console.log) {
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
+      if (ty.startsWith('Enum.')) {
+        // An EnumItem of this type, its name, or its number, as Roblox accepts.
+        const type = ty.slice(5);
+        const item = v instanceof EnumItem ? (v.type === type ? v : null) : (typeof v === 'string' || typeof v === 'number') ? enumItem(type, v) : null;
+        if (!item) return host.err(`Unable to assign property ${key}. Invalid value ${v instanceof EnumItem ? 'Enum.' + v.type + '.' + v.name : JSON.stringify(v)} for enum ${type}`);
+        return dm.set(inst, key, item.name);
+      }
       if (ty === 'Instance' && v !== null && !(v instanceof Instance)) return host.err(`Unable to assign property ${key}. Instance expected`);
       dm.set(inst, key, v);
     },

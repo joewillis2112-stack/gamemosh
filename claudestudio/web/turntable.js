@@ -117,7 +117,7 @@ async function main() {
   cam.target = new Vector3(0, h / 2, 0);
   const views = [
     ['front', Math.PI / 2, Math.PI / 2.15],
-    ['side (right)', 0, Math.PI / 2.15],
+    ['side (its left, from +X)', 0, Math.PI / 2.15],
     ['back', -Math.PI / 2, Math.PI / 2.15],
     ['top', Math.PI / 2, 0.08],
     ['below', Math.PI / 2, Math.PI - 0.08],

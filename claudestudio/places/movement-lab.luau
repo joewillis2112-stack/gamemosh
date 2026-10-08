@@ -5,15 +5,21 @@ base.Name = "Baseplate"
 base.Size = Vector3.new(512, 20, 512)
 base.Position = Vector3.new(0, -10, 0)
 base.Anchored = true
-base.Material = "Baseplate"
 base.Color = Color3.new(0.39, 0.40, 0.42)
 base.Parent = workspace
+local grid = Instance.new("Texture") -- the baseplate grid, Roblox-style: a Texture on the top face
+grid.Texture = "studio://grid"
+grid.Face = Enum.NormalId.Top
+grid.StudsPerTileU = 4
+grid.StudsPerTileV = 4
+grid.Parent = base
 
 local spawn = Instance.new("SpawnLocation")
 spawn.Size = Vector3.new(12, 1, 12)
 spawn.Position = Vector3.new(0, 0.5, -20)
 spawn.Anchored = true
-spawn.Material = "SmoothPlastic"
+spawn.Orientation = Vector3.new(0, 180, 0) -- face +Z, toward the course (Roblox spawns face -Z at 0)
+spawn.Material = Enum.Material.SmoothPlastic
 spawn.Color = Color3.new(0.64, 0.64, 0.66)
 spawn.Parent = workspace
 
@@ -28,7 +34,7 @@ for i, angle in ipairs({15, 30, 45, 60, 75}) do
   r.Position = Vector3.new(-60 + i * 16, (L / 2) * math.sin(a) - 0.5 * math.cos(a), 20 + (L / 2) * math.cos(a) + 0.5 * math.sin(a))
   r.Orientation = Vector3.new(-angle, 0, 0)
   r.Anchored = true
-  r.Material = "SmoothPlastic"
+  r.Material = Enum.Material.SmoothPlastic
   r.Color = Color3.fromHSV(i / 7, 0.45, 0.85)
   r.Parent = workspace
 end

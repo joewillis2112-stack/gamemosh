@@ -27,7 +27,9 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   const engine = new Engine(canvas, true, { preserveDrawingBuffer, stencil: true, antialias: true, adaptToDeviceRatio: true });
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.53, 0.71, 0.92, 1);
-  scene.useRightHandedSystem = false;
+  // Right-handed, like Roblox: place coordinates mean the same thing here
+  // (looking down -Z, +X is to the right). Left-handed would mirror every place.
+  scene.useRightHandedSystem = true;
 
   // Image-based light from the sky: soft fill and reflections that match it.
   let ready = Promise.resolve();

@@ -1,9 +1,12 @@
-// Fixed camera views of the default place, for judging the look.
+// Fixed camera views of the default place, for judging the look: the follow
+// camera's yaw, pitch and zoom around the player standing on the spawn.
 export default async function (t) {
-  const views = { close: [-1.2, 1.2, 22, [0, 2, 12]], low: [-1.0, 1.42, 30, [0, 2, 10]], high: [-1.57, 0.5, 60, [0, 0, 8]] };
-  for (const [name, [a, b, r, tg]] of Object.entries(views)) {
-    await t.eval(([a, b, r, tg]) => { const c = window.studio.cam; c.alpha = a; c.beta = b; c.radius = r; c.target.set(...tg); }, [a, b, r, tg]);
-    await t.frames(8);
+  await t.sim(30);
+  const views = { close: [200, 18, 16], low: [180, 6, 22], high: [150, 45, 60] };
+  for (const [name, [yaw, pitch, zoom]] of Object.entries(views)) {
+    await t.eval(([y, p, z]) => { const c = window.studio.camera; c.yaw = y * Math.PI / 180; c.pitch = p * Math.PI / 180; c.zoom = c.dist = z; }, [yaw, pitch, zoom]);
+    await t.sim(1);
+    await t.frames(2);
     await t.shot('look-' + name);
   }
 }
