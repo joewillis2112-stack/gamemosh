@@ -127,6 +127,8 @@ defineClass('BasePart', 'Instance', {
     CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], Transparency: ['number', 0],
     Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
+    // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
+    AssemblyLinearVelocity: ['Vector3', [0, 0, 0]], AssemblyAngularVelocity: ['Vector3', [0, 0, 0]],
   },
   methods: {
     GetPivot(self) { return [self.props.CFrame]; },
@@ -324,6 +326,8 @@ function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base])
 
 // ------------------------------------------------------------------ the Luau-facing host
 // Converts between JS values and the {t, n, s, v} channel.
+// Deprecated names Roblox still accepts.
+const ALIASES = { Velocity: 'AssemblyLinearVelocity', RotVelocity: 'AssemblyAngularVelocity' };
 function typeOf(cls, key) {
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (key in c.props) return c.props[key][0];
   return undefined;
@@ -370,6 +374,7 @@ export function makeHost(dm, log = console.log) {
     newInstance(cls) { const i = dm.create(cls); return i ? i.handle : 0; },
     index(h, key) {
       const inst = dm.byHandle[h];
+      if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
       if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
       if (key in inst.props) {
@@ -388,6 +393,7 @@ export function makeHost(dm, log = console.log) {
     },
     newindex(h, key) {
       const inst = dm.byHandle[h];
+      if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
       const v = host.in(host.args[0]);
       host.ret = [];
       if (key === 'Parent') {

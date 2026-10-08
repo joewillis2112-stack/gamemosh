@@ -218,7 +218,10 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - `RunService` (done): each frame fires PreAnimation, PreSimulation/Stepped, then physics (Havok, then the character), PostSimulation/Heartbeat, then `task.wait` threads resume, then PreRender/RenderStepped and the camera, as Roblox's docs order them. Also `time()`, `tick()`, writable shared `_G` and `shared` (the sandbox had frozen `_G`), and the container services (ReplicatedStorage, ServerScriptService, …). Test: `test/scenarios/runservice.mjs` (order, deltaTime, a Heartbeat spinner turning exactly 180°; mutation-checked). Not yet: `BindToRenderStep` (needs functions passed to the engine).
 
 **Not done yet, in order:**
-1. Moving and spinning parts. A script moving an anchored part now moves a kinematic body, but nothing carries the player: Roblox carries players on physics-moved parts (`AssemblyLinearVelocity`, constraints, TweenService), and the controller needs to inherit its floor's velocity.
+1. Moving and spinning parts.
+   - Done: the character is carried by its floor's velocity at the contact point (linear + angular × r), and parts have `AssemblyLinearVelocity`/`AssemblyAngularVelocity` (plus the deprecated `Velocity`/`RotVelocity`). Physics writes these for unanchored parts; on anchored ones they're a conveyor. A part moved only by CFrame or a tween has no velocity and doesn't carry, as in Roblox (its engineers advise setting the velocity too, or moving it with constraints). Jumping off keeps no momentum beyond what air control bleeds off (the legacy Humanoid). `test/scenarios/platforms.mjs`, mutation-checked.
+   - Unknown, so not modelled: whether a spinning floor turns the character's facing.
+   - Next: TweenService; constraints (Prismatic, Hinge motors, AlignPosition) later.
 2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.

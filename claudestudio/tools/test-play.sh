@@ -21,6 +21,7 @@ run --noshots --place places/touch-lab.luau --scenario test/scenarios/death-clea
 run --noshots --scenario test/scenarios/humanoid-events.mjs
 run --noshots --scenario test/scenarios/cframe.mjs
 run --noshots --scenario test/scenarios/runservice.mjs
+run --noshots --scenario test/scenarios/platforms.mjs
 run --noshots --scenario test/scenarios/defaults.mjs
 run --noshots --phone --scenario test/scenarios/defaults.mjs
 run --noshots --scenario test/scenarios/sounds.mjs

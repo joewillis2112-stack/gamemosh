@@ -219,6 +219,7 @@ export class Character {
     this.state = 'idle';
     this.grounded = false;
     this.velocity = Vector3.Zero();
+    this.floorVel = Vector3.Zero();
     this.vy = 0;
     this.ray = new PhysicsRaycastResult();
     this.teleport(spawn ? spawn.clone() : Vector3.Zero());
@@ -350,6 +351,16 @@ export class Character {
     return best;
   }
 
+  // A part's velocity at a world point: linear + angular x (point - centre),
+  // as BasePart:GetVelocityAtPosition. Unanchored parts' velocities are copied
+  // from physics each frame; anchored ones are whatever a script set (a conveyor).
+  floorVelocityAt(part, x, y, z) {
+    if (!part || !part.props.AssemblyLinearVelocity) return Vector3.Zero();
+    const P = part.props, v = P.AssemblyLinearVelocity, w = P.AssemblyAngularVelocity, c = P.Position;
+    const rx = x - c.x, ry = y - c.y, rz = z - c.z;
+    return new Vector3(v.x + w.y * rz - w.z * ry, v.y + w.z * rx - w.x * rz, v.z + w.x * ry - w.y * rx);
+  }
+
   // Input for this frame: world-space direction (x, z), length <= 1; jump pressed.
   setInput(dirX, dirZ, jump, touch = false) {
     if (this.dead) { dirX = dirZ = 0; jump = false; }
@@ -392,13 +403,18 @@ export class Character {
     }
     this.lastSupport = floor ? +floor.n.y.toFixed(3) : null;
     this.floorPart = floor && floor.node && floor.node.metadata ? floor.node.metadata.instance : null;
+    // The floor carries us at its velocity where we stand (Roblox: a conveyor's
+    // AssemblyLinearVelocity, a part moved by physics; a part moved by CFrame or
+    // a tween alone has no velocity, so it doesn't). In the air nothing does:
+    // the controller steers back toward the input, so platform momentum fades.
+    const fv = this.floorVel = grounded ? this.floorVelocityAt(this.floorPart, this.ctrl.getPosition().x, floor.y, this.ctrl.getPosition().z) : Vector3.Zero();
 
-    const want = this.moveDir.scale(H.WalkSpeed);
+    const want = this.moveDir.scale(H.WalkSpeed).addInPlace(new Vector3(fv.x, 0, fv.z));
     const k = 1 - Math.exp(-(grounded ? H.Accel : H.AirAccel) * dt);
     const horiz = new Vector3(v.x, 0, v.z);
     horiz.addInPlace(want.subtract(horiz).scale(k));
     let outY;
-    if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x, 0, v.z), gravity))) {
+    if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x - fv.x, 0, v.z - fv.z), gravity))) {
       // Jump: vertical speed is tracked here and the body moves by the step's
       // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
       grounded = false;
@@ -413,7 +429,7 @@ export class Character {
       // velocity (horizontal speed stays WalkSpeed on a ramp) and spring out
       // any height error (a step up or down).
       const n = floor.n;
-      const along = -(n.x * horiz.x + n.z * horiz.z) / n.y;
+      const along = -(n.x * (horiz.x - fv.x) + n.z * (horiz.z - fv.z)) / n.y + fv.y; // the slope under our motion relative to the floor, plus the floor's own rise
       const err = floor.y - foot;
       outY = along + err * Math.min(H.Spring, 1 / dt);
       this.vy = along;
@@ -436,7 +452,7 @@ export class Character {
     if (!grounded) this.blockedTime = 0;
 
     // Turn toward movement.
-    const sp = Math.hypot(this.velocity.x, this.velocity.z);
+    const sp = Math.hypot(this.velocity.x - fv.x, this.velocity.z - fv.z); // over the floor: carried standing still is idle
     if (this.moveDir.lengthSquared() > 0.01) {
       const target = Math.atan2(this.moveDir.x, this.moveDir.z);
       let d = target - this.yaw;

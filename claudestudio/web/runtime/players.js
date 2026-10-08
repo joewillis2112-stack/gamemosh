@@ -198,7 +198,7 @@ export class Players {
       if (this.lastState === 'fall') this.dm.fire(this.humanoid, 'FreeFalling', [false]);
       this.lastState = c.state;
     }
-    const speed = c.grounded ? Math.hypot(c.velocity.x, c.velocity.z) : 0;
+    const speed = c.grounded ? Math.hypot(c.velocity.x - c.floorVel.x, c.velocity.z - c.floorVel.z) : 0; // over the floor (ours: Roblox doesn't say)
     if (c.grounded && Math.abs(speed - (this.lastSpeed ?? -1)) > 0.1) { this.lastSpeed = speed; this.dm.fire(this.humanoid, 'Running', [speed]); }
     if (!this.dead) this.touches();
     if (!this.dead) this.regen(t);

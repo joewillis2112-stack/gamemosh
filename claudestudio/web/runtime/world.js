@@ -244,6 +244,14 @@ export class World {
         this.transform(inst, e); this.decals(inst, e); return this.body(inst, e);
       case 'Shape': return this.build(inst);
       case 'CanCollide': case 'Anchored': e.moving = false; return this.body(inst, e);
+      // On an unanchored part, setting a velocity sets it for this frame and physics takes over (Roblox).
+      // On an anchored part it's only read: by whatever stands on it.
+      case 'AssemblyLinearVelocity': case 'AssemblyAngularVelocity': {
+        if (inst.props.Anchored || !e.agg) return;
+        const v = inst.props[key], b = e.agg.body;
+        if (key === 'AssemblyLinearVelocity') b.setLinearVelocity(new Vector3(v.x, v.y, v.z)); else b.setAngularVelocity(new Vector3(v.x, v.y, v.z));
+        return;
+      }
       default: return; // Name, CanTouch, Reflectance...: nothing to redraw
     }
   }
@@ -260,6 +268,8 @@ export class World {
       const p = m.position, q = m.rotationQuaternion || Quaternion.Identity();
       const cf = CF.fromQuat(p.x, p.y, p.z, q.x, q.y, q.z, q.w), [ox, oy, oz] = cf.toOrientation();
       inst.props.CFrame = cf; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(ox, oy, oz);
+      const b = e.agg.body, lv = b.getLinearVelocity(), av = b.getAngularVelocity();
+      inst.props.AssemblyLinearVelocity = new V3(lv.x, lv.y, lv.z); inst.props.AssemblyAngularVelocity = new V3(av.x, av.y, av.z);
       partShape(inst, m.rotationQuaternion, e.shape);
     }
     for (const inst of fallen) this.dm.destroy(inst);
