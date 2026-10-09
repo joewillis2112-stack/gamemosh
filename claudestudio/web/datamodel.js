@@ -42,6 +42,8 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  // From Roblox's API dump (Roblox-Client-Tracker, v0.719).
+  CoreGuiType: { PlayerList: 0, Health: 1, Backpack: 2, Chat: 3, All: 4, EmotesMenu: 5, SelfView: 6, Captures: 7, AvatarSwitcher: 8 },
 };
 export class EnumItem { constructor(type, name, value) { this.type = type; this.name = name; this.value = value; } }
 function enumItem(type, nameOrValue) {
@@ -152,8 +154,24 @@ defineClass('TweenService', 'Instance', {
   },
 });
 // Roblox's standard containers. Nothing replicates (one local session), so they only hold things.
-for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterGui', 'StarterPack', 'StarterPlayer'])
+for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterPack', 'StarterPlayer'])
   defineClass(name, 'Instance', { creatable: false, service: true });
+// StarterGui also switches Roblox's own UI on and off; `All` sets every type.
+const coreGuiType = v => { const e = v instanceof EnumItem ? v : enumItem('CoreGuiType', v); if (!e || e.type !== 'CoreGuiType') throw new Error('Unable to cast value to Enum.CoreGuiType'); return e.name; };
+defineClass('StarterGui', 'Instance', {
+  creatable: false, service: true,
+  methods: {
+    SetCoreGuiEnabled(self, type, on) {
+      const name = coreGuiType(type), core = self.dm.coreGui;
+      for (const k of name === 'All' ? Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All') : [name]) core[k] = !!on;
+      self.dm.notify(self, 'CoreGui'); return [];
+    },
+    GetCoreGuiEnabled(self, type) {
+      const name = coreGuiType(type), core = self.dm.coreGui;
+      return [name === 'All' ? Object.keys(core).every(k => core[k]) : core[name] !== false];
+    },
+  },
+});
 // ---- UI (create.roblox.com/docs/ui; defaults are Instance.new's, from Roblox's
 // reflection data: mashup-research/ROBLOX_GUI_2026-10-09.md). Drawn by
 // runtime/gui.js. AbsolutePosition/AbsoluteSize are written by its layout pass.
@@ -318,6 +336,7 @@ export class DataModel {
     this.connsOf = new Map(); // inst -> Map(ev -> Set(id)): fire looks up only its own
     this.nextConn = 1;
     this.onFire = null; // (ref, args) -> void, set by the Luau bridge
+    this.coreGui = Object.fromEntries(Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All').map(k => [k, true]));
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
     this.tweens = new Set(); // playing (or delayed or paused) tweens
     this.hooks = {};    // runtime callbacks the API needs (e.g. Player:LoadCharacter)

@@ -12,6 +12,8 @@
 // Where Roblox leaves a choice open (hover tint amounts), the value is ours.
 import { V2, EnumItem, isA } from '../datamodel.js';
 
+import { PlayerList } from './playerlist.js';
+
 export const GUI_INSET = 58;
 const FONTS = [
   ['Arimo', 'Arimo.woff2', '400 700'], ['Source Sans 3', 'SourceSans3.woff2', '200 900'], ['Montserrat', 'Montserrat.woff2', '100 900'],
@@ -40,13 +42,16 @@ export class Gui {
     document.body.appendChild(this.root);
     const st = document.createElement('style');
     st.textContent = FONTS.map(([f, file, w]) => `@font-face{font-family:'${f}';src:url('${base}${file}') format('woff2');font-weight:${w};font-display:block}`).join('\n') +
-      '\n.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}';
+      '\n.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}' +
+      '\n.cs-pl-row:hover{background:rgba(255,255,255,0.1)}'; // the player list's row hover (BackgroundOnHover)
     document.head.appendChild(st);
     this.els = new Map(); // instance -> { el, text, cache }
     // A font finishing loading changes text metrics: re-fit TextScaled and re-lay out.
     document.fonts.addEventListener('loadingdone', () => { this.fitCache = new Map(); this.dirty = true; });
     this.dirty = true;
     dm.watch(() => { this.dirty = true; });
+    this.small = false; // a touch device: the player list shows one stat column
+    this.playerList = new PlayerList(dm, players, this.root, () => { this.dirty = true; });
     // TextScaled measures in a box built like the ones drawn (flex, a span inside).
     this.measure = document.createElement('div');
     this.measure.className = 'cs-gui';
@@ -75,6 +80,7 @@ export class Gui {
       });
     }
     for (const [inst, e] of this.els) if (!seen.has(inst)) { e.el.remove(); this.els.delete(inst); }
+    this.playerList.update(W, H, this.small, this.dm.coreGui.PlayerList);
   }
 
   element(inst, parentEl, seen) {

@@ -226,6 +226,26 @@ ScreenGui defaults (RBXDOM; DUMP agrees for the own members):
 - UNSURE: the 2025-26 "new PlayerList" (`FFlagUseNewPlayerList`) visuals, and the Here/Friends/Global tabs from CD leaderboards.md (beta). Its layout code isn't in the tracker.
 - VERIFIED hide: `StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)`. Source: CD leaderboards.md.
 
+### 7b. Read from the legacy PlayerList source (later the same day)
+
+Source: Roblox-Client-Tracker at the commit before `ef54b101` (v0.719), `scripts/CoreScripts/Modules/PlayerList/` (the desktop path without `FFlagUseNewPlayerList`). Fetched with a blobless `git clone --filter=blob:none` and `git show <commit>:<path>`.
+
+- VERIFIED sort direction for v0.719 (`PlayerSorting.lua` `keyCmp`): equal stats compare by name ascending; a nil stat goes last; mixed types compare as strings; otherwise `statL > statR` (**descending**). This settles item 4 of the open list for that version.
+- VERIFIED panel structure (`PlayerListDisplayView.lua`, desktop branch): a 4 px top cap (`TopRoundedRect8px.png`, slice at `SliceScale = 0.5`, so the corners are about **4 px**, not 8), a 20 px title bar (only when there is at least one stat), the rows, then a 4 px bottom cap that is rounded the same way. The background is `BackgroundUIContrast` (black) with Chrome on, at `OverrideBackgroundTransparency (0.3) × PreferredTransparency`.
+- VERIFIED width (`PlayerListApp.lua`): 66 per stat column, plus `ExtraContainerPadding` 16, plus the name column `150 + 11 × stats`. The name column shrinks when `screenX − (stats × 66 + 16 + 8 + 304)` is smaller than that; 304 is the dropdown's space. The y position is `4 + TopBarOffset`, which is 58 with Chrome.
+- VERIFIED title bar (`TitleBarView.lua`): a "Players" label as wide as the name column, padded 15 px from the left; then one 66 px header per stat, centred and truncated. Text is `Font.Footer` (BuilderSansMedium at BaseSize × 10/16), in `TextMuted`. The contents sit 2 px up into the rounded cap.
+- VERIFIED UIBlox fonts (`UIBlox/App/Style/Fonts/FontLoader.lua`, tokens `RbxDesignFoundations/tokens/Common/Builder/Dark/Global.lua`): `BaseSize = 16 × 1.26 = 20.16`; `Size_100/125/150/200 = 8/10/12/16`; Footer = CaptionSmall (BuilderSansMedium, 10/16, so 12.6 px); CaptionHeader = BuilderSansMedium 12/16 (15.12 px); CaptionBody = BuilderSans 12/16.
+- VERIFIED row (`PlayerEntryView.lua`, `PlayerIcon.lua`, `PlayerNameTag.lua`, `StatEntry.lua`): rows are 40 px with no background of their own. The name frame is as wide as the name column: 12 px padding, a 16 px icon slot (shown only for friend, place-owner, premium and similar icons), 12 px, then the name.
+  - The local player's name is CaptionHeader in `TextEmphasis` (white); other players' names are CaptionBody in `TextDefault` (Pumice).
+  - Stat cells are 66 px, CaptionHeader, centred, padded 4 px from the left, in the row's text colour.
+  - A 16 px blank cell ends the row. Hovering a row overlays `BackgroundOnHover`.
+  - The name shown is the `DisplayName`.
+- VERIFIED display defaults (`Reducers/DisplayOptions.lua`): the list is visible by default unless `FFlagPlayerListUseMobileOnSmallDisplay` is set (its value is unknown). Small touch devices cap the stats at 1 (`MaxLeaderstatsSmallScreen`) and use a separate scrolling layout, which we didn't port.
+- VERIFIED Tab toggles it (`Components/Connection/ContextActionsBinder.lua`: `BindCoreAction(..., Enum.KeyCode.Tab)`).
+- VERIFIED `Enum.CoreGuiType` from `API-Dump.txt`: PlayerList 0, Health 1, Backpack 2, Chat 3, All 4, EmotesMenu 5, SelfView 6, Captures 7, AvatarSwitcher 8. Also `StarterGui:SetCoreGuiEnabled(type, enabled)` and `GetCoreGuiEnabled(type)`.
+- NOT FOUND: `NumberLocalization.abbreviate`. It lives in `CorePackages.Workspace.Packages.Localization`, which the tracker doesn't publish, and a web search found nothing. Its exact format is unknown.
+- Tip: the tracker's `API-Dump.txt` holds every class, member and enum with its values. Prefer it to memory for enum numbers.
+
 ## 8. Buttons and input sinking
 
 - VERIFIED `GuiButton.Activated(inputObject, clickCount)` (CD `classes/GuiButton.yaml`):

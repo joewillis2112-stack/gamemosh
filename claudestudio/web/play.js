@@ -46,6 +46,7 @@ async function main() {
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
   const controls = new Controls(canvas, camera);
+  gui.small = controls.isTouch;
   players.onSpawn = () => camera.snapBehind();
   const audio = new Audio();
   await audio.load();

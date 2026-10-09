@@ -264,7 +264,12 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - Fonts: OFL stand-ins for Roblox's `Enum.Font` (Gotham → Montserrat, FredokaOne → Fredoka, SourceSans, Arcade → Press Start 2P, and others), in `assets/fonts/`.
      - `places/gui-lab.luau` with `test/scenarios/gui.mjs`: 7 checks on desktop, 9 on a phone, plus 2 goldens, mutation-checked (inset, release check, TextScaled).
      - Not yet: `ImageColor3` tint, `ZIndexBehavior.Global` (drawn as Sibling), `UIGridLayout`, `UIGradient`, `UISizeConstraint`, `ScrollingFrame`, `TextBox`, `ViewportFrame`, `BillboardGui`/`SurfaceGui`. `AutoButtonColor`'s tint amounts are ours.
-   - Next: leaderstats and the player list.
+   - Done (2026-10-09): leaderstats and the player list (`web/runtime/playerlist.js`), ported from Roblox's own legacy PlayerList CoreScripts (v0.719; `mashup-research/ROBLOX_GUI_2026-10-09.md` §7b).
+     - Columns: IsPrimary first, then Priority, then creation order, at most 4. Rows: highest first stat first, ties by name, players without the stat last. Numbers get thousands separators.
+     - The look: top right under the top bar, a black panel at 0.3 transparency with 4 px rounded caps, a 20 px header and 40 px rows, Builder Sans sizes (Nunito stands in), the local player in white.
+     - Tab toggles it; `StarterGui:SetCoreGuiEnabled`/`GetCoreGuiEnabled` with `Enum.CoreGuiType` (All included).
+     - Ours: the abbreviation format for numbers of 7+ characters (three significant digits, truncated, K/M/B/T; Roblox's is unpublished); no status icons or player dropdown; on a phone, the desktop panel with one column instead of Roblox's separate small-screen layout.
+     - `places/leaderstats-lab.luau` with `test/scenarios/leaderstats.mjs`: 10 checks on desktop, 6 on a phone, 2 goldens, mutation-checked (sort direction, IsPrimary, abbreviation length, top bar offset, SetCoreGuiEnabled).
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.
 5. Then phase 2 (the editor) and the creator suite, starting with Animate.
