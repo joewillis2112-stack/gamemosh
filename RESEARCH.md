@@ -327,6 +327,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Web fonts change text metrics when they finish loading.** TextScaled fitted against the fallback font kept the wrong size. Clear the fit cache on `document.fonts` `loadingdone` and lay out again.
 - **Judge a HUD on a phone as well as a desktop.** The lab's HUD used offsets chosen at 1280 px; on a 390 px portrait phone the title ran over the stats and a label covered the button. The renderer was right and the place was wrong, but a phone-first studio's own examples have to work on a phone.
 - **Port from the original's source when it's published.** Roblox's PlayerList CoreScripts are in Roblox-Client-Tracker. A blobless clone (`git clone --filter=blob:none --no-checkout`) plus `git show <commit>:<path>` reads any file at any version cheaply. Reading the source corrected two things my notes had from summaries: the corner radius (4 px, not 8) and an unsure sort direction (it is descending). Don't `git grep` a blobless clone, because it downloads every blob; find files by name with `git ls-tree -r --name-only` first.
+- **`pgrep -f PATTERN` matches the shell that runs it** when PATTERN appears in that shell's own command line. `until ! pgrep -f "test-play.sh --update"; do sleep 5; done; bash tools/test-play.sh` waited on itself forever, and the verification run never started. Wait on a PID (`wait`, `kill -0 $pid`), or use a pattern the waiter's own text can't match (`[t]est-play`).
 ## 5. Ways to work that held up
 
 **Research pipeline**
