@@ -293,7 +293,15 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - decals on MeshParts;
      - Color tinting a file's materials;
      - a raised error on a failed load.
-   - Next: **rendering range presets**, flat and blocky through photoreal (soft shadows, SSAO, bloom, tone mapping, reflections). Then the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
+   - **Rendering range: the Lighting service and a time-of-day sky (2026-10-09).**
+     - Semantics from `mashup-research/ROBLOX_LIGHTING_2026-10-09.md`. A new place gets a Baseplate's Lighting values and children: Sky, SunRays, Atmosphere, Bloom, DepthOfField.
+     - Sun and moon from ClockTime and GeographicLatitude; `GetSunDirection`/`GetMoonDirection`; TimeOfDay and ClockTime kept as one value; `SetMinutesAfterMidnight`.
+     - Exposure in stops; GlobalShadows; environment diffuse and specular scaled separately; Atmosphere fog (else FogStart/FogEnd); Bloom; ColorCorrection contrast and saturation.
+     - LightingStyle Realistic adds SSAO, seeded so renders are deterministic, tuned against Blender Cycles: strength 2, radius 0.5 m. 1 m scored slightly better on the tuning scenes but left halos in the world.
+     - Sky (`web/runtime/sky.js`): a photo with its baked sun removed. It is graded per texel on the CPU by the sun's position (sunset band and glow, night, stars, sun and moon discs), then prefiltered and given harmonics like a loaded HDR. With grading off it equals the static environment (fidelity check). The photo turns so its lit clouds face the sun.
+     - `places/lighting-lab.luau` with `test/scenarios/lighting.mjs`: 12 checks, 5 goldens (default, Realistic, sunset, night, flat), desktop and phone, mutation-checked (sky mapping, skybox texture sharing, SSAO, diffuse scale).
+   - Not yet: Sky skybox faces (custom skies), SunRays, DepthOfField, Blur, ColorCorrection brightness and tint, ShadowSoftness, sky visibility for OutdoorAmbient (indoors vs outdoors), local lights (Point/Spot/Surface), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
+   - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
 4. Climb (TrussPart) and swim poses.
 5. Phone frame rate on real hardware.
 6. Then phase 2 (the editor) and the rest of the creator suite.

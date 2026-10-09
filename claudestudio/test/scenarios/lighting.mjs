@@ -77,9 +77,10 @@ export default async function (t) {
     S.savedCam = { yaw: S.camera.yaw, pitch: S.camera.pitch, zoom: S.camera.zoom, z: S.camera.z, dist: S.camera.dist };
     let best = null;
     for (let yi = 0; yi < 72; yi++) for (let pi = -16; pi <= 16; pi++) {
-      S.camera.yaw = yi * Math.PI / 36; S.camera.pitch = pi * 0.075; S.camera.update(0);
-      const f = S.cam.getForwardRay().direction, d = f.x * sun.x + f.y * sun.y + f.z * sun.z;
-      if (!best || d > best.d) best = { d, yaw: S.camera.yaw, pitch: S.camera.pitch };
+      // The camera sits at focus + r (sin yaw cos pitch, sin pitch, cos yaw cos pitch) and looks back along it.
+      const yaw = yi * Math.PI / 36, pitch = pi * 0.075;
+      const d = -(Math.sin(yaw) * Math.cos(pitch) * sun.x + Math.sin(pitch) * sun.y + Math.cos(yaw) * Math.cos(pitch) * sun.z);
+      if (!best || d > best.d) best = { d, yaw, pitch };
     }
     S.camera.yaw = best.yaw; S.camera.pitch = best.pitch; S.camera.zoom = S.camera.dist = 0.5; S.camera.update(0); // first person, character hidden: nothing in the way
     S.player.holder.getChildMeshes().forEach(m => m.isVisible = false);
