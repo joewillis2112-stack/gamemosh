@@ -3,28 +3,36 @@
 // KHR material extensions; this sets it up the way Khronos's Render Fidelity
 // harness does (mashup-research/GLTF_FIDELITY_2026-10-09.md) so what we import
 // can be checked against their goldens.
-import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
+import { ImportMeshAsync, LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
-// One import in flight per loader plugin activation, so the option applies to
-// exactly the load it was set for.
+// Loader options travel with each load (concurrent loads can't mix them up).
+// transparencyAsCoverage: an alpha-blended surface's alpha is coverage (it
+// scales the specular too), as glTF defines it; Babylon's default treats it as glass.
+const loaderOptions = opts => ({ pluginOptions: { gltf: { transparencyAsCoverage: true, ...('useSRGBBuffers' in opts ? { useSRGBBuffers: opts.useSRGBBuffers } : {}) } } });
+
+// Babylon 9 mixes environment radiance into the diffuse irradiance of rough
+// surfaces by default. Measured against Khronos's ground truth (the glTF
+// Sample Viewer) over 13 fidelity scenarios, turning it off is closer
+// (mean error 7.07 vs 9.20 /255) and matches Babylon's own fidelity goldens
+// to 1.1 /255. Hardware sRGB textures (the default) measured best too.
+export function fixMaterials(mats, opts = {}) {
+  for (const m of mats) if (m.brdf && !('mixIblRadianceWithIrradiance' in (opts.brdf || {}))) m.brdf.mixIblRadianceWithIrradiance = false;
+}
+
+// For instancing (MeshParts): the file loads once into a container that each
+// part instantiates from.
+export async function loadGltfContainer(scene, url, opts = {}) {
+  const c = await LoadAssetContainerAsync(url, scene, loaderOptions(opts));
+  fixMaterials(c.materials, opts);
+  return c;
+}
+
 export async function importGltf(scene, url, opts = {}) {
-  SceneLoader.OnPluginActivatedObservable.addOnce(plugin => {
-    // Spec conformance: an alpha-blended surface's alpha is coverage (it scales
-    // the specular too), as glTF defines it. Babylon's default treats it as glass.
-    if (plugin.name === 'gltf') plugin.transparencyAsCoverage = true;
-    if (plugin.name === 'gltf' && 'useSRGBBuffers' in opts) plugin.useSRGBBuffers = opts.useSRGBBuffers;
-  });
-  const cut = url.lastIndexOf('/') + 1;
-  const res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene);
-  // Babylon 9 mixes environment radiance into the diffuse irradiance of rough
-  // surfaces by default. Measured against Khronos's ground truth (the glTF
-  // Sample Viewer) over 13 fidelity scenarios, turning it off is closer
-  // (mean error 7.07 vs 9.20 /255) and matches Babylon's own fidelity goldens
-  // to 1.1 /255. Hardware sRGB textures (the default) measured best too.
+  const res = await ImportMeshAsync(url, scene, loaderOptions(opts));
   const mats = new Set();
   for (const m of res.meshes) if (m.material) (m.material.subMaterials || [m.material]).forEach(x => x && mats.add(x));
-  for (const m of mats) if (m.brdf && !('mixIblRadianceWithIrradiance' in (opts.brdf || {}))) m.brdf.mixIblRadianceWithIrradiance = false;
+  fixMaterials(mats, opts);
   return {
     root: res.meshes[0],                 // __root__: converts glTF's right-handed Y-up into the scene
     meshes: res.meshes.filter(m => m.getTotalVertices && m.getTotalVertices() > 0),

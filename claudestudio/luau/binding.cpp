@@ -28,6 +28,10 @@ EM_JS(void, js_newindex, (int h, const char* key), { Module.studio.newindex(h, U
 EM_JS(int, js_call, (int h, const char* method), { return Module.studio.call(h, UTF8ToString(method)); });
 EM_JS(int, js_connect, (int h, const char* ev, int ref), { return Module.studio.connect(h, UTF8ToString(ev), ref); });
 EM_JS(void, js_disconnect, (int id), { Module.studio.disconnect(id); });
+// A method can ask to suspend the calling script until an event fires
+// (async engine calls: loading a mesh). The event's args become the results.
+EM_JS(int, js_yield_h, (), { const y = Module.studio.yieldOn; return y ? y.h : 0; });
+EM_JS(char*, js_yield_ev, (), { const y = Module.studio.yieldOn; Module.studio.yieldOn = null; return stringToNewUTF8(y.ev); });
 EM_JS(int, js_connected, (int id), { return Module.studio.connected(id); });
 EM_JS(void, js_print, (const char* s, int level), { Module.studio.print(UTF8ToString(s), level); });
 EM_JS(int, js_global, (const char* name), { return Module.studio.global(UTF8ToString(name)); });
@@ -301,6 +305,16 @@ static int method_call(lua_State* L) {
     js_args_clear();
     for (int i = 2; i <= n; i++) send_arg(L, i);
     int nret = js_call(h, method);
+    if (int yh = js_yield_h()) {
+        // Like Signal:Wait(): a one-shot connection resumes this thread with the event's args.
+        char* ev = js_yield_ev();
+        lua_pushthread(L);
+        int ref = lua_ref(L, -1);
+        lua_pop(L, 1);
+        js_connect(yh, ev, -ref);
+        free(ev);
+        return lua_yield(L, 0);
+    }
     for (int i = 0, c = 0; i < nret; i++) c = push_ret(L, c, h, method);
     return nret;
 }

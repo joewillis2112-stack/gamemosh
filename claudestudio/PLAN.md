@@ -273,6 +273,27 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - **Opt-in (2026-10-09):** off unless the project calls `StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)`. Roblox's own UI isn't a default here (see "What it is").
      - Ours: the abbreviation format for numbers of 7+ characters (three significant digits, truncated, K/M/B/T; Roblox's is unpublished); no status icons or player dropdown; on a phone, the desktop panel with one column instead of Roblox's separate small-screen layout.
      - `places/leaderstats-lab.luau` with `test/scenarios/leaderstats.mjs`: 10 checks on desktop, 6 on a phone, 2 goldens, mutation-checked (sort direction, IsPrimary, abbreviation length, top bar offset, SetCoreGuiEnabled).
-3. Climb (TrussPart) and swim poses.
-4. Phone frame rate on real hardware.
-5. Then phase 2 (the editor) and the creator suite, starting with Animate.
+3. **Range: real models and realism** (re-ranked 2026-10-09 after the user restated the direction).
+   - Done: **glTF import, measured against Khronos** (`runtime/gltf.js`; `mashup-research/GLTF_FIDELITY_2026-10-09.md`).
+     - `tools/fetch-fidelity.sh` and `tools/fidelity.mjs` render Khronos Render Fidelity scenarios through our import path and diff them against Babylon's golden and the glTF Sample Viewer's (ground truth).
+     - We turn off Babylon 9's radiance/irradiance mixing for imported materials, measured closest to ground truth. 13 of 14 scenarios are within 2.1/255 of Babylon's golden; BoxTextured is an open outlier.
+     - A baseline (`test/fidelity-baseline.json`) runs in `test-play.sh` when the fixtures are fetched, mutation-checked.
+   - Done: **MeshPart** (Roblox's names: MeshId, TextureID, DoubleSided, RenderFidelity, CollisionFidelity, read-only MeshSize; `AssetService:CreateMeshPartAsync`).
+     - Each file loads once and is instanced per part. Materials are cloned per part, so DoubleSided and TextureID can differ.
+     - `Size` stretches the mesh's box. glTF metres become studs at 0.28 m.
+     - Colliders: Box, Hull, or for Default and Precise the exact triangles when anchored (Roblox decomposes) and the hull when loose.
+     - Mass is density times the mesh's own enclosed volume.
+     - Beyond Roblox: scripts can set `MeshId` at run time, `MeshId` takes a URL to a .glb/.gltf, and the file's own PBR materials (and KHR extensions) are kept without a SurfaceAppearance.
+     - Engine calls can now yield: a method returns a `Yield`, the binding suspends the script on a one-shot event, and `dm.async(promise)` resumes it with the results. A failed load warns and returns nothing; Roblox would raise.
+     - `places/mesh-lab.luau` with `test/scenarios/meshes-gltf.mjs`: 8 checks and 2 goldens (wide, and a close-up of the helmet), mutation-checked (centring, units, colliders, volume, script Size, Transparency).
+   - Not yet:
+     - whole-scene import as a Model of MeshParts (`InsertService:LoadAsset`-style), keeping the hierarchy;
+     - playing a file's animations and skins from scripts;
+     - SurfaceAppearance;
+     - decals on MeshParts;
+     - Color tinting a file's materials;
+     - a raised error on a failed load.
+   - Next: **rendering range presets**, flat and blocky through photoreal (soft shadows, SSAO, bloom, tone mapping, reflections). Then the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
+4. Climb (TrussPart) and swim poses.
+5. Phone frame rate on real hardware.
+6. Then phase 2 (the editor) and the rest of the creator suite.

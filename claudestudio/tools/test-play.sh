@@ -33,6 +33,7 @@ run --noshots --place places/obby.luau --scenario test/scenarios/obby.mjs
 run --place places/obby.luau --scenario test/scenarios/obby-look.mjs
 run --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
 run --phone --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
+run --place places/mesh-lab.luau --scenario test/scenarios/meshes-gltf.mjs
 run --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
 run --phone --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
 if [ -d .cache/fidelity/assets ]; then

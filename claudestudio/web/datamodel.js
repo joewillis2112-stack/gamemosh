@@ -13,6 +13,9 @@ export class V2 { constructor(x = 0, y = 0) { this.x = Math.fround(x); this.y = 
 // TweenInfo: Roblox's fields; style and direction by EasingStyle/EasingDirection name.
 export class TweenInfo { constructor(time = 1, style = 'Quad', dir = 'Out', repeat = 0, reverses = false, delay = 0) { Object.assign(this, { time, style, dir, repeat, reverses, delay }); } }
 // A Luau table passed to the engine (keys and values converted).
+// Returned by an async method: the calling script yields until `ev` fires on
+// `inst`, and resumes with the event's args (Instance:async below makes one).
+export class Yield { constructor(inst, ev) { this.inst = inst; this.ev = ev; } }
 export class LuaTable { constructor(entries) { this.entries = entries; } }
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
@@ -42,6 +45,7 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  CollisionFidelity: { Default: 0, Hull: 1, Box: 2, PreciseConvexDecomposition: 3 }, RenderFidelity: { Automatic: 0, Precise: 1, Performance: 2 },
   // From Roblox's API dump (Roblox-Client-Tracker, v0.719).
   CoreGuiType: { PlayerList: 0, Health: 1, Backpack: 2, Chat: 3, All: 4, EmotesMenu: 5, SelfView: 6, Captures: 7, AvatarSwitcher: 8 },
 };
@@ -267,6 +271,34 @@ defineClass('Part', 'BasePart', { props: { Shape: ['Enum.PartType', 'Block'] } }
 defineClass('SpawnLocation', 'Part');
 // A wedge: its sloped face is the front (-Z), rising to the back (+Z) top edge.
 defineClass('WedgePart', 'BasePart');
+// Meshes from glTF 2.0 files, drawn by runtime/world.js through runtime/gltf.js
+// (checked against Khronos's goldens: mashup-research/GLTF_FIDELITY_2026-10-09.md).
+// Roblox's names and semantics: Size stretches the mesh's own bounding box
+// (MeshSize, read-only); CollisionFidelity picks the collider. Beyond Roblox:
+// scripts may set MeshId at run time (Roblox lets only Studio set it), MeshId
+// takes a URL to a .glb/.gltf (no asset ids here), and the file's own PBR
+// materials are kept (Roblox needs a SurfaceAppearance for that). Files are in
+// glTF's metres, converted at Roblox's 1 stud = 0.28 m.
+defineClass('TriangleMeshPart', 'BasePart', { creatable: false, props: { CollisionFidelity: ['Enum.CollisionFidelity', 'Default'], MeshSize: ['Vector3', [0, 0, 0]] } });
+defineClass('MeshPart', 'TriangleMeshPart', { props: { MeshId: ['string', ''], TextureID: ['string', ''], DoubleSided: ['bool', false], RenderFidelity: ['Enum.RenderFidelity', 'Automatic'] } });
+defineClass('AssetService', 'Instance', {
+  creatable: false, service: true,
+  methods: {
+    // Yields until the file has loaded; the part comes back at the mesh's own size.
+    // options: { CollisionFidelity = Enum.CollisionFidelity.X } (Roblox's option table).
+    CreateMeshPartAsync(self, url, options) {
+      if (typeof url !== 'string' || !url) throw new Error('CreateMeshPartAsync expects a mesh URL');
+      const mp = self.dm.create('MeshPart');
+      const opt = options instanceof LuaTable ? options.entries.find(([k]) => k === 'CollisionFidelity') : null, cf = opt && opt[1];
+      if (cf !== undefined && cf !== null) mp.props.CollisionFidelity = enumName(cf);
+      mp.props.MeshId = url;
+      return self.dm.async(self, self.dm.hooks.loadMesh(url).then(info => {
+        mp.props.MeshSize = new V3(...info.size); mp.props.Size = new V3(...info.size);
+        return [mp];
+      }));
+    },
+  },
+});
 // Images on a part's face. Texture tiles in studs; Decal stretches. Built-in
 // images: "studio://grid" (the baseplate grid). Roblox asset ids aren't available.
 defineClass('Decal', 'Instance', { props: { Texture: ['string', ''], Face: ['Enum.NormalId', 'Front'], Transparency: ['number', 0], Color3: ['Color3', [1, 1, 1]] } });
@@ -358,6 +390,13 @@ export class DataModel {
       if (name === 'StarterPlayer') for (const f of ['StarterPlayerScripts', 'StarterCharacterScripts']) this.setParent(new Instance(this, f), s);
     }
     return this.services[name];
+  }
+  // A promise as a yield: the calling script waits until it settles and gets
+  // its values back (a failure warns and returns nothing).
+  async(inst, promise) {
+    const ev = '__async' + (this.nextAsync = (this.nextAsync || 0) + 1);
+    promise.then(vals => this.fire(inst, ev, vals), err => { console.warn(err && err.message || err); this.fire(inst, ev, []); });
+    return new Yield(inst, ev);
   }
   create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
 
@@ -510,7 +549,7 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-const READ_ONLY = new Set(['GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
+const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host
@@ -607,6 +646,7 @@ export function makeHost(dm, log = console.log) {
       if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
       const v = host.readArgs(host.args)[0];
       host.ret = [];
+      if (key === 'Size') inst.userSized = true; // a MeshPart keeps a script's Size over its mesh's own
       if (key === 'Parent') {
         if (v !== null && !(v instanceof Instance)) return host.err('Parent must be an Instance');
         try { dm.setParent(inst, v); } catch (e) { host.err(e.message); }
@@ -638,6 +678,7 @@ export function makeHost(dm, log = console.log) {
       let res;
       try { res = fn(inst, ...host.readArgs(host.args)); } catch (e) { host.err(e.message); return 1; }
       host.ret = [];
+      if (res instanceof Yield) { host.yieldOn = { h: res.inst.handle, ev: res.ev }; return 0; }
       res.forEach(r => host.put(host.ret, r));
       return res.length;
     },
