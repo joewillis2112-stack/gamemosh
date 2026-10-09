@@ -15,6 +15,8 @@ Started 2026-10-07. Built over many sessions, so this file is the map.
   - materials and lighting go from flat plastic to photoreal PBR;
   - characters can be blocky rigs or realistic skinned meshes;
   - UI goes from a simple label to a styled HUD.
+- **Roblox's own UI and look are not targets.** Its player list, top bar and menus are Roblox's product, not the framework's. Anything like them is an optional template that creators switch on, never a default in every project.
+- **The tools we borrow from can be studied exactly**, as the games are (user, 2026-10-09). Blender is open source, so its algorithms (subdivision, bevel, modifiers, sculpt brushes, the node system) can be read directly. Adobe's tools can be reverse-engineered, or matched through open equivalents that copy them (Krita and GIMP for raster, Inkscape for vector). Aim for "behaves like Blender", checked against Blender, not "inspired by".
 - Quality before quantity still holds. Range comes from each piece being general and finished, not from many half-done pieces.
 
 ## The bar (from the user)
