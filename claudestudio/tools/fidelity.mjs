@@ -14,7 +14,7 @@ import { serve } from './serve.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args.splice(i, 2)[1] : d; };
-const checkFile = opt('check', null), saveFile = opt('save', null), brdf = opt('brdf', null), outDir = opt('out', 'build/fidelity'), envRotation = opt('env-rotation', null), skyRotation = opt('sky-rotation', null);
+const refName = opt('ref', 'gltf-sample-viewer'), toneMap = opt('tonemap', null), ssao = opt('ssao', null), checkFile = opt('check', null), saveFile = opt('save', null), brdf = opt('brdf', null), outDir = opt('out', 'build/fidelity'), envRotation = opt('env-rotation', null), skyRotation = opt('sky-rotation', null);
 const D = '.cache/fidelity';
 const cfg = JSON.parse(fs.readFileSync(`${D}/gen/test/config.json`, 'utf8'));
 // Defaults from the generator's src/config-reader.ts.
@@ -64,6 +64,8 @@ for (const s of scenarios) {
   await page.goto(`http://127.0.0.1:${srv.port}/web/fidelity.html`);
   await page.waitForFunction(() => window.fidelityReady, null, { timeout: 60000 });
   const scen = { ...s, model: url(s.model), lighting: url(s.lighting), dpr: 2 };
+  if (toneMap) scen.toneMap = toneMap;
+  if (ssao) scen.ssao = Object.fromEntries(ssao.split(',').map(kv => { const [k, v] = kv.split('='); return [k, v === 'true' ? true : v === 'false' ? false : +v]; }));
   if (process.env.FID_MAT) scen.matProps = Object.fromEntries(process.env.FID_MAT.split(',').map(kv => { const [k, v] = kv.split('='); return [k, +v]; }));
   if (process.env.FID_SAMPLING) scen.samplingMode = +process.env.FID_SAMPLING;
   if (process.env.FID_LH) scen.leftHanded = true;
@@ -79,7 +81,7 @@ for (const s of scenarios) {
   catch (e) { console.log(`${s.name}: FAILED ${e.message.split('\n')[0]}`); logs.slice(-5).forEach(l => console.log('  ' + l)); await page.close(); continue; }
   const dataUrl = await page.evaluate(() => document.getElementById('c').toDataURL('image/png'));
   const ours = PNG.sync.read(Buffer.from(dataUrl.split(',')[1], 'base64'));
-  const bab = readPng(`${D}/gen/test/goldens/${s.name}/babylon-golden.png`), ref = readPng(`${D}/gen/test/goldens/${s.name}/gltf-sample-viewer-golden.png`);
+  const bab = readPng(`${D}/gen/test/goldens/${s.name}/babylon-golden.png`), ref = readPng(`${D}/gen/test/goldens/${s.name}/${refName}-golden.png`);
   const W = ours.width, H = ours.height;
   const same = g => g && g.width === W && g.height === H ? g : null;
   const vsB = same(bab) ? compare(ours, bab) : null, vsR = same(ref) ? compare(ours, ref) : null, bVsR = same(bab) && same(ref) ? compare(bab, ref) : null;
@@ -87,7 +89,7 @@ for (const s of scenarios) {
   if (same(bab)) { diff = new PNG({ width: W, height: H }); for (let i = 0; i < ours.data.length; i += 4) { for (let c = 0; c < 3; c++) diff.data[i + c] = Math.min(255, 4 * Math.abs(ours.data[i + c] * ours.data[i + 3] / 255 - bab.data[i + c] * bab.data[i + 3] / 255)); diff.data[i + 3] = 255; } }
   sheet(path.join(outDir, s.name + '.png'), [ours, same(bab), same(ref), diff], W, H);
   const f = r => r ? `${r.mean.toFixed(2)} mean, ${r.over16.toFixed(1)}% >16` : 'n/a';
-  console.log(`${s.name} (${info.meshes} meshes): vs Babylon ${f(vsB)} | vs Sample Viewer ${f(vsR)} | Babylon vs Sample Viewer ${f(bVsR)}`);
+  console.log(`${s.name} (${info.meshes} meshes): vs Babylon ${f(vsB)} | vs ${refName} ${f(vsR)} | Babylon vs ${refName} ${f(bVsR)}`);
   if (process.env.FID_DEBUG) console.log(JSON.stringify(info.tex));
   if (process.env.FID_DEBUG) console.log(JSON.stringify(info.mats));
   if (info.probe) console.log('texture texels', JSON.stringify(info.probe));

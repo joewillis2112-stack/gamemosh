@@ -24,15 +24,17 @@ import json; c = json.load(open('$D/gen/test/config.json'))
 print('\n'.join(sorted({s['model'].split('/Models/')[1].split('/')[0] for s in c['scenarios'] if '/Models/' in s['model']})))")
 fi
 fetch https://github.com/KhronosGroup/glTF-Sample-Assets.git "$D/assets" $ASSETS_COMMIT $(printf '/Models/%s/ ' "${models[@]}")
-# Goldens are Git LFS pointers; fetch the two we compare against (Babylon, and
-# the glTF Sample Viewer as ground truth) for the fetched models' scenarios.
-python3 - "$D" "$GEN_COMMIT" "${models[@]}" <<'PY'
+# Goldens are Git LFS pointers; fetch the ones we compare against (Babylon, the
+# glTF Sample Viewer as ground truth, and Blender Cycles as the path-traced
+# reference for realism work) for the fetched models' scenarios.
+# FID_RENDERERS="babylon gltf-sample-viewer blender-cycles" overrides the list.
+python3 - "$D" "$GEN_COMMIT" "${FID_RENDERERS:-babylon gltf-sample-viewer blender-cycles}" "${models[@]}" <<'PY'
 import json, sys, os, urllib.request
-D, commit, models = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+D, commit, renderers, models = sys.argv[1], sys.argv[2], sys.argv[3].split(), set(sys.argv[4:])
 cfg = json.load(open(f'{D}/gen/test/config.json'))
 for s in cfg['scenarios']:
     if '/Models/' not in s['model'] or s['model'].split('/Models/')[1].split('/')[0] not in models: continue
-    for r in ('babylon', 'gltf-sample-viewer'):
+    for r in renderers:
         path = f"test/goldens/{s['name']}/{r}-golden.png"; local = f'{D}/gen/{path}'
         if not os.path.exists(local) or open(local, 'rb').read(8) == b'\x89PNG\r\n\x1a\n': continue
         url = f'https://media.githubusercontent.com/media/KhronosGroup/glTF-Render-Fidelity-Generator/{commit}/{path}'

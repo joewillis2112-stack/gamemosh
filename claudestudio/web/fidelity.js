@@ -13,6 +13,9 @@ import { Constants } from '@babylonjs/core/Engines/constants.js';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader.js';
 import '@babylonjs/core/Helpers/sceneHelpers.js';
 import { importGltf } from './runtime/gltf.js';
+import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline.js';
+import '@babylonjs/core/Rendering/prePassRendererSceneComponent.js';
+import '@babylonjs/core/Rendering/geometryBufferRendererSceneComponent.js';
 
 const deg = d => d * Math.PI / 180;
 
@@ -31,6 +34,8 @@ window.renderScenario = async function (s) {
   ip.toneMappingEnabled = true;
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   ip.exposure = 1 / 0.6;
+  // toneMap 'standard': no tone curve, as Blender's "Standard" view (the Cycles goldens).
+  if (s.toneMap === 'standard') { ip.toneMappingEnabled = false; ip.exposure = 1; }
   scene.clearColor = new Color4(0, 0, 0, 0);
 
   // model-viewer's orbit puts the camera at (r sinφ sinθ, r cosφ, r sinφ cosθ)
@@ -67,6 +72,8 @@ window.renderScenario = async function (s) {
   // Experiment hook (tools/fidelity.mjs --brdf k=v,...): BRDF settings on every material.
   if (s.brdf) for (const mat of scene.materials) if (mat.brdf) Object.assign(mat.brdf, s.brdf);
   if (realtime) for (const mat of scene.materials) { mat.realTimeFiltering = true; mat.realTimeFilteringQuality = Constants.TEXTURE_FILTERING_QUALITY_HIGH; }
+  // Screen-space ambient occlusion (measuring whether it brings real-time renders closer to path tracing).
+  if (s.ssao) { const p = new SSAO2RenderingPipeline('ssao', scene, { ssaoRatio: 1, blurRatio: 1 }, [cam]); Object.assign(p, s.ssao); }
   await new Promise(r => scene.executeWhenReady(r));
   for (let i = 0; i < 3; i++) scene.render();
   const tex = scene.textures.filter(t => t.name && !t.isCube).map(t => ({ name: t.name.slice(-40), gamma: t.gammaSpace, srgbBuf: t._texture && t._texture._useSRGBBuffer, fmt: t._texture && t._texture.format, type: t._texture && t._texture.type }));
