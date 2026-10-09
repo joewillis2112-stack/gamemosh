@@ -5,7 +5,11 @@
 import { CF } from './cframe.js';
 import { ease, lerpValue } from './tween.js';
 export { CF };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14 };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17 };
+// UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
+export class UDim { constructor(s = 0, o = 0) { this.s = Math.fround(s); this.o = Math.trunc(o); } }
+export class UDim2 { constructor(xs = 0, xo = 0, ys = 0, yo = 0) { this.xs = Math.fround(xs); this.xo = Math.trunc(xo); this.ys = Math.fround(ys); this.yo = Math.trunc(yo); } }
+export class V2 { constructor(x = 0, y = 0) { this.x = Math.fround(x); this.y = Math.fround(y); } }
 // TweenInfo: Roblox's fields; style and direction by EasingStyle/EasingDirection name.
 export class TweenInfo { constructor(time = 1, style = 'Quad', dir = 'Out', repeat = 0, reverses = false, delay = 0) { Object.assign(this, { time, style, dir, repeat, reverses, delay }); } }
 // A Luau table passed to the engine (keys and values converted).
@@ -31,6 +35,13 @@ export const ENUMS = {
   EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
   PlaybackState: { Begin: 0, Delayed: 1, Playing: 2, Paused: 3, Completed: 4, Cancelled: 5 },
+  // UI (values from the creator docs' enum pages)
+  Font: {Legacy:  0,  Arial:  1,  ArialBold:  2,  SourceSans:  3,  SourceSansBold:  4,  SourceSansLight:  5,  SourceSansItalic:  6,  Bodoni:  7,  Garamond:  8,  Cartoon:  9,  Code:  10,  Highway:  11,  SciFi:  12,  Arcade:  13,  Fantasy:  14,  Antique:  15,  SourceSansSemibold:  16,  Gotham:  17,  GothamMedium:  18,  GothamBold:  19,  GothamBlack:  20,  AmaticSC:  21,  Bangers:  22,  Creepster:  23,  DenkOne:  24,  Fondamento:  25,  FredokaOne:  26,  GrenzeGotisch:  27,  IndieFlower:  28,  JosefinSans:  29,  Jura:  30,  Kalam:  31,  LuckiestGuy:  32,  Merriweather:  33,  Michroma:  34,  Nunito:  35,  Oswald:  36,  PatrickHand:  37,  PermanentMarker:  38,  Roboto:  39,  RobotoCondensed:  40,  RobotoMono:  41,  Sarpanch:  42,  SpecialElite:  43,  TitilliumWeb:  44,  Ubuntu:  45,  BuilderSans:  46,  BuilderSansMedium:  47,  BuilderSansBold:  48,  BuilderSansExtraBold:  49,  Arimo:  50,  ArimoBold:  51},
+  TextXAlignment: { Left: 0, Right: 1, Center: 2 }, TextYAlignment: { Top: 0, Center: 1, Bottom: 2 },
+  FillDirection: { Horizontal: 0, Vertical: 1 }, HorizontalAlignment: { Center: 0, Left: 1, Right: 2 }, VerticalAlignment: { Center: 0, Top: 1, Bottom: 2 },
+  SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
+  ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
+  TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
 };
 export class EnumItem { constructor(type, name, value) { this.type = type; this.name = name; this.value = value; } }
 function enumItem(type, nameOrValue) {
@@ -126,8 +137,8 @@ defineClass('TweenService', 'Instance', {
       for (const [k, v] of goals.entries) {
         const ty = typeof k === 'string' ? typeOf(inst.ClassName, k) : undefined;
         if (!ty) throw new Error(`TweenService:Create no property named '${k}' for object '${inst.Name}'`);
-        const given = v instanceof V3 ? 'Vector3' : v instanceof C3 ? 'Color3' : v instanceof CF ? 'CFrame' : v instanceof EnumItem ? 'Enum.' + v.type : typeof v === 'boolean' ? 'bool' : typeof v;
-        if (!['number', 'bool', 'Vector3', 'Color3', 'CFrame'].includes(ty) && !ty.startsWith('Enum.')) throw new Error(`TweenService:Create property named '${k}' on object '${inst.Name}' is not a data type that can be tweened`);
+        const given = v instanceof V3 ? 'Vector3' : v instanceof C3 ? 'Color3' : v instanceof CF ? 'CFrame' : v instanceof UDim2 ? 'UDim2' : v instanceof UDim ? 'UDim' : v instanceof V2 ? 'Vector2' : v instanceof EnumItem ? 'Enum.' + v.type : typeof v === 'boolean' ? 'bool' : typeof v;
+        if (!['number', 'bool', 'Vector3', 'Color3', 'CFrame', 'UDim2', 'UDim', 'Vector2'].includes(ty) && !ty.startsWith('Enum.')) throw new Error(`TweenService:Create property named '${k}' on object '${inst.Name}' is not a data type that can be tweened`);
         if (given !== ty) throw new Error(`TweenService:Create property named '${k}' cannot be tweened due to type mismatch (property is a '${ty}', but given type is '${given}')`);
         list.push([k, v instanceof EnumItem ? v.name : v]);
       }
@@ -143,6 +154,47 @@ defineClass('TweenService', 'Instance', {
 // Roblox's standard containers. Nothing replicates (one local session), so they only hold things.
 for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterGui', 'StarterPack', 'StarterPlayer'])
   defineClass(name, 'Instance', { creatable: false, service: true });
+// ---- UI (create.roblox.com/docs/ui; defaults are Instance.new's, from Roblox's
+// reflection data: mashup-research/ROBLOX_GUI_2026-10-09.md). Drawn by
+// runtime/gui.js. AbsolutePosition/AbsoluteSize are written by its layout pass.
+const rgb = (r, g, b) => [r / 255, g / 255, b / 255];
+defineClass('GuiBase2d', 'Instance', { creatable: false, props: { AbsolutePosition: ['Vector2', [0, 0]], AbsoluteSize: ['Vector2', [0, 0]], AbsoluteRotation: ['number', 0] } });
+defineClass('LayerCollector', 'GuiBase2d', { creatable: false, props: { Enabled: ['bool', true], ResetOnSpawn: ['bool', true], ZIndexBehavior: ['Enum.ZIndexBehavior', 'Sibling'] } });
+defineClass('ScreenGui', 'LayerCollector', { props: { IgnoreGuiInset: ['bool', false], DisplayOrder: ['number', 0] } });
+defineClass('GuiObject', 'GuiBase2d', {
+  creatable: false,
+  props: {
+    Size: ['UDim2', [0, 0, 0, 0]], Position: ['UDim2', [0, 0, 0, 0]], AnchorPoint: ['Vector2', [0, 0]],
+    BackgroundColor3: ['Color3', rgb(163, 162, 165)], BackgroundTransparency: ['number', 0],
+    BorderSizePixel: ['number', 1], BorderColor3: ['Color3', rgb(27, 42, 53)],
+    Visible: ['bool', true], ZIndex: ['number', 1], Rotation: ['number', 0], LayoutOrder: ['number', 0],
+    ClipsDescendants: ['bool', false], Active: ['bool', false],
+  },
+  events: ['MouseEnter', 'MouseLeave', 'InputBegan', 'InputEnded'],
+});
+defineClass('Frame', 'GuiObject');
+const TEXT = {
+  Text: ['string', 'Label'], TextColor3: ['Color3', rgb(27, 42, 53)], TextSize: ['number', 8], Font: ['Enum.Font', 'Legacy'],
+  TextScaled: ['bool', false], TextWrapped: ['bool', false], TextXAlignment: ['Enum.TextXAlignment', 'Center'], TextYAlignment: ['Enum.TextYAlignment', 'Center'],
+  TextTransparency: ['number', 0], TextStrokeTransparency: ['number', 1], TextStrokeColor3: ['Color3', [0, 0, 0]], RichText: ['bool', false],
+  LineHeight: ['number', 1], TextTruncate: ['Enum.TextTruncate', 'None'],
+};
+const IMAGE = { Image: ['string', ''], ImageColor3: ['Color3', [1, 1, 1]], ImageTransparency: ['number', 0], ScaleType: ['Enum.ScaleType', 'Stretch'] };
+defineClass('TextLabel', 'GuiObject', { props: { ...TEXT } });
+defineClass('ImageLabel', 'GuiObject', { props: { ...IMAGE } });
+// Buttons: Active by default; Activated fires on a press and release inside (only while Active).
+defineClass('GuiButton', 'GuiObject', { creatable: false, props: { AutoButtonColor: ['bool', true], Active: ['bool', true] }, events: ['Activated', 'MouseButton1Click', 'MouseButton1Down', 'MouseButton1Up'] });
+defineClass('TextButton', 'GuiButton', { props: { ...TEXT, Text: ['string', 'Button'] } });
+defineClass('ImageButton', 'GuiButton', { props: { ...IMAGE } });
+// Modifiers: children of a GuiObject that change how it's drawn or laid out.
+defineClass('UIComponent', 'Instance', { creatable: false });
+defineClass('UICorner', 'UIComponent', { props: { CornerRadius: ['UDim', [0, 8]] } });
+defineClass('UIStroke', 'UIComponent', { props: { Thickness: ['number', 1], Color: ['Color3', [0, 0, 0]], Transparency: ['number', 0], ApplyStrokeMode: ['Enum.ApplyStrokeMode', 'Contextual'], Enabled: ['bool', true] } });
+defineClass('UIPadding', 'UIComponent', { props: { PaddingTop: ['UDim', [0, 0]], PaddingBottom: ['UDim', [0, 0]], PaddingLeft: ['UDim', [0, 0]], PaddingRight: ['UDim', [0, 0]] } });
+defineClass('UIListLayout', 'UIComponent', { props: { FillDirection: ['Enum.FillDirection', 'Vertical'], HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'], Padding: ['UDim', [0, 0]] } });
+defineClass('UIAspectRatioConstraint', 'UIComponent', { props: { AspectRatio: ['number', 1], AspectType: ['Enum.AspectType', 'FitWithinMaxSize'], DominantAxis: ['Enum.DominantAxis', 'Width'] } });
+defineClass('UITextSizeConstraint', 'UIComponent', { props: { MinTextSize: ['number', 1], MaxTextSize: ['number', 100] } });
+
 // Per-player containers, and StarterPlayer's two script folders.
 for (const name of ['PlayerGui', 'Backpack', 'PlayerScripts', 'StarterPlayerScripts', 'StarterCharacterScripts'])
   defineClass(name, 'Instance', { creatable: false });
@@ -251,7 +303,7 @@ export class Instance {
     this.children = [];
     this.props = {};
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : d;
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : d;
     }
     this.props.Name = cls;
     this.handle = dm.register(this);
@@ -429,12 +481,15 @@ function sameValue(a, b) {
   if (a instanceof V3 && b instanceof V3) return a.x === b.x && a.y === b.y && a.z === b.z;
   if (a instanceof C3 && b instanceof C3) return a.r === b.r && a.g === b.g && a.b === b.b;
   if (a instanceof CF) return a.equals(b);
+  if (a instanceof UDim2 && b instanceof UDim2) return a.xs === b.xs && a.xo === b.xo && a.ys === b.ys && a.yo === b.yo;
+  if (a instanceof UDim && b instanceof UDim) return a.s === b.s && a.o === b.o;
+  if (a instanceof V2 && b instanceof V2) return a.x === b.x && a.y === b.y;
   return false;
 }
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-const READ_ONLY = new Set(['TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
+const READ_ONLY = new Set(['GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host
@@ -459,6 +514,9 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof V3) o.push({ t: T.VEC, v: [v.x, v.y, v.z] });
       else if (v instanceof C3) o.push({ t: T.COLOR, v: [v.r, v.g, v.b] });
       else if (v instanceof CF) o.push({ t: T.CFRAME, v: v.m });
+      else if (v instanceof UDim2) o.push({ t: T.UDIM2, n: v.xs, v: [v.xo, v.ys, v.yo] });
+      else if (v instanceof UDim) o.push({ t: T.UDIM, v: [v.s, v.o, 0] });
+      else if (v instanceof V2) o.push({ t: T.VEC2, v: [v.x, v.y, 0] });
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
@@ -490,6 +548,9 @@ export function makeHost(dm, log = console.log) {
         case T.VEC: return new V3(a.v[0], a.v[1], a.v[2]);
         case T.COLOR: return new C3(a.v[0], a.v[1], a.v[2]);
         case T.CFRAME: return new CF(a.v);
+        case T.UDIM2: return new UDim2(a.n, a.v[0], a.v[1], a.v[2]);
+        case T.UDIM: return new UDim(a.v[0], a.v[1]);
+        case T.VEC2: return new V2(a.v[0], a.v[1]);
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
       }
@@ -538,6 +599,7 @@ export function makeHost(dm, log = console.log) {
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
       if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
+      for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
       if (ty.startsWith('Enum.')) {
         // An EnumItem of this type, its name, or its number, as Roblox accepts.
         const type = ty.slice(5);

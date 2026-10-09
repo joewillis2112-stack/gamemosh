@@ -4,7 +4,7 @@
 // to Roblox's own TweenService:GetValue to ~1e-7 (see
 // mashup-research/ROBLOX_PLATFORMS_TWEENS_2026-10-08.md §7). Unverified against
 // the engine itself; GetValue(0.5, Bounce, In) = 0.234375 matches a printed one.
-import { V3, C3, CF } from './datamodel.js';
+import { V3, C3, CF, UDim, UDim2, V2 } from './datamodel.js';
 
 const IN = {
   Linear: t => t,
@@ -44,6 +44,9 @@ export function lerpValue(a, b, t) {
   if (a instanceof V3) return new V3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
   if (a instanceof C3) return new C3(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t);
   if (a instanceof CF) return a.lerp(b, t);
+  if (a instanceof UDim2) return new UDim2(a.xs + (b.xs - a.xs) * t, a.xo + (b.xo - a.xo) * t, a.ys + (b.ys - a.ys) * t, a.yo + (b.yo - a.yo) * t);
+  if (a instanceof UDim) return new UDim(a.s + (b.s - a.s) * t, a.o + (b.o - a.o) * t);
+  if (a instanceof V2) return new V2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
   return t >= 1 ? b : a;
 }
 export const TWEENABLE = new Set(['number', 'bool', 'Vector3', 'Color3', 'CFrame']);

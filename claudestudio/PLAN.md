@@ -255,7 +255,16 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - Ours where Roblox is silent: the delay is waited once; a reversing cycle is there and back; tweens step just before physics.
      - Tests: `test/tween.test.mjs` (mutation-checked) and a tween in `platforms.mjs`.
    - Later: constraints (Prismatic, Hinge motors, AlignPosition).
-2. HUD: `ScreenGui`, `TextLabel`, and leaderstats for an obby's stage counter.
+2. HUD.
+   - Done (2026-10-09): the GUI system, from `mashup-research/ROBLOX_GUI_2026-10-09.md` (defaults and rules from the creator docs).
+     - Datatypes `UDim`, `UDim2`, `Vector2` (C++ userdata in `luau/gui_types.h`: constructors, arithmetic, `Lerp`, Roblox's `tostring`).
+     - Classes: `ScreenGui`, `Frame`, `TextLabel`, `TextButton`, `ImageLabel`, `ImageButton`, and the modifiers `UICorner`, `UIStroke`, `UIPadding`, `UIListLayout`, `UIAspectRatioConstraint`, `UITextSizeConstraint`. `PlayerGui` gets a copy of `StarterGui` on each spawn (honouring `ResetOnSpawn`).
+     - A DOM renderer (`web/runtime/gui.js`): Roblox's layout rules (UDim2 against the parent, `AnchorPoint`, the 58 px top inset unless `IgnoreGuiInset`, `DisplayOrder`, sibling `ZIndex`), `AbsolutePosition`/`AbsoluteSize` written back for scripts, `TextScaled` (largest size at which the wrapped text fits), `RichText` (b, i, u, s, font color/size/face, br), `TextWrapped`, alignment, `TextStrokeTransparency`.
+     - Buttons: `MouseButton1Down/Up/Click`, `Activated` and `MouseEnter/Leave`; a click fires only when the release is inside the button, as in Roblox. Input on a button never reaches the camera, so dragging off a button on a phone doesn't turn the view.
+     - Fonts: OFL stand-ins for Roblox's `Enum.Font` (Gotham → Montserrat, FredokaOne → Fredoka, SourceSans, Arcade → Press Start 2P, and others), in `assets/fonts/`.
+     - `places/gui-lab.luau` with `test/scenarios/gui.mjs`: 7 checks on desktop, 9 on a phone, plus 2 goldens, mutation-checked (inset, release check, TextScaled).
+     - Not yet: `ImageColor3` tint, `ZIndexBehavior.Global` (drawn as Sibling), `UIGridLayout`, `UIGradient`, `UISizeConstraint`, `ScrollingFrame`, `TextBox`, `ViewportFrame`, `BillboardGui`/`SurfaceGui`. `AutoButtonColor`'s tint amounts are ours.
+   - Next: leaderstats and the player list.
 3. Climb (TrussPart) and swim poses.
 4. Phone frame rate on real hardware.
 5. Then phase 2 (the editor) and the creator suite, starting with Animate.

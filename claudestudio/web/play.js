@@ -14,6 +14,7 @@ import { Character } from './runtime/character.js';
 import { FollowCamera } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
+import { Gui } from './runtime/gui.js';
 import { Audio } from './runtime/audio.js';
 import { CharacterSounds } from './runtime/charsounds.js';
 
@@ -40,6 +41,7 @@ async function main() {
   const player = await Character.load(scene, '../assets/characters/character-a.glb', R.shadows, Vector3.Zero());
   const players = new Players(dm, world, player, GRAVITY);
   players.join();
+  const gui = new Gui(dm, players);
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
@@ -81,6 +83,7 @@ async function main() {
     fire('PostSimulation', [dt]); fire('Heartbeat', [dt]);
     vm.step(t);
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);
+    gui.update();
     camera.update(dt);
     sounds.update(dt);
   };
@@ -96,7 +99,7 @@ async function main() {
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, gui, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

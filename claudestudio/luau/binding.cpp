@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14, T_UDIM = 15, T_UDIM2 = 16, T_VEC2 = 17 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -71,6 +71,7 @@ static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yield
 struct Signal { int h; char ev[56]; };
 
 #include "cframe.h"
+#include "gui_types.h"
 
 // TweenInfo: immutable, as Roblox's. Enum fields are kept by name.
 static const char* TWEENINFO_MT = "TweenInfo";
@@ -186,6 +187,9 @@ static void send_arg(lua_State* L, int idx) {
         if (h) { js_arg(T_INST, h, nullptr, 0, 0, 0); break; }
         if (Color* c = to_color(L, idx)) { js_arg(T_COLOR, 0, nullptr, c->r, c->g, c->b); break; }
         if (CF* c = to_cf(L, idx)) { js_arg_cf(c->m); break; }
+        if (UD* u = to_ud<UD>(L, idx, UDIM_MT)) { js_arg(T_UDIM, 0, nullptr, u->s, u->o, 0); break; }
+        if (UD2* u = to_ud<UD2>(L, idx, UDIM2_MT)) { js_arg(T_UDIM2, u->x.s, nullptr, u->x.o, u->y.s, u->y.o); break; }
+        if (V2* v = to_ud<V2>(L, idx, VEC2_MT)) { js_arg(T_VEC2, 0, nullptr, v->x, v->y, 0); break; }
         if (TI* t = to_ti(L, idx)) { std::string k = std::string(t->style) + "," + t->dir; js_arg(T_TWEENINFO, t->time, k.c_str(), t->repeat, t->reverses, t->delay); break; }
         if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
@@ -232,6 +236,9 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_INST: push_instance(L, (int)js_ret_num(i)); break;
     case T_COLOR: push_color(L, js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
     case T_CFRAME: { double m[12]; for (int k = 0; k < 12; k++) m[k] = js_ret_vec(i, k); push_cf(L, m); break; }
+    case T_UDIM: push_udim(L, js_ret_vec(i, 0), js_ret_vec(i, 1)); break;
+    case T_UDIM2: push_udim2(L, js_ret_num(i), js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
+    case T_VEC2: push_vec2(L, js_ret_vec(i, 0), js_ret_vec(i, 1)); break;
     case T_TWEENINFO: {
         char* s = js_ret_str(i);
         std::string k = s ? s : "Quad,Out";
@@ -952,6 +959,7 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setglobal(L0, "Color3");
 
     register_cframe(L0);
+    register_gui_types(L0);
     luaL_newmetatable(L0, TWEENINFO_MT);
     lua_pushcfunction(L0, ti_index, "__index"); lua_setfield(L0, -2, "__index");
     lua_pushcfunction(L0, color_newindex, "__newindex"); lua_setfield(L0, -2, "__newindex");
@@ -1022,7 +1030,7 @@ end)";
         lua_setfield(L0, idx < 0 ? idx - 1 : idx, "__metatable");
         lua_setreadonly(L0, idx, true);
     };
-    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT, TWEENINFO_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
+    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT, TWEENINFO_MT, UDIM_MT, UDIM2_MT, VEC2_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
     lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
     lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
 

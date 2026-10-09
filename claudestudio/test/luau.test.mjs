@@ -208,6 +208,17 @@ local bad = Instance.new("ModuleScript") bad.Name = "Loop" bad.Source = 'return 
 print("require loop", pcall(require, bad))
 print("require part", pcall(require, a))
 `);
+vm.run('udim', `
+-- From the docs' own examples (datatypes/UDim2.yaml) where they give one.
+print("udim2 str", tostring(UDim2.new(0, 300, 1, 0)), typeof(UDim2.new()), typeof(UDim.new()), typeof(Vector2.new()))
+print("udim2 math", UDim2.new(1, 100, 1, 50) - UDim2.new(0.5, 30, 0, 10) == UDim2.new(0.5, 70, 1, 40), UDim2.fromScale(0.5, 1) == UDim2.new(0.5, 0, 1, 0), UDim2.fromOffset(10, 20) == UDim2.new(0, 10, 0, 20))
+local u = UDim2.new(UDim.new(0.25, 4), UDim.new(1, -8))
+print("udim2 parts", u.X.Scale, u.X.Offset, u.Width == u.X, u.Height.Offset, tostring(u.Y), UDim.new(0, 1.7).Offset)
+print("udim2 lerp", UDim2.new(0, 0, 0, 0):Lerp(UDim2.new(1, 100, 0, 50), 0.5) == UDim2.new(0.5, 50, 0, 25))
+local v = Vector2.new(3, 4)
+print("vector2", v.Magnitude, tostring(v * 2), tostring(v + Vector2.one), v:Dot(Vector2.xAxis), Vector2.xAxis:Cross(Vector2.yAxis), tostring(-v), v.Unit:FuzzyEq(Vector2.new(0.6, 0.8)))
+print("udim2 ro", pcall(function() u.X = UDim.new() end))
+`);
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -282,6 +293,11 @@ const expect = [
   'off ran',
   'module body',
   'require true 2 table',
+  'udim2 str {0, 300}, {1, 0} UDim2 UDim Vector2',
+  'udim2 math true true true',
+  'udim2 parts 0.25 4 true -8 1, -8 1',
+  'udim2 lerp true',
+  'vector2 5 6, 8 4, 5 3 1 -3, -4 true',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
@@ -295,9 +311,10 @@ const scriptOnce = out.filter(l => l.startsWith('script ran Hello')).length === 
 const moduleOnce = out.filter(l => l === 'module body').length === 1;
 const reqErrs = ['require two false', 'require loop false', 'require part false'].every(p => out.find(l => l.startsWith(p)))
   && out.find(l => l.startsWith('require two') && l.includes('exactly one value')) && out.find(l => l.startsWith('require loop') && l.includes('recursively'));
+const udimRO = out.find(l => l.startsWith('udim2 ro false') && l.includes('cannot be assigned to'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
-if (missing.length || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
+if (missing.length || !udimRO || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
   console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, scriptOnce, moduleOnce, reqErrs: !!reqErrs, waiting: vm.waiting() });
   process.exit(1);
 }
