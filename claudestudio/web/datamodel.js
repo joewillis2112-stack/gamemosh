@@ -76,6 +76,7 @@ defineClass('Instance', null, {
     IsA(self, cls) { return [isA(self.ClassName, cls)]; },
     IsDescendantOf(self, other) { for (let p = self.parent; p; p = p.parent) if (p === other) return [true]; return [false]; },
     Destroy(self) { self.dm.destroy(self); return []; },
+    Clone(self) { return [self.dm.clone(self)]; },
     ClearAllChildren(self) { for (const c of self.children.slice()) self.dm.destroy(c); return []; },
     GetFullName(self) { const n = []; for (let i = self; i && i.parent; i = i.parent) n.unshift(i.Name); return [n.join('.')]; },
     WaitForChild(self, name) { return [self.children.find(c => c.Name === name) || null]; },
@@ -142,6 +143,9 @@ defineClass('TweenService', 'Instance', {
 // Roblox's standard containers. Nothing replicates (one local session), so they only hold things.
 for (const name of ['ReplicatedStorage', 'ReplicatedFirst', 'ServerStorage', 'ServerScriptService', 'StarterGui', 'StarterPack', 'StarterPlayer'])
   defineClass(name, 'Instance', { creatable: false, service: true });
+// Per-player containers, and StarterPlayer's two script folders.
+for (const name of ['PlayerGui', 'Backpack', 'PlayerScripts', 'StarterPlayerScripts', 'StarterCharacterScripts'])
+  defineClass(name, 'Instance', { creatable: false });
 // Pivots: a part's pivot is its CFrame (PivotOffset isn't modelled). A model's
 // is its PrimaryPart's CFrame, else the centre of its parts' bounding box
 // (Roblox keeps a stored WorldPivot there; this recomputes it).
@@ -278,6 +282,7 @@ export class DataModel {
       const s = new Instance(this, name);
       this.services[name] = s;
       this.setParent(s, this.game);
+      if (name === 'StarterPlayer') for (const f of ['StarterPlayerScripts', 'StarterCharacterScripts']) this.setParent(new Instance(this, f), s);
     }
     return this.services[name];
   }
@@ -398,6 +403,23 @@ export class DataModel {
   tweenApply(tw, alpha) {
     const I = tw.props.TweenInfo, e = ease(alpha, I.style, I.dir), inst = tw.props.Instance;
     tw.goals.forEach(([k, to], i) => this.set(inst, k, lerpValue(tw.from[i], to, alpha >= 1 ? 1 : alpha <= 0 ? 0 : e)));
+  }
+  // Instance:Clone(): a copy of inst and its Archivable descendants, parent
+  // nil. References inside the copied tree (a Model's PrimaryPart, an
+  // ObjectValue's Value) point at the copies; outside ones are kept.
+  clone(inst) {
+    if (!inst.props.Archivable) return null;
+    const map = new Map();
+    const copy = i => {
+      const c = new Instance(this, i.ClassName);
+      for (const [k, v] of Object.entries(i.props)) c.props[k] = v instanceof V3 ? new V3(v.x, v.y, v.z) : v instanceof C3 ? new C3(v.r, v.g, v.b) : v;
+      map.set(i, c);
+      for (const ch of i.children) if (ch.props.Archivable) { const cc = copy(ch); cc.parent = c; c.children.push(cc); }
+      return c;
+    };
+    const root = copy(inst);
+    for (const c of map.values()) for (const [k, v] of Object.entries(c.props)) if (v instanceof Instance && map.has(v)) c.props[k] = map.get(v);
+    return root;
   }
   watch(fn) { this.watchers.push(fn); }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }

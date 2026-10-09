@@ -24,6 +24,7 @@ run --noshots --scenario test/scenarios/cframe.mjs
 run --noshots --scenario test/scenarios/runservice.mjs
 run --noshots --scenario test/scenarios/platforms.mjs
 run --noshots --scenario test/scenarios/physics.mjs
+run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs
 run --noshots --phone --scenario test/scenarios/defaults.mjs

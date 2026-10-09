@@ -30,6 +30,9 @@ export class Players {
     const p = new Instance(this.dm, 'Player'); // not creatable from scripts
     p.props.Name = name; p.props.DisplayName = name;
     this.player = p;
+    // Its containers: PlayerScripts gets StarterPlayerScripts once, on joining.
+    for (const c of ['Backpack', 'PlayerGui', 'PlayerScripts']) this.dm.setParent(new Instance(this.dm, c), p);
+    this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterPlayerScripts'), p.children.find(c => c.ClassName === 'PlayerScripts'));
     this.dm.setParent(p, this.service);
     this.service.props.LocalPlayer = p;
     this.dm.fire(this.service, 'PlayerAdded', [p]);
@@ -80,17 +83,30 @@ export class Players {
     this.dm.setParent(hum, model);
     this.dm.setParent(root, model);
     model.props.PrimaryPart = root;
+    // StarterCharacterScripts go into the new character.
+    this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterCharacterScripts'), model);
     this.model = model; this.humanoid = hum; this.root = root;
     this.dead = false; this.respawnAt = null; this.regenAt = null;
     const { foot, yaw } = this.spawnPoint(player);
     this.char.respawn(foot, yaw);
     this.char.setVisible(true);
     this.syncRoot();
-    this.dm.setParent(model, this.dm.workspace);
     player.props.Character = model;
+    this.dm.setParent(model, this.dm.workspace);
+    // Each spawn: PlayerGui is emptied (except ScreenGuis with ResetOnSpawn off)
+    // and refilled from StarterGui; the Backpack from StarterPack.
+    const gui = player.children.find(c => c.ClassName === 'PlayerGui'), pack = player.children.find(c => c.ClassName === 'Backpack');
+    if (gui) {
+      const kept = new Set(gui.children.filter(c => c.props.ResetOnSpawn === false).map(c => c.props.Name));
+      for (const c of gui.children.slice()) if (c.props.ResetOnSpawn !== false) this.dm.destroy(c);
+      for (const c of this.dm.service('StarterGui').children) if (!(c.props.ResetOnSpawn === false && kept.has(c.props.Name))) { const k = this.dm.clone(c); if (k) this.dm.setParent(k, gui); }
+    }
+    if (pack) { for (const c of pack.children.slice()) this.dm.destroy(c); this.copyInto(this.dm.service('StarterPack'), pack); }
     this.onSpawn && this.onSpawn(model);
     this.dm.fire(player, 'CharacterAdded', [model]);
   }
+
+  copyInto(from, to) { if (from && to) for (const c of from.children) { const k = this.dm.clone(c); if (k) this.dm.setParent(k, to); } }
 
   changed(inst, key) {
     // A script moving the root part teleports the character (obby teleporters).

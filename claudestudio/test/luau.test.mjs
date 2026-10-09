@@ -171,6 +171,43 @@ print("pivot primary", m:GetPivot() == p2.CFrame, p1:GetPivot() == p1.CFrame)
 `);
 vm.run('g1', `_G.shared_score = 41 shared.flag = "on"`);
 vm.run('g2', `_G.shared_score += 1 print("globals", _G.shared_score, shared.flag, type(time()), tick() > 1.7e9)`);
+vm.run('scripts', `
+-- Clone: a deep copy, parent nil; references inside the copied tree point at the copies.
+local m = Instance.new("Model") m.Name = "Orig"
+local a = Instance.new("Part", m) a.Name = "A"
+local ref = Instance.new("ObjectValue", m) ref.Name = "Ref" ref.Value = a
+local outside = Instance.new("ObjectValue", m) outside.Name = "Out" outside.Value = workspace
+local hidden = Instance.new("Part", m) hidden.Name = "Hidden" hidden.Archivable = false
+m.PrimaryPart = a
+local c = m:Clone()
+print("clone", c.Parent, c.Name, #c:GetChildren(), c.Ref.Value == c.A, c.Ref.Value ~= a, c.PrimaryPart == c.A, c.Out.Value == workspace, c:FindFirstChild("Hidden"))
+-- Scripts run where Roblox runs them, once, deferred.
+local s1 = Instance.new("Script") s1.Name = "Hello" s1.Source = 'print("script ran", script.Name, script.Parent.Name)'
+s1.Parent = game:GetService("ReplicatedStorage")
+print("before start")
+task.wait()
+print("in storage it waits")
+s1.Parent = game:GetService("ServerScriptService")
+task.wait()
+s1.Parent = workspace
+task.wait()
+local copy = s1:Clone() copy.Name = "Copy" copy.Parent = workspace
+local off = Instance.new("Script") off.Name = "Off" off.Enabled = false off.Source = 'print("off ran")' off.Parent = workspace
+task.wait()
+off.Enabled = true
+task.wait()
+-- require: run once, cached, one return value.
+local mod = Instance.new("ModuleScript") mod.Name = "Mod" mod.Source = 'print("module body") local M = { n = 0 } function M.inc() M.n += 1 return M.n end return M'
+mod.Parent = game:GetService("ReplicatedStorage")
+local A, B = require(mod), require(mod)
+A.inc()
+print("require", A == B, B.inc(), typeof(A))
+local two = Instance.new("ModuleScript") two.Source = 'return 1, 2'
+print("require two", pcall(require, two))
+local bad = Instance.new("ModuleScript") bad.Name = "Loop" bad.Source = 'return require(script)'
+print("require loop", pcall(require, bad))
+print("require part", pcall(require, a))
+`);
 vm.run('timer', `
 print("t0")
 local dt = task.wait(1)
@@ -238,6 +275,13 @@ const expect = [
   'pivot to true true true',
   'pivot primary true true',
   'globals 42 on number true',
+  'clone nil Orig 3 true true true true nil',
+  'in storage it waits',
+  'script ran Hello ServerScriptService',
+  'script ran Copy Workspace',
+  'off ran',
+  'module body',
+  'require true 2 table',
 ];
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
@@ -247,10 +291,14 @@ const t1 = out.includes('t1 1');
 const colorType = out.find(l => l.startsWith('color type false') && l.includes('Color3 expected'));
 const colorRO = out.find(l => l.startsWith('color readonly false') && l.includes('R cannot be assigned to'));
 const cfType = out.find(l => l.startsWith('cf part type false') && l.includes('CFrame expected')) && out.find(l => l.startsWith('cf readonly false') && l.includes('X cannot be assigned to'));
+const scriptOnce = out.filter(l => l.startsWith('script ran Hello')).length === 1 && out.indexOf('before start') < out.indexOf('script ran Hello ServerScriptService');
+const moduleOnce = out.filter(l => l === 'module body').length === 1;
+const reqErrs = ['require two false', 'require loop false', 'require part false'].every(p => out.find(l => l.startsWith(p)))
+  && out.find(l => l.startsWith('require two') && l.includes('exactly one value')) && out.find(l => l.startsWith('require loop') && l.includes('recursively'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
-if (missing.length || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, waiting: vm.waiting() });
+if (missing.length || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
+  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, scriptOnce, moduleOnce, reqErrs: !!reqErrs, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

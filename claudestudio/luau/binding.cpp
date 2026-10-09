@@ -760,6 +760,57 @@ static int enum_index(lua_State* L) {
 // ------------------------------------------------------------------ exports
 extern "C" {
 
+// require(ModuleScript): runs the module's Source once and caches its single
+// return value per module, as Roblox does. A module requiring itself (directly
+// or round a cycle) errors. Modules run to completion: one that yields errors.
+static int module_cache_ref;
+static int l_require(lua_State* L) {
+    int h = to_instance(L, 1);
+    if (!h) luaL_error(L, "Attempted to call require with invalid argument(s).");
+    lua_getref(L, module_cache_ref);
+    lua_pushinteger(L, h);
+    lua_rawget(L, -2);
+    if (lua_islightuserdata(L, -1)) luaL_error(L, "Requested module was required recursively");
+    if (!lua_isnil(L, -1)) { lua_remove(L, -2); return 1; }
+    lua_pop(L, 1);
+    js_index(h, "ClassName");
+    char* cls = js_ret_str(0);
+    bool isModule = cls && !strcmp(cls, "ModuleScript");
+    free(cls);
+    if (!isModule) luaL_error(L, "Attempted to call require with invalid argument(s).");
+    lua_pushinteger(L, h); lua_pushlightuserdata(L, (void*)&module_cache_ref); lua_rawset(L, -3); // loading
+    js_index(h, "Source");
+    char* src = js_ret_str(0);
+    js_index(h, "Name");
+    char* name = js_ret_str(0);
+    static const char* mutableGlobals[] = { "typeof", nullptr };
+    lua_CompileOptions opts = {}; opts.optimizationLevel = 1; opts.debugLevel = 1; opts.mutableGlobals = mutableGlobals;
+    size_t blen;
+    char* bc = luau_compile(src ? src : "", src ? strlen(src) : 0, &opts, &blen);
+    free(src);
+    lua_State* T = lua_newthread(L);
+    luaL_sandboxthread(T);
+    push_instance(T, h);
+    lua_setglobal(T, "script");
+    std::string chunk = std::string("=") + (name ? name : "Module");
+    free(name);
+    int st = luau_load(T, chunk.c_str(), bc, blen, 0);
+    free(bc);
+    if (st == 0) st = lua_pcall(T, 0, LUA_MULTRET, 0);
+    if (st != 0) {
+        std::string err = lua_tostring(T, -1) ? lua_tostring(T, -1) : "module error";
+        lua_pushinteger(L, h); lua_pushnil(L); lua_rawset(L, -4);
+        luaL_error(L, "%s", err.c_str());
+    }
+    if (lua_gettop(T) != 1) {
+        lua_pushinteger(L, h); lua_pushnil(L); lua_rawset(L, -4);
+        luaL_error(L, "Module code did not return exactly one value");
+    }
+    lua_xmove(T, L, 1);                 // [cache, thread, result]
+    lua_pushinteger(L, h); lua_pushvalue(L, -2); lua_rawset(L, -5);
+    return 1;
+}
+
 EMSCRIPTEN_KEEPALIVE void cs_init() {
     L0 = luaL_newstate();
     luaL_openlibs(L0);
@@ -855,6 +906,11 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setglobal(L0, "print");
     lua_pushcfunction(L0, l_warn, "warn");
     lua_setglobal(L0, "warn");
+    lua_newtable(L0);
+    module_cache_ref = lua_ref(L0, -1);
+    lua_pop(L0, 1);
+    lua_pushcfunction(L0, l_require, "require");
+    lua_setglobal(L0, "require");
     lua_pushcfunction(L0, l_time, "time");
     lua_setglobal(L0, "time");
     lua_pushcfunction(L0, l_tick, "tick");
