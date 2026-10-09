@@ -302,6 +302,16 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - `places/lighting-lab.luau` with `test/scenarios/lighting.mjs`: 12 checks, 5 goldens (default, Realistic, sunset, night, flat), desktop and phone, mutation-checked (sky mapping, skybox texture sharing, SSAO, diffuse scale).
    - Not yet: Sky skybox faces (custom skies), SunRays, DepthOfField, Blur, ColorCorrection brightness and tint, ShadowSoftness, sky visibility for OutdoorAmbient (indoors vs outdoors), local lights (Point/Spot/Surface), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
    - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
+   - **Mesh editing, design (2026-10-09, started):**
+     - Compile Blender's own BMesh (v4.2.0, `source/blender/bmesh`, ~37k lines of core and operators) to wasm with emscripten, as Luau was, rather than hand-port it. Results then match Blender exactly: wasm floats are strict IEEE, like x86 SSE without FMA.
+     - Oracle: Blender 4.2 as a Python module (the `bpy` 4.2.0 wheel, cp311, in `.cache/bpy-venv`). `bmesh.ops` runs Blender's C operators headless (`bpy.ops` needs UI context). Same inputs into both; compare vertex coordinates bit for bit, and topology in element order.
+     - Done so far (in `.cache/`, not committed):
+       - a sparse clone of Blender at v4.2.0;
+       - all of BMesh, blenlib, guardedalloc and rangetree compile natively with g++ against Blender's own headers;
+       - the linker's list of what's missing: CustomData (`blenkernel/intern/customdata.cc`, which needs makesdna's generated `dna_type_offsets.h`), custom-normal spaces (`BKE_lnor_*`), curve profile and bezier helpers (bevel), multires/MDisps, mesh conversion, BVH.
+     - A strict-flags pragma needs a shim header, and `string_utf8.cc` has an inline `#pragma GCC diagnostic error` (compile a copy without it).
+     - **Blocked (2026-10-09):** the auto-mode classifier refused to run the makesdna binary built from Blender's downloaded source ("Code from External"). The plan runs Blender's code throughout (makesdna, the native probe, the wasm build in the browser), so this needs the user's permission rule.
+     - First slice after that: CustomData (real, for UVs), stubs that abort for custom normals, multires and mesh conversion; a JS binding (build a mesh, run `create_cube`, `extrude_face_region`, `inset_individual`, `inset_region`, `subdivide_edges`, `bevel`, read the mesh back). Then the oracle comparison, then an edit mode in the studio that makes MeshParts.
 4. Climb (TrussPart) and swim poses.
 5. Phone frame rate on real hardware.
 6. Then phase 2 (the editor) and the rest of the creator suite.
