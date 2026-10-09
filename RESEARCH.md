@@ -334,6 +334,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Measure against the spec's reference renderer, not the engine's own old goldens.** Babylon 9 changed PBR defaults since Khronos rendered Babylon's fidelity goldens. Its radiance/irradiance mixing lightens rough surfaces; turning it off matched both Babylon's golden (1.1/255) and ground truth better (7.07 vs 9.20). When an engine update moves a number, ask which side the reference is on.
 - **A clamp can hide a mutation.** A MeshPart's volume is capped at its box (1 in unit space). The test crate was a cube, so a ×6 volume bug clamped back to 1 and passed. Test with a shape whose right answer differs from the box's: a generated sphere at 0.515 of its box.
 - **Git LFS without git-lfs:** a blobless clone gives pointer files for LFS paths. Fetch the real file from `https://media.githubusercontent.com/media/<owner>/<repo>/<commit>/<path>`.
+- **Roblox's removed code is still in the client tracker's history.** Deleted shaders (the tonemap and colour-grade pass at `0a257e8`, May 2025; the 2019 shaders with readable struct names) are found with `git log --diff-filter=D --name-only`. That reads only trees, so it's cheap on a blobless clone. For Studio's template defaults, `rojo-rbx/rbx-test-files` has Studio's own "File → New" baseplate saved at several versions; they're more reliable than any doc. (From the lighting research agent; the baseplate values and the shader's gamma-2 output were spot-checked.)
 ## 5. Ways to work that held up
 
 **Research pipeline**
