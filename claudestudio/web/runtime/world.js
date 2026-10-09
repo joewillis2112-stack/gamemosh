@@ -316,6 +316,28 @@ export class World {
   }
 
   // Unanchored parts are moved by physics: copy their pose back into the DataModel.
+  // How each anchored part moved since last frame (a tween, a script setting
+  // its CFrame, a spinner), as velocities: inst.kin = { v, w } (studs/s,
+  // rad/s), or null if it didn't move or jumped (a teleport). Roblox gives such
+  // parts no velocity, so they don't carry what stands on them; here they do.
+  trackMotion(dt) {
+    for (const [inst, e] of this.parts) {
+      if (!inst.props.Anchored) { inst.kin = null; e.prevCF = null; continue; }
+      const cf = inst.props.CFrame, prev = e.prevCF;
+      e.prevCF = cf;
+      if (!prev || prev === cf || dt <= 0) { inst.kin = null; continue; }
+      const v = [(cf.x - prev.x) / dt, (cf.y - prev.y) / dt, (cf.z - prev.z) / dt];
+      // Rotation since last frame: q = now * conj(before), as an axis-angle rate.
+      const [ax, ay, az, aw] = cf.toQuat(), [bx, by, bz, bw] = prev.toQuat();
+      let qx = aw * -bx + ax * bw + ay * -bz - az * -by, qy = aw * -by - ax * -bz + ay * bw + az * -bx,
+          qz = aw * -bz + ax * -by - ay * -bx + az * bw, qw = aw * bw - ax * -bx - ay * -by - az * -bz;
+      if (qw < 0) { qx = -qx; qy = -qy; qz = -qz; qw = -qw; }
+      const s = Math.hypot(qx, qy, qz), angle = 2 * Math.atan2(s, qw);
+      const w = s > 1e-9 ? [qx / s * angle / dt, qy / s * angle / dt, qz / s * angle / dt] : [0, 0, 0];
+      inst.kin = Math.hypot(...v) > 300 || angle > 1 ? null : { v, w };
+    }
+  }
+
   syncFromPhysics() {
     const floor = this.dm.workspace.props.FallenPartsDestroyHeight;
     const fallen = [];

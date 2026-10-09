@@ -369,7 +369,10 @@ export class Character {
   // from physics each frame; anchored ones are whatever a script set (a conveyor).
   floorVelocityAt(part, x, y, z) {
     if (!part || !part.props.AssemblyLinearVelocity) return Vector3.Zero();
-    const P = part.props, v = P.AssemblyLinearVelocity, w = P.AssemblyAngularVelocity, c = P.Position;
+    // An anchored part that moved this frame: its measured motion (World.trackMotion).
+    // Otherwise its velocity properties (physics for loose parts; a conveyor's set value).
+    const P = part.props, k = part.kin, c = P.Position;
+    const v = k ? { x: k.v[0], y: k.v[1], z: k.v[2] } : P.AssemblyLinearVelocity, w = k ? { x: k.w[0], y: k.w[1], z: k.w[2] } : P.AssemblyAngularVelocity;
     const rx = x - c.x, ry = y - c.y, rz = z - c.z;
     return new Vector3(v.x + w.y * rz - w.z * ry, v.y + w.z * rx - w.x * rz, v.z + w.x * ry - w.y * rx);
   }
@@ -449,9 +452,18 @@ export class Character {
     // AssemblyLinearVelocity, a part moved by physics; a part moved by CFrame or
     // a tween alone has no velocity, so it doesn't). In the air nothing does:
     // the controller steers back toward the input, so platform momentum fades.
+    // Walking off a moving floor keeps its motion through the air (as Roblox's
+    // newer character controller does; its legacy Humanoid dropped it), so a
+    // jump on a moving platform lands back on the platform.
+    if (!grounded && this.grounded) this.carried = this.floorVel.clone();
+    if (grounded) this.carried = null;
     const fv = this.floorVel = grounded ? this.floorVelocityAt(this.floorPart, this.ctrl.getPosition().x, floor.y, this.ctrl.getPosition().z) : Vector3.Zero();
+    // A turning floor turns us with it.
+    const spin = grounded && this.floorPart ? (this.floorPart.kin ? this.floorPart.kin.w[1] : this.floorPart.props.AssemblyAngularVelocity.y) : 0;
+    if (spin) this.yaw += spin * dt;
+    const base = grounded ? fv : this.carried || Vector3.Zero();
 
-    const want = this.moveDir.scale(H.WalkSpeed).addInPlace(new Vector3(fv.x, 0, fv.z));
+    const want = this.moveDir.scale(H.WalkSpeed).addInPlace(new Vector3(base.x, 0, base.z));
     const k = 1 - Math.exp(-(grounded ? H.Accel : H.AirAccel) * dt);
     const horiz = new Vector3(v.x, 0, v.z);
     horiz.addInPlace(want.subtract(horiz).scale(k));
@@ -461,6 +473,7 @@ export class Character {
       // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
       grounded = false;
       this.justJumped = 0.1;
+      this.carried = new Vector3(fv.x, 0, fv.z); // take the floor's motion into the jump
       this.jumpAnim = 0.31; // Roblox's Animate: the jump animation plays 0.31 s before fall
       this.blockedTime = 0;
       this.on.jump && this.on.jump();

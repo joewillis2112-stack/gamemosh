@@ -64,6 +64,7 @@ async function main() {
     fire('PreAnimation', [dt]);
     fire('PreSimulation', [dt]); fire('Stepped', [t, dt]);
     dm.stepTweens(dt); vm.flush(); // tweens move parts before physics sees them
+    world.trackMotion(dt); // how anchored parts moved this frame, so moving floors carry
   };
   const tick = dt => {
     t += dt;

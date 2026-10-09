@@ -4,6 +4,19 @@ A game studio in the browser, usable from a phone: build a game (parts, characte
 
 Started 2026-10-07. Built over many sessions, so this file is the map.
 
+## What it is (from the user, 2026-10-09)
+
+**A framework for making anything, not a Roblox replica.** It must range from blocky, Roblox-style games to realistic ones, with creator tools in the spirit of Blender and Adobe's suite (model, sculpt, paint, animate, vector, motion, sound) to make either.
+
+- The Roblox-style Luau API is the **baseline**, so scripts and know-how carry over. It is **not a ceiling**:
+  - where Roblox has a limitation or a wart, we can do better, and should when it helps creators (example: platforms moved by a tween carry the player here);
+  - "differs from Roblox" is a note, not a defect.
+- Every system is built for the full range:
+  - materials and lighting go from flat plastic to photoreal PBR;
+  - characters can be blocky rigs or realistic skinned meshes;
+  - UI goes from a simple label to a styled HUD.
+- Quality before quantity still holds. Range comes from each piece being general and finished, not from many half-done pieces.
+
 ## The bar (from the user)
 
 - **What the studio produces must match popular 2026 Roblox games in consistency and finish.** Not their style, and not texture resolution: every asset correct, consistent with the others, and finished before the next one starts.
@@ -230,8 +243,11 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 
 **Not done yet, in order:**
 1. Moving and spinning parts.
-   - Done: the character is carried by its floor's velocity at the contact point (linear + angular × r), and parts have `AssemblyLinearVelocity`/`AssemblyAngularVelocity` (plus the deprecated `Velocity`/`RotVelocity`). Physics writes these for unanchored parts; on anchored ones they're a conveyor. A part moved only by CFrame or a tween has no velocity and doesn't carry, as in Roblox (its engineers advise setting the velocity too, or moving it with constraints). Jumping off keeps no momentum beyond what air control bleeds off (the legacy Humanoid). `test/scenarios/platforms.mjs`, mutation-checked.
-   - Unknown, so not modelled: whether a spinning floor turns the character's facing.
+   - Done: any moving floor carries the character (2026-10-09, past Roblox).
+     - Each anchored part's motion is measured every frame (`World.trackMotion`), so platforms moved by a tween, by CFrame in a script, or spinning, all carry. In Roblox they don't, and creators must work around it; the workaround (also setting the velocity) still works and isn't counted twice.
+     - Conveyors (an anchored part with `AssemblyLinearVelocity` set) and physics-moved parts carry too, at the contact point (linear + angular × r). A spinning floor turns the character with it.
+     - Leaving a moving floor keeps its motion through the air, as Roblox's newer controller does, so a jump on a moving platform lands back on the same spot. A platform that teleports (more than 300 studs/s or 1 rad in a frame) carries no one.
+     - `test/scenarios/platforms.mjs`: 11 checks, mutation-checked.
    - Done: TweenService (`web/tween.js`, `TweenService`/`Tween` in `web/datamodel.js`, `TweenInfo` userdata in the binding, which can now also pass Luau tables to the engine).
      - Follows the docs: `TweenInfo.new` defaults (1, Quad, Out, 0, false, 0); Play starts from current values; a newer tween on the same property cancels the older; Pause keeps progress (Playing only); Cancel resets progress but leaves the properties; `Completed(PlaybackState)` on finish or Cancel, not Pause; PlaybackState Begin/Delayed/Playing/Paused/Completed/Cancelled; numbers, bools, enums, Vector3, Color3 and CFrame (slerp) tween; mismatched types error.
      - Easing: Penner curves, with Back and Elastic in the forms a DevForum author fitted to Roblox's `GetValue`. Only `GetValue(0.5, Bounce, In) = 0.234375` is checked against a printed Roblox value; the rest needs Roblox itself to confirm.
