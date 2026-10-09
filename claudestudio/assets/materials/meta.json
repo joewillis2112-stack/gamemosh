@@ -1,0 +1,86 @@
+{
+ "Wood": {
+  "source": "Wood094",
+  "metal": false,
+  "roughness": 0.6,
+  "clipped": 0.0
+ },
+ "WoodPlanks": {
+  "source": "WoodFloor040",
+  "metal": false,
+  "roughness": 0.6,
+  "clipped": 0.0
+ },
+ "Brick": {
+  "source": "Bricks101",
+  "metal": false,
+  "roughness": 0.8,
+  "clipped": 0.0
+ },
+ "Cobblestone": {
+  "source": "PavingStones141",
+  "metal": false,
+  "roughness": 0.75,
+  "clipped": 0.0033
+ },
+ "Concrete": {
+  "source": "Concrete034",
+  "metal": false,
+  "roughness": 0.8,
+  "clipped": 0.0
+ },
+ "Grass": {
+  "source": "Grass004",
+  "metal": false,
+  "roughness": 0.85,
+  "clipped": 0.0001
+ },
+ "Sand": {
+  "source": "Ground080",
+  "metal": false,
+  "roughness": 0.9,
+  "clipped": 0.0
+ },
+ "Granite": {
+  "source": "Granite002A",
+  "metal": false,
+  "roughness": 0.6,
+  "clipped": 0.0
+ },
+ "Marble": {
+  "source": "Marble012",
+  "metal": false,
+  "roughness": 0.35,
+  "clipped": 0.0
+ },
+ "DiamondPlate": {
+  "source": "DiamondPlate008B",
+  "metal": true,
+  "roughness": 0.4,
+  "clipped": 0.0
+ },
+ "CorrodedMetal": {
+  "source": "Metal041B",
+  "metal": true,
+  "roughness": 0.6,
+  "clipped": 0.0
+ },
+ "Fabric": {
+  "source": "Fabric061",
+  "metal": false,
+  "roughness": 0.9,
+  "clipped": 0.0
+ },
+ "Pebble": {
+  "source": "Gravel023",
+  "metal": false,
+  "roughness": 0.75,
+  "clipped": 0.0
+ },
+ "Ice": {
+  "source": "Ice003",
+  "metal": false,
+  "roughness": 0.15,
+  "clipped": 0.0503
+ }
+}

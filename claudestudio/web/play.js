@@ -67,6 +67,7 @@ async function main() {
   };
   const tick = dt => {
     t += dt;
+    framePhysics = false;
     const c = controls.read(dt);
     const scriptJump = players.preStep();
     // No character (not spawned yet, or a script removed it): nothing to drive.
@@ -84,7 +85,13 @@ async function main() {
   };
   if (fixed) scene.getPhysicsEngine().setTimeStep(1 / 60);
   let simulating = false;
-  scene.onBeforePhysicsObservable.add(() => beforePhysics(frameDt()));
+  // Physics steps at 240 Hz, Roblox's solver rate. At one 60 Hz step, Havok
+  // (tuned for metres under 9.8 m/s²) let a stack of parts under 196.2
+  // studs/s² sink 0.17 studs and wobble at 1-2 studs/s; at 240 Hz it rests.
+  // The frame's events still fire once, before the first substep.
+  scene.getPhysicsEngine().setSubTimeStep(1000 / 240);
+  let framePhysics = false;
+  scene.onBeforePhysicsObservable.add(() => { if (!framePhysics) { framePhysics = true; beforePhysics(frameDt()); } });
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
   window.studio = {

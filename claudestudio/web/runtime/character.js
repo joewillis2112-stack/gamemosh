@@ -9,6 +9,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
+const PUSH_FORCE = 10000;
+
 export const HUMANOID = {
   WalkSpeed: 16,      // studs/s
   JumpPower: 50,      // studs/s upward
@@ -361,6 +363,35 @@ export class Character {
     return new Vector3(v.x + w.y * rz - w.z * ry, v.y + w.z * rx - w.x * rz, v.z + w.x * ry - w.y * rx);
   }
 
+  // Shoving loose parts. Babylon's controller pushes with an impulse worked
+  // out after its solver has already stopped the character, so almost nothing
+  // moved. Roblox's Humanoid shoves loose parts aside; how hard isn't
+  // documented (its forces are special-cased and not tunable). Ours: each
+  // loose part we walk into is pushed toward our walking speed with at most
+  // PUSH_FORCE (mass units x studs/s²): a 4-stud plastic crate (45 units,
+  // 2,600 of friction) slides away briskly; a 4-stud metal block (500 units,
+  // 39,000 of friction) doesn't budge.
+  push(dt) {
+    const wish = this.moveDir;
+    if (this.dead || wish.lengthSquared() < 0.01) return;
+    // What we're walking into: rays along the walk direction at shin, hip and
+    // chest height, reaching just past the capsule. (The controller's own
+    // contact list is cleared by the time integrate() returns.)
+    const eng = this.scene.getPhysicsEngine(), c = this.ctrl.getPosition(), foot = this.footY;
+    const d = wish.normalizeToNew(), reach = this.p.Radius + 0.35, seen = new Set();
+    for (const h of [0.6, 2, 3.6]) {
+      const from = new Vector3(c.x, foot + h, c.z);
+      eng.raycastToRef(from, from.add(d.scale(reach)), this.ray);
+      const b = this.ray.hasHit && this.ray.body;
+      if (!b || seen.has(b) || b.getMotionType() !== 2 /* dynamic */) continue;
+      seen.add(b);
+      const want = wish.length() * this.p.WalkSpeed, v = b.getLinearVelocity(), dv = want - (v.x * d.x + v.z * d.z);
+      if (dv <= 0) continue;
+      const J = Math.min(b.getMassProperties().mass * dv, PUSH_FORCE * dt);
+      b.applyImpulse(new Vector3(d.x * J, 0, d.z * J), this.ray.hitPointWorld.clone());
+    }
+  }
+
   // Input for this frame: world-space direction (x, z), length <= 1; jump pressed.
   setInput(dirX, dirZ, jump, touch = false) {
     if (this.dead) { dirX = dirZ = 0; jump = false; }
@@ -441,6 +472,7 @@ export class Character {
     this.ctrl.setVelocity(out);
     const support = this.ctrl.checkSupport(dt, new Vector3(0, -1, 0));
     this.ctrl.integrate(dt, support, g);
+    this.push(dt);
     this.velocity = this.ctrl.getVelocity().clone(); // a copy: getVelocity returns the controller's own vector
     // A ceiling (or a wall's slope) changed the vertical speed: take the solver's.
     if (!grounded && Math.abs(this.velocity.y - out.y) > 1e-3) this.vy = this.velocity.y;

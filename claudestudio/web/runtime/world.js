@@ -9,6 +9,8 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import { PhysicsShapeType, PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import { partShape } from './shapes.js';
+import { PHYSICAL } from './physprops.js';
+import { PhysicsMaterialCombineMode } from '@babylonjs/core/Physics/v2/physicsMaterial.js';
 import { isA, CF, V3 } from '../datamodel.js';
 
 const DEG = Math.PI / 180;
@@ -21,6 +23,15 @@ const MATERIALS = {
   SmoothPlastic: { roughness: 0.38, metallic: 0 },
   Metal: { roughness: 0.32, metallic: 0.9 },
   Neon: { roughness: 0.5, metallic: 0, emissive: 1.6 },
+};
+// Textured materials (assets/materials, CC0 from ambientCG): greyscale albedo
+// tinted by the part's Color, as Roblox tints its materials; a normal map; AO,
+// roughness and metalness packed in one map. `tile` is studs per repeat; UVs
+// are box-projected in studs, so a texture keeps its scale on any size of part.
+const TEXTURED = {
+  Wood: { tile: 8 }, WoodPlanks: { tile: 8 }, Brick: { tile: 12 }, Cobblestone: { tile: 16 }, Concrete: { tile: 12 },
+  Grass: { tile: 8 }, Sand: { tile: 12 }, Granite: { tile: 8 }, Marble: { tile: 12 }, DiamondPlate: { tile: 4 },
+  CorrodedMetal: { tile: 8 }, Fabric: { tile: 4 }, Pebble: { tile: 10 }, Ice: { tile: 12 },
 };
 // Unlisted Roblox materials render as Plastic until they pass the gate.
 
@@ -47,14 +58,54 @@ export class World {
   // Each part owns its material, updated in place when Color or Material
   // changes (a colour-cycling part used to leak a material per colour).
   updateMaterial(inst, e) {
-    const P = inst.props, r = MATERIALS[P.Material] || MATERIALS.Plastic;
+    const P = inst.props, r = MATERIALS[P.Material] || MATERIALS.Plastic, T = TEXTURED[P.Material];
     const m = e.mat || (e.mat = new PBRMaterial(inst.Name + '#' + inst.handle, this.scene));
     // Part colours are sRGB, like Color3.fromRGB in Roblox.
-    m.albedoColor = new Color3(P.Color.r, P.Color.g, P.Color.b).toLinearSpace();
-    m.roughness = r.roughness;
-    m.metallic = r.metallic;
-    m.emissiveColor = r.emissive ? m.albedoColor.scale(r.emissive) : Color3.Black();
+    const color = new Color3(P.Color.r, P.Color.g, P.Color.b).toLinearSpace();
+    if (T) {
+      const tx = this.materialTextures(P.Material);
+      m.albedoTexture = tx.albedo; m.bumpTexture = tx.normal; m.metallicTexture = tx.orm;
+      m.albedoColor = color.scale(2); // the albedo map stores the part's colour at 0.5
+      m.useAmbientOcclusionFromMetallicTextureRed = m.useRoughnessFromMetallicTextureGreen = m.useMetallnessFromMetallicTextureBlue = true;
+      m.metallic = m.roughness = 1; // the map's values as they are
+      m.emissiveColor = Color3.Black();
+      this.studUVs(e.mesh, P.Size, T.tile);
+    } else {
+      m.albedoTexture = m.bumpTexture = m.metallicTexture = null;
+      m.albedoColor = color;
+      m.roughness = r.roughness;
+      m.metallic = r.metallic;
+      m.emissiveColor = r.emissive ? color.scale(r.emissive) : Color3.Black();
+    }
     e.mesh.material = m;
+  }
+  // One set of textures per material, shared by every part that uses it.
+  materialTextures(name) {
+    const cache = this.matTex || (this.matTex = {});
+    if (!cache[name]) {
+      const url = f => `../assets/materials/${name}/${f}.jpg`, tex = f => new Texture(url(f), this.scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+      cache[name] = { albedo: tex('albedo'), normal: tex('normal'), orm: tex('orm') };
+      cache[name].albedo.anisotropicFilteringLevel = 8;
+    }
+    return cache[name];
+  }
+  // Box-projected UVs in studs: each vertex takes the two local axes across its
+  // normal, scaled by the part's size. The across-axis is flipped on the
+  // negative faces so no face shows its texture mirrored.
+  studUVs(mesh, size, tile) {
+    const pos = mesh.getVerticesData('position'), nrm = mesh.getVerticesData('normal');
+    if (!pos || !nrm) return;
+    const uv = new Float32Array(pos.length / 3 * 2);
+    for (let i = 0, j = 0; i < pos.length; i += 3, j += 2) {
+      const x = pos[i] * size.x, y = pos[i + 1] * size.y, z = pos[i + 2] * size.z;
+      const ax = Math.abs(nrm[i]), ay = Math.abs(nrm[i + 1]), az = Math.abs(nrm[i + 2]);
+      let u, v;
+      if (ax >= ay && ax >= az) { u = nrm[i] > 0 ? -z : z; v = y; }
+      else if (ay >= az) { u = x; v = nrm[i + 1] > 0 ? z : -z; }
+      else { u = nrm[i + 2] > 0 ? x : -x; v = y; }
+      uv[j] = u / tile; uv[j + 1] = v / tile;
+    }
+    mesh.setVerticesData('uv', uv, true);
   }
 
   // Built-in images for Decal/Texture. "studio://grid": one cell of a light
@@ -207,9 +258,16 @@ export class World {
     const wedge = inst.ClassName === 'WedgePart' || P.Shape === 'Wedge';
     // Wedges and cylinders collide as their own convex hulls (a cylinder as a box let players stand on its corners).
     const type = P.Shape === 'Ball' ? PhysicsShapeType.SPHERE : wedge || P.Shape === 'Cylinder' ? PhysicsShapeType.CONVEX_HULL : PhysicsShapeType.BOX;
-    // Roblox part density ~0.7 g/cm³ for plastic; mass in arbitrary units scaled by volume.
-    const mass = P.Anchored ? 0 : 0.7 * P.Size.x * P.Size.y * P.Size.z;
-    e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction: 0.5, restitution: 0 }, this.scene);
+    // Roblox's material physics: mass = density x the shape's own volume;
+    // friction and elasticity per material. Roblox combines two parts' values
+    // by their weights; Havok can't weight, so this uses the plain mean, which
+    // is exact when both weights are 1 (most materials) and not for Ice, Sand,
+    // Rubber and a few others.
+    const [density, elasticity, , friction] = PHYSICAL[P.Material] || PHYSICAL.Plastic, S = P.Size;
+    const volume = P.Shape === 'Ball' ? Math.PI / 6 * Math.min(S.x, S.y, S.z) ** 3 : P.Shape === 'Cylinder' ? Math.PI / 4 * Math.min(S.y, S.z) ** 2 * S.x : wedge ? S.x * S.y * S.z / 2 : S.x * S.y * S.z;
+    const mass = P.Anchored ? 0 : density * volume;
+    e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction, restitution: elasticity }, this.scene);
+    e.agg.shape.material = { friction, restitution: elasticity, frictionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN, restitutionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN };
     if (!P.CanCollide) { e.agg.shape.filterMembershipMask = 0; e.agg.shape.filterCollideMask = 0; }
   }
 
@@ -229,7 +287,8 @@ export class World {
     // Only what the property affects: a colour change must not rebuild the
     // physics body (or stop an unanchored part dead), nor reload decals.
     switch (key) {
-      case 'Color': case 'Material': return this.updateMaterial(inst, e);
+      case 'Color': return this.updateMaterial(inst, e);
+      case 'Material': this.updateMaterial(inst, e); return this.body(inst, e); // looks and physics both change
       case 'Transparency': return this.visibility(inst, e);
       case 'CFrame':
         this.transform(inst, e);
@@ -241,7 +300,7 @@ export class World {
         return this.body(inst, e); // teleporting an unanchored part
       case 'Size':
         if (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge' || inst.props.Shape === 'Cylinder') return this.build(inst); // hull from the mesh
-        this.transform(inst, e); this.decals(inst, e); return this.body(inst, e);
+        this.transform(inst, e); this.decals(inst, e); if (TEXTURED[inst.props.Material]) this.studUVs(e.mesh, inst.props.Size, TEXTURED[inst.props.Material].tile); return this.body(inst, e);
       case 'Shape': return this.build(inst);
       case 'CanCollide': case 'Anchored': e.moving = false; return this.body(inst, e);
       // On an unanchored part, setting a velocity sets it for this frame and physics takes over (Roblox).
