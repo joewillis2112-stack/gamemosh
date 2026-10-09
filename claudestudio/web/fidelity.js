@@ -26,7 +26,7 @@ window.renderScenario = async function (s) {
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, premultipliedAlpha: false });
   engine.setHardwareScalingLevel(1 / dpr); engine.resize();
   const scene = new Scene(engine);
-  scene.useRightHandedSystem = true;
+  scene.useRightHandedSystem = !s.leftHanded; // leftHanded: the Khronos harness's own setup, as a control
   const ip = scene.imageProcessingConfiguration;
   ip.toneMappingEnabled = true;
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
@@ -38,11 +38,13 @@ window.renderScenario = async function (s) {
   // alpha = 90° − θ with the target as given (the left-handed harness flips x
   // and uses θ + 90°).
   const { orbit, target } = s;
-  const cam = new ArcRotateCamera('cam', deg(90 - orbit.theta), deg(orbit.phi), orbit.radius, new Vector3(target.x, target.y, target.z), scene);
+  const cam = s.leftHanded
+    ? new ArcRotateCamera('cam', deg(orbit.theta + 90), deg(orbit.phi), orbit.radius, new Vector3(-target.x, target.y, target.z), scene)
+    : new ArcRotateCamera('cam', deg(90 - orbit.theta), deg(orbit.phi), orbit.radius, new Vector3(target.x, target.y, target.z), scene);
   cam.fov = deg(s.verticalFoV);
   scene.activeCamera = cam;
 
-  const m = await importGltf(scene, s.model);
+  const m = await importGltf(scene, s.model, s.import || {});
   const { min, max } = m.root.getHierarchyBoundingVectors();
   const size = Math.max(max.x - min.x, max.y - min.y, max.z - min.z);
   cam.minZ = 2 * Math.max(size, orbit.radius) / 1000;
@@ -52,14 +54,29 @@ window.renderScenario = async function (s) {
   const realtime = base === 'spruit_sunrise_1k_HDR' || base === 'spot1Lux';
   const env = new HDRCubeTexture(s.lighting, scene, 256, false, true, false, !realtime);
   scene.environmentTexture = env;
-  env.setReflectionTextureMatrix(Matrix.RotationY(deg(s.envRotation ?? 90)));
+  // envMirror: 'x' or 'z' mirrors the lookup before rotating (handedness experiments).
+  const mirror = s.envMirror === 'x' ? Matrix.Scaling(-1, 1, 1) : s.envMirror === 'z' ? Matrix.Scaling(1, 1, -1) : Matrix.Identity();
+  env.setReflectionTextureMatrix(mirror.multiply(Matrix.RotationY(deg(s.envRotation ?? 90))));
   if (s.renderSkybox) {
     const sky = scene.createDefaultSkybox(env);
     sky.rotation.y = deg(s.skyRotation ?? 270); sky.infiniteDistance = true;
   }
+  if (s.matProps) for (const mat of scene.materials) if (mat.getClassName() === 'PBRMaterial') Object.assign(mat, s.matProps);
+  if (s.samplingMode) for (const t of scene.textures) if (!t.isCube && t.name && !t.name.startsWith('data:')) t.updateSamplingMode(s.samplingMode);
+  if (s.forceLinearAlbedo) for (const mat of scene.materials) if (mat.albedoTexture) mat.albedoTexture.gammaSpace = false;
+  // Experiment hook (tools/fidelity.mjs --brdf k=v,...): BRDF settings on every material.
+  if (s.brdf) for (const mat of scene.materials) if (mat.brdf) Object.assign(mat.brdf, s.brdf);
   if (realtime) for (const mat of scene.materials) { mat.realTimeFiltering = true; mat.realTimeFilteringQuality = Constants.TEXTURE_FILTERING_QUALITY_HIGH; }
   await new Promise(r => scene.executeWhenReady(r));
   for (let i = 0; i < 3; i++) scene.render();
-  return { meshes: m.meshes.length, materials: scene.materials.length, animations: m.animations.length };
+  const tex = scene.textures.filter(t => t.name && !t.isCube).map(t => ({ name: t.name.slice(-40), gamma: t.gammaSpace, srgbBuf: t._texture && t._texture._useSRGBBuffer, fmt: t._texture && t._texture.format, type: t._texture && t._texture.type }));
+  if (s.probeTexture) {
+    const t = scene.textures.find(t => t.name && t.name.includes('Base Color'));
+    const px = await t.readPixels(0, s.probeLevel || 0); const counts = {};
+    for (let i = 0; i < px.length; i += 4) { const k = px[i] + ',' + px[i + 1] + ',' + px[i + 2]; counts[k] = (counts[k] || 0) + 1; }
+    window.probe = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }
+  const mats = scene.materials.filter(x => x.getClassName() !== 'StandardMaterial').map(x => ({ cls: x.getClassName(), name: x.name, metallic: x.metallic, roughness: x.roughness, alpha: x.alpha, transparencyMode: x.transparencyMode, unlit: x.unlit, twoSided: x.backFaceCulling === false, f0: x.metallicF0Factor, specIntensity: x.specularIntensity, envInt: x.environmentIntensity, albedo: x.albedoColor && x.albedoColor.asArray(), reflectivity: x.reflectivityColor && x.reflectivityColor.asArray(), useRough: x.useRoughnessFromMetallicTextureGreen }));
+  return { mats, probe: window.probe, meshes: m.meshes.length, materials: scene.materials.length, animations: m.animations.length, tex };
 };
 window.fidelityReady = true;

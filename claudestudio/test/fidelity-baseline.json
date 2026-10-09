@@ -1,0 +1,72 @@
+[
+ {
+  "name": "khronos-DamagedHelmet",
+  "vsReference": 9.055,
+  "vsBabylon": 1.696
+ },
+ {
+  "name": "khronos-Avocado",
+  "vsReference": 6.414,
+  "vsBabylon": 0.81
+ },
+ {
+  "name": "khronos-Lantern",
+  "vsReference": 5.515,
+  "vsBabylon": 1.544
+ },
+ {
+  "name": "khronos-SpecGlossVsMetalRough",
+  "vsReference": 5.489,
+  "vsBabylon": 2.133
+ },
+ {
+  "name": "khronos-Duck",
+  "vsReference": 4.378,
+  "vsBabylon": 0.467
+ },
+ {
+  "name": "khronos-MetalRoughSpheres",
+  "vsReference": 7.528,
+  "vsBabylon": 0.606
+ },
+ {
+  "name": "khronos-MetalRoughSpheres-HDR",
+  "vsReference": 9.028,
+  "vsBabylon": 0.543
+ },
+ {
+  "name": "khronos-AlphaBlendModeTest",
+  "vsReference": 8.463,
+  "vsBabylon": 1.851
+ },
+ {
+  "name": "khronos-NormalTangentMirrorTest",
+  "vsReference": 11.256,
+  "vsBabylon": 2.052
+ },
+ {
+  "name": "khronos-Box",
+  "vsReference": 3.558,
+  "vsBabylon": 0.07
+ },
+ {
+  "name": "khronos-BoxTextured",
+  "vsReference": 14.517,
+  "vsBabylon": 9.302
+ },
+ {
+  "name": "khronos-BoxTexturedNonPowerOfTwo",
+  "vsReference": 5.356,
+  "vsBabylon": 1.086
+ },
+ {
+  "name": "khronos-BoxVertexColors",
+  "vsReference": 9.291,
+  "vsBabylon": 0.122
+ },
+ {
+  "name": "khronos-TextureTransformTest",
+  "vsReference": 6.619,
+  "vsBabylon": 1.48
+ }
+]

@@ -35,6 +35,10 @@ run --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
 run --phone --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
 run --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
 run --phone --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
+if [ -d .cache/fidelity/assets ]; then
+  node tools/build.mjs web/fidelity.js >/dev/null
+  node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
+else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
 [ $fail -eq 0 ] && echo "ALL PASSED" || echo "SOME FAILED"

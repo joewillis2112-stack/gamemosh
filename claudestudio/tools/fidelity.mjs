@@ -1,7 +1,10 @@
 // glTF import fidelity: render Khronos Render Fidelity scenarios through the
 // studio's import path (web/fidelity.html) and diff against Babylon's golden
 // and the glTF Sample Viewer's (ground truth). Fetch first: tools/fetch-fidelity.sh.
-// node tools/fidelity.mjs [scenario ...] [--env-rotation N] [--out build/fidelity]
+// node tools/fidelity.mjs [scenario ...] [--out build/fidelity] [--check test/fidelity-baseline.json] [--save test/fidelity-baseline.json]
+// --check fails (exit 1) when a scenario's distance to the Sample Viewer grows by
+// more than 0.5/255 over the baseline. Experiment knobs: --brdf k=v,... and the
+// FID_* environment variables below (they are not production settings).
 // Writes <out>/<scenario>.png: ours | Babylon golden | Sample Viewer golden | |ours - Babylon| x4.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
@@ -11,7 +14,7 @@ import { serve } from './serve.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args.splice(i, 2)[1] : d; };
-const outDir = opt('out', 'build/fidelity'), envRotation = opt('env-rotation', null), skyRotation = opt('sky-rotation', null);
+const checkFile = opt('check', null), saveFile = opt('save', null), brdf = opt('brdf', null), outDir = opt('out', 'build/fidelity'), envRotation = opt('env-rotation', null), skyRotation = opt('sky-rotation', null);
 const D = '.cache/fidelity';
 const cfg = JSON.parse(fs.readFileSync(`${D}/gen/test/config.json`, 'utf8'));
 // Defaults from the generator's src/config-reader.ts.
@@ -61,7 +64,15 @@ for (const s of scenarios) {
   await page.goto(`http://127.0.0.1:${srv.port}/web/fidelity.html`);
   await page.waitForFunction(() => window.fidelityReady, null, { timeout: 60000 });
   const scen = { ...s, model: url(s.model), lighting: url(s.lighting), dpr: 2 };
+  if (process.env.FID_MAT) scen.matProps = Object.fromEntries(process.env.FID_MAT.split(',').map(kv => { const [k, v] = kv.split('='); return [k, +v]; }));
+  if (process.env.FID_SAMPLING) scen.samplingMode = +process.env.FID_SAMPLING;
+  if (process.env.FID_LH) scen.leftHanded = true;
+  if (process.env.FID_MIRROR) scen.envMirror = process.env.FID_MIRROR;
+  if (process.env.FID_LINALB) scen.forceLinearAlbedo = true;
+  if (process.env.FID_PROBE) { scen.probeTexture = true; scen.probeLevel = +process.env.FID_PROBE; }
+  if (process.env.FID_NOSRGB) scen.import = { useSRGBBuffers: false };
   if (envRotation !== null) scen.envRotation = +envRotation;
+  if (brdf) scen.brdf = Object.fromEntries(brdf.split(',').map(kv => { const [k, v] = kv.split('='); return [k, v === 'true' ? true : v === 'false' ? false : +v]; }));
   if (skyRotation !== null) scen.skyRotation = +skyRotation;
   let info;
   try { info = await page.evaluate(sc => window.renderScenario(sc), scen); }
@@ -77,8 +88,26 @@ for (const s of scenarios) {
   sheet(path.join(outDir, s.name + '.png'), [ours, same(bab), same(ref), diff], W, H);
   const f = r => r ? `${r.mean.toFixed(2)} mean, ${r.over16.toFixed(1)}% >16` : 'n/a';
   console.log(`${s.name} (${info.meshes} meshes): vs Babylon ${f(vsB)} | vs Sample Viewer ${f(vsR)} | Babylon vs Sample Viewer ${f(bVsR)}`);
+  if (process.env.FID_DEBUG) console.log(JSON.stringify(info.tex));
+  if (process.env.FID_DEBUG) console.log(JSON.stringify(info.mats));
+  if (info.probe) console.log('texture texels', JSON.stringify(info.probe));
   results.push({ name: s.name, vsBabylon: vsB, vsReference: vsR, babylonVsReference: bVsR, info });
   await page.close();
 }
 fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null, 1));
+let failed = 0;
+if (checkFile) {
+  const base = Object.fromEntries(JSON.parse(fs.readFileSync(checkFile, 'utf8')).map(r => [r.name, r]));
+  for (const r of results) {
+    const b = base[r.name];
+    if (!b) { console.log(`new  ${r.name} (no baseline)`); continue; }
+    const d = r.vsReference.mean - b.vsReference;
+    const ok = d <= 0.5;
+    if (!ok) failed++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.name}: ${r.vsReference.mean.toFixed(2)} vs Sample Viewer (baseline ${b.vsReference.toFixed(2)})`);
+  }
+  console.log(failed ? `fidelity: ${failed} scenario(s) worse than baseline` : `fidelity: ${results.length} scenarios at or better than baseline`);
+}
+if (saveFile) fs.writeFileSync(saveFile, JSON.stringify(results.map(r => ({ name: r.name, vsReference: +r.vsReference.mean.toFixed(3), vsBabylon: +r.vsBabylon.mean.toFixed(3) })), null, 1) + '\n');
 await browser.close(); srv.close();
+process.exit(failed ? 1 : 0);

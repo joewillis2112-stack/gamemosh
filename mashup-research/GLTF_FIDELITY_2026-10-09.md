@@ -49,3 +49,26 @@ This is our renderer, so it's the setup to match first:
    - scripts can find their parts;
    - animations can be played;
    - skins work.
+
+## Results (2026-10-09, Babylon 9.29, SwiftShader)
+
+The harness is `tools/fetch-fidelity.sh`, then `tools/fidelity.mjs`, with the baseline in `test/fidelity-baseline.json`. It runs in `test-play.sh` when the fixtures are fetched. We fetched 13 models, giving 14 scenarios.
+
+- **Our right-handed import equals the harness's left-handed setup exactly** (identical numbers). In a right-handed scene the camera is `alpha = 90° − θ` with the target as given, and the environment keeps the 90° rotation. No mirroring is needed.
+- **Babylon 9 has changed since the goldens were made.** Its default `brdf.mixIblRadianceWithIrradiance = true` lightens rough surfaces. Mean distance to the Sample Viewer (ground truth), over 13 scenarios:
+
+  | sRGB textures | mixing | vs Sample Viewer | vs Babylon golden |
+  |---|---|---|---|
+  | on | on (Babylon 9 defaults) | 9.20 | 5.10 |
+  | **on** | **off** (shipped) | **7.07** | **1.11** |
+  | off | on | 9.61 | 4.70 |
+  | off | off | 7.52 | 0.39 |
+
+  `runtime/gltf.js` turns mixing off on imported materials. The diffuse model (Lambert, legacy or E-Oren-Nayar) makes no difference at the glTF default diffuse roughness of 0.
+- With the shipped settings, every scenario is within 2.1/255 of Babylon's golden except **BoxTextured (9.3, open)**:
+  - The texture decodes correctly, including every mip level read back.
+  - The material is right, and handedness, sampling mode, the sRGB path and the environment orientation are ruled out.
+  - Its twin BoxTexturedNonPowerOfTwo, with the same palette PNG at 211 px, matches at 1.1.
+  - The cause is unknown. Ours is lighter on coloured texels only.
+- The distance to the Sample Viewer (about 4 to 11 /255) is Babylon's own gap from ground truth, the same as its golden's. Closing it is renderer work, which comes after this task.
+- Tolerance is 0.5/255 of mean regression per scenario. Mutation check: restoring Babylon 9's mixing default fails 8 of 14 scenarios.
