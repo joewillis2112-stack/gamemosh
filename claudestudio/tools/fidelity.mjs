@@ -63,11 +63,12 @@ for (const s of scenarios) {
   const logs = []; page.on('console', m => logs.push(m.type() + ' ' + m.text())); page.on('pageerror', e => logs.push('pageerror ' + e.message));
   await page.goto(`http://127.0.0.1:${srv.port}/web/fidelity.html`);
   await page.waitForFunction(() => window.fidelityReady, null, { timeout: 60000 });
-  const scen = { ...s, model: url(s.model), lighting: url(s.lighting), dpr: 2 };
+  const scen = { ...s, model: url(s.model), lighting: process.env.FID_LIGHTING || url(s.lighting), dpr: 2 };
   if (toneMap) scen.toneMap = toneMap;
   if (ssao) scen.ssao = Object.fromEntries(ssao.split(',').map(kv => { const [k, v] = kv.split('='); return [k, v === 'true' ? true : v === 'false' ? false : +v]; }));
   if (process.env.FID_MAT) scen.matProps = Object.fromEntries(process.env.FID_MAT.split(',').map(kv => { const [k, v] = kv.split('='); return [k, +v]; }));
   if (process.env.FID_SAMPLING) scen.samplingMode = +process.env.FID_SAMPLING;
+  if (process.env.FID_PROBE_ENV) { scen.envViaProbe = +process.env.FID_PROBE_ENV; scen.probeRotation = +(process.env.FID_PROBE_ROT || 0); }
   if (process.env.FID_LH) scen.leftHanded = true;
   if (process.env.FID_MIRROR) scen.envMirror = process.env.FID_MIRROR;
   if (process.env.FID_LINALB) scen.forceLinearAlbedo = true;
@@ -92,6 +93,7 @@ for (const s of scenarios) {
   console.log(`${s.name} (${info.meshes} meshes): vs Babylon ${f(vsB)} | vs ${refName} ${f(vsR)} | Babylon vs ${refName} ${f(bVsR)}`);
   if (process.env.FID_DEBUG) console.log(JSON.stringify(info.tex));
   if (process.env.FID_DEBUG) console.log(JSON.stringify(info.mats));
+  if (process.env.FID_DEBUG) console.log('sh l00', JSON.stringify(info.sh));
   if (info.probe) console.log('texture texels', JSON.stringify(info.probe));
   results.push({ name: s.name, vsBabylon: vsB, vsReference: vsR, babylonVsReference: bVsR, info });
   await page.close();

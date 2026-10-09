@@ -45,6 +45,7 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  LightingStyle: { Realistic: 0, Soft: 1 },
   CollisionFidelity: { Default: 0, Hull: 1, Box: 2, PreciseConvexDecomposition: 3 }, RenderFidelity: { Automatic: 0, Precise: 1, Performance: 2 },
   // From Roblox's API dump (Roblox-Client-Tracker, v0.719).
   CoreGuiType: { PlayerList: 0, Health: 1, Backpack: 2, Chat: 3, All: 4, EmotesMenu: 5, SelfView: 6, Captures: 7, AvatarSwitcher: 8 },
@@ -307,7 +308,60 @@ defineClass('LuaSourceContainer', 'Instance', { creatable: false, props: { Sourc
 defineClass('Script', 'LuaSourceContainer');
 defineClass('LocalScript', 'LuaSourceContainer');
 defineClass('ModuleScript', 'LuaSourceContainer');
-defineClass('Lighting', 'Instance', { creatable: false, service: true, props: { ClockTime: ['number', 14], Brightness: ['number', 2] } });
+// ---- Lighting (runtime/lighting.js draws it). Research and sources:
+// mashup-research/ROBLOX_LIGHTING_2026-10-09.md. Defaults are a new Studio
+// Baseplate's (Studio's own saved "File > New" place), not Instance.new's bare
+// engine defaults, since that's the look a new place starts from.
+const grey = v => [v / 255, v / 255, v / 255];
+// The sun's direction (towards the sun). Roblox computes it in C++; this
+// formula is what four community sources agree on, one checked against
+// GetSunDirection() in Studio (UNSURE until checked here). a = time of day as
+// an angle, L = latitude less the earth's tilt: rises at +X at 06:00, sets at -X.
+export function sunDirection(clock, latitude) {
+  const a = 2 * Math.PI * clock / 24, L = (latitude - 23.5) * Math.PI / 180;
+  return [Math.cos(L) * Math.sin(a), -Math.cos(L) * Math.cos(a), Math.sin(L)];
+}
+const clockString = h => { const t = Math.round((((h % 24) + 24) % 24) * 3600); return [t / 3600 | 0, (t / 60 | 0) % 60, t % 60].map(n => String(n).padStart(2, '0')).join(':'); };
+defineClass('Lighting', 'Instance', {
+  creatable: false, service: true,
+  props: {
+    Ambient: ['Color3', grey(70)], OutdoorAmbient: ['Color3', grey(70)], Brightness: ['number', 3],
+    ClockTime: ['number', 14.5], TimeOfDay: ['string', '14:30:00'], GeographicLatitude: ['number', 0],
+    EnvironmentDiffuseScale: ['number', 1], EnvironmentSpecularScale: ['number', 1], ExposureCompensation: ['number', 0],
+    GlobalShadows: ['bool', true], ShadowSoftness: ['number', 0.2], ColorShift_Top: ['Color3', [0, 0, 0]], ColorShift_Bottom: ['Color3', [0, 0, 0]],
+    FogColor: ['Color3', grey(192)], FogStart: ['number', 0], FogEnd: ['number', 100000],
+    LightingStyle: ['Enum.LightingStyle', 'Soft'], PrioritizeLightingQuality: ['bool', true],
+  },
+  methods: {
+    GetSunDirection(self) { return [new V3(...sunDirection(self.props.ClockTime, self.props.GeographicLatitude))]; },
+    // The moon mirrors the sun in X and Y (not simply opposite).
+    GetMoonDirection(self) { const [x, y, z] = sunDirection(self.props.ClockTime, self.props.GeographicLatitude); return [new V3(-x, -y, z)]; },
+    GetMinutesAfterMidnight(self) { return [self.props.ClockTime * 60]; },
+    SetMinutesAfterMidnight(self, m) { self.dm.set(self, 'ClockTime', (+m || 0) / 60); return []; },
+  },
+  events: ['LightingChanged'],
+});
+// Post effects and the sky's look: children of Lighting (or the camera). Instance.new
+// defaults from rbx-dom's reflection database. Which properties are drawn so far:
+// runtime/lighting.js.
+defineClass('PostEffect', 'Instance', { creatable: false, props: { Enabled: ['bool', true] } });
+defineClass('BloomEffect', 'PostEffect', { props: { Intensity: ['number', 0.4], Size: ['number', 24], Threshold: ['number', 0.95] } });
+defineClass('ColorCorrectionEffect', 'PostEffect', { props: { Brightness: ['number', 0], Contrast: ['number', 0], Saturation: ['number', 0], TintColor: ['Color3', [1, 1, 1]] } });
+defineClass('DepthOfFieldEffect', 'PostEffect', { props: { FarIntensity: ['number', 0.75], FocusDistance: ['number', 0.05], InFocusRadius: ['number', 10], NearIntensity: ['number', 0.75] } });
+defineClass('SunRaysEffect', 'PostEffect', { props: { Intensity: ['number', 0.25], Spread: ['number', 1] } });
+defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
+defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
+defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
+// A new Studio Baseplate's Lighting children (Studio 0.727's saved place).
+export function baseplateLighting(dm) {
+  const L = dm.service('Lighting');
+  const add = (cls, name, props) => { const i = dm.create(cls); i.props.Name = name; Object.assign(i.props, props); dm.setParent(i, L); };
+  add('Sky', 'Sky', {});
+  add('SunRaysEffect', 'SunRays', { Intensity: 0.01, Spread: 0.1 });
+  add('Atmosphere', 'Atmosphere', { Density: 0.3, Offset: 0.25, Color: new C3(199 / 255, 199 / 255, 199 / 255), Decay: new C3(106 / 255, 112 / 255, 125 / 255), Glare: 0, Haze: 0 });
+  add('BloomEffect', 'Bloom', { Intensity: 1, Size: 24, Threshold: 2 });
+  add('DepthOfFieldEffect', 'DepthOfField', { Enabled: false, FarIntensity: 0.1, FocusDistance: 0.05, InFocusRadius: 30, NearIntensity: 0.75 });
+}
 // Players and characters. Single-player for now: one Player joins after the
 // place's scripts have run (so PlayerAdded handlers see it, as in Roblox).
 defineClass('Players', 'Instance', {
@@ -456,6 +510,18 @@ export class DataModel {
     if (key === 'Parent') return this.setParent(inst, value);
     if ((key === 'CFrame' || key === 'Position' || key === 'Orientation') && inst.props.CFrame) return this.place(inst, key, value);
     if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
+    if (inst.ClassName === 'Lighting' && (key === 'ClockTime' || key === 'TimeOfDay')) {
+      // Two views of one time (Roblox): ClockTime wraps into [0, 24); TimeOfDay is its "HH:MM:SS".
+      const h = key === 'ClockTime' ? (((+value % 24) + 24) % 24) : (() => { const m = /^(-?\d+):(\d+):(\d+)$/.exec(String(value)); return m ? (((+m[1] + m[2] / 60 + m[3] / 3600) % 24) + 24) % 24 : inst.props.ClockTime; })();
+      const ts = clockString(h), changed = [];
+      if (!sameValue(inst.props.ClockTime, h)) { inst.props.ClockTime = h; changed.push('ClockTime'); }
+      if (inst.props.TimeOfDay !== ts) { inst.props.TimeOfDay = ts; changed.push('TimeOfDay'); }
+      if (!changed.length) return;
+      this.notify(inst, 'ClockTime');
+      for (const k of changed) this.fire(inst, 'Changed', [k]);
+      this.fire(inst, 'LightingChanged', [false]);
+      return;
+    }
     if (sameValue(inst.props[key], value)) return; // Roblox fires Changed only on a real change
     inst.props[key] = value;
     this.notify(inst, key);

@@ -13,9 +13,8 @@ import { Constants } from '@babylonjs/core/Engines/constants.js';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader.js';
 import '@babylonjs/core/Helpers/sceneHelpers.js';
 import { importGltf } from './runtime/gltf.js';
-import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline.js';
-import '@babylonjs/core/Rendering/prePassRendererSceneComponent.js';
-import '@babylonjs/core/Rendering/geometryBufferRendererSceneComponent.js';
+import { createSSAO } from './runtime/ssao.js';
+import { Sky } from './runtime/sky.js';
 
 const deg = d => d * Math.PI / 180;
 
@@ -57,11 +56,19 @@ window.renderScenario = async function (s) {
 
   const base = s.lighting.split('/').pop().split('.').slice(0, -1).join('');
   const realtime = base === 'spruit_sunrise_1k_HDR' || base === 'spot1Lux';
-  const env = new HDRCubeTexture(s.lighting, scene, 256, false, true, false, !realtime);
+  let env;
+  if (s.envViaProbe) {
+    // The studio's probe path (runtime/sky.js) with the photo ungraded, to check it against the plain HDR path.
+    const sky = new Sky(scene, s.lighting, { size: s.envViaProbe });
+    await sky.set([0, 1, 0], [0, -1, 0], { plain: true, rot: deg(s.probeRotation ?? 90) });
+    env = sky.env;
+  } else {
+    env = new HDRCubeTexture(s.lighting, scene, 256, false, true, false, !realtime);
+    // envMirror: 'x' or 'z' mirrors the lookup before rotating (handedness experiments).
+    const mirror = s.envMirror === 'x' ? Matrix.Scaling(-1, 1, 1) : s.envMirror === 'z' ? Matrix.Scaling(1, 1, -1) : Matrix.Identity();
+    env.setReflectionTextureMatrix(mirror.multiply(Matrix.RotationY(deg(s.envRotation ?? 90))));
+  }
   scene.environmentTexture = env;
-  // envMirror: 'x' or 'z' mirrors the lookup before rotating (handedness experiments).
-  const mirror = s.envMirror === 'x' ? Matrix.Scaling(-1, 1, 1) : s.envMirror === 'z' ? Matrix.Scaling(1, 1, -1) : Matrix.Identity();
-  env.setReflectionTextureMatrix(mirror.multiply(Matrix.RotationY(deg(s.envRotation ?? 90))));
   if (s.renderSkybox) {
     const sky = scene.createDefaultSkybox(env);
     sky.rotation.y = deg(s.skyRotation ?? 270); sky.infiniteDistance = true;
@@ -73,7 +80,7 @@ window.renderScenario = async function (s) {
   if (s.brdf) for (const mat of scene.materials) if (mat.brdf) Object.assign(mat.brdf, s.brdf);
   if (realtime) for (const mat of scene.materials) { mat.realTimeFiltering = true; mat.realTimeFilteringQuality = Constants.TEXTURE_FILTERING_QUALITY_HIGH; }
   // Screen-space ambient occlusion (measuring whether it brings real-time renders closer to path tracing).
-  if (s.ssao) { const p = new SSAO2RenderingPipeline('ssao', scene, { ssaoRatio: 1, blurRatio: 1 }, [cam]); Object.assign(p, s.ssao); }
+  if (s.ssao) createSSAO(scene, [cam], s.ssao);
   await new Promise(r => scene.executeWhenReady(r));
   for (let i = 0; i < 3; i++) scene.render();
   const tex = scene.textures.filter(t => t.name && !t.isCube).map(t => ({ name: t.name.slice(-40), gamma: t.gammaSpace, srgbBuf: t._texture && t._texture._useSRGBBuffer, fmt: t._texture && t._texture.format, type: t._texture && t._texture.type }));
@@ -84,6 +91,7 @@ window.renderScenario = async function (s) {
     window.probe = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }
   const mats = scene.materials.filter(x => x.getClassName() !== 'StandardMaterial').map(x => ({ cls: x.getClassName(), name: x.name, metallic: x.metallic, roughness: x.roughness, alpha: x.alpha, transparencyMode: x.transparencyMode, unlit: x.unlit, twoSided: x.backFaceCulling === false, f0: x.metallicF0Factor, specIntensity: x.specularIntensity, envInt: x.environmentIntensity, albedo: x.albedoColor && x.albedoColor.asArray(), reflectivity: x.reflectivityColor && x.reflectivityColor.asArray(), useRough: x.useRoughnessFromMetallicTextureGreen }));
-  return { mats, probe: window.probe, meshes: m.meshes.length, materials: scene.materials.length, animations: m.animations.length, tex };
+  const shp = env.sphericalPolynomial && env.sphericalPolynomial.preScaledHarmonics;
+  return { sh: shp && shp.l00.asArray(), mats, probe: window.probe, meshes: m.meshes.length, materials: scene.materials.length, animations: m.animations.length, tex };
 };
 window.fidelityReady = true;

@@ -5,8 +5,8 @@ import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
 import '@babylonjs/core/Physics/v2/physicsEngineComponent.js';
 import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
-import { createRenderer } from './render.js';
-import { DataModel } from './datamodel.js';
+import { createRenderer, createSkybox } from './render.js';
+import { DataModel, baseplateLighting } from './datamodel.js';
 import { startLuau } from './luau.js';
 import createLuau from './luau.mjs';
 import { World } from './runtime/world.js';
@@ -15,12 +15,14 @@ import { FollowCamera } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
 import { Gui } from './runtime/gui.js';
+import { LightingController } from './runtime/lighting.js';
+import { Sky } from './runtime/sky.js';
 import { Audio } from './runtime/audio.js';
 import { CharacterSounds } from './runtime/charsounds.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
-const R = createRenderer(canvas, { skyUrl: '../assets/sky/sky_1k.hdr', quality: q.get('quality') || 'high', preserveDrawingBuffer: !!q.get('test') });
+const R = createRenderer(canvas, { quality: q.get('quality') || 'high', preserveDrawingBuffer: !!q.get('test'), dynamicSky: true });
 const { scene, engine } = R;
 
 const GRAVITY = 196.2; // studs/s², Roblox's default
@@ -33,6 +35,7 @@ async function main() {
   const log = (s, lvl) => (lvl === 2 ? console.error : console.log)('[luau] ' + s);
   const vm = await startLuau(createLuau, dm, log);
   const world = new World(scene, dm, R.shadows);
+  baseplateLighting(dm); // a new place's Lighting children, before the place's scripts can change them
 
   const place = await (await fetch(q.get('place') || '../places/baseplate.luau')).text();
   vm.run('place', place);
@@ -45,6 +48,11 @@ async function main() {
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
+  const sky = new Sky(scene, '../assets/sky/sky_1k_nosun.hdr', { quality: q.get('quality') || 'high' });
+  sky.attach(createSkybox(scene, sky.env)); // the same cube you see is the one that lights the scene
+  const lighting = new LightingController(R, scene, dm, camera.cam, sky, q.get('quality') || 'high');
+  lighting.update();
+  await lighting.settled(); // the sky drawn into the environment for the starting time
   const controls = new Controls(canvas, camera);
   gui.small = controls.isTouch;
   players.onSpawn = () => camera.snapBehind();
@@ -85,6 +93,7 @@ async function main() {
     vm.step(t);
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);
     gui.update();
+    lighting.update();
     camera.update(dt);
     sounds.update(dt);
   };
@@ -100,7 +109,7 @@ async function main() {
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, gui, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, gui, lighting, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

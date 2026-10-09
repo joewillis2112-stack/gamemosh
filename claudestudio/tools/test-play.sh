@@ -36,6 +36,8 @@ run --phone --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
 run --place places/mesh-lab.luau --scenario test/scenarios/meshes-gltf.mjs
 run --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
 run --phone --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
+run --place places/lighting-lab.luau --scenario test/scenarios/lighting.mjs
+run --phone --place places/lighting-lab.luau --scenario test/scenarios/lighting.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }

@@ -24,7 +24,9 @@ export const STUD = 0.28;
  * opts.quality: 'high' (desktop) or 'phone'.
  * Returns { engine, scene, sun, shadows, pipeline, ready }.
  */
-export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawingBuffer = false, post = true, skybox = true } = {}) {
+// dynamicSky: the caller draws the sky and environment (runtime/sky.js, which
+// follows the time of day); otherwise the static HDR sky is both.
+export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawingBuffer = false, post = true, skybox = true, dynamicSky = false } = {}) {
   const engine = new Engine(canvas, true, { preserveDrawingBuffer, stencil: true, antialias: true, adaptToDeviceRatio: true });
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.53, 0.71, 0.92, 1);
@@ -34,7 +36,7 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
 
   // Image-based light from the sky: soft fill and reflections that match it.
   let ready = Promise.resolve();
-  if (skyUrl) {
+  if (skyUrl && !dynamicSky) {
     const env = new HDRCubeTexture(skyUrl, scene, 256, false, true, false, true);
     scene.environmentTexture = env;
     scene.environmentIntensity = 0.9;
@@ -43,7 +45,7 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
       if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene); }
     }
     ready = new Promise(res => env.onLoadObservable.addOnce(() => res()));
-  } else {
+  } else if (!dynamicSky) {
     const hemi = new HemisphericLight('fill', new Vector3(0, 1, 0), scene);
     hemi.intensity = 0.6;
     hemi.groundColor = new Color3(0.35, 0.33, 0.3);
@@ -91,6 +93,14 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   pipeline.samples = quality === 'phone' ? 1 : 4;
 
   return { engine, scene, sun, shadows, pipeline, ready, attachCamera(cam) { pipeline.addCamera(cam); } };
+}
+
+// A skybox showing `env` (fog off, haze below the horizon). The time-of-day sky
+// (runtime/sky.js) uses it for the same cube that lights the scene.
+export function createSkybox(scene, env) {
+  const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false);
+  if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene); }
+  return sky;
 }
 
 // The HDR's lower half is mirrored, streaky cloud. Below the horizon the sky
