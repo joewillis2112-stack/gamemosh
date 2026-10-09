@@ -9,6 +9,7 @@ fail=0
 run() { echo "== $*"; out=$(timeout 1800 node tools/play.mjs $U "$@" 2>&1); code=$?; echo "$out" | grep -v '^\s*- \|^\s*\[\|^shot '; [ $code -ne 0 ] && { echo "FAILED ($code): $*"; fail=1; }; }
 run --scenario test/scenarios/move.mjs
 run --noshots --scenario test/scenarios/feet.mjs
+run --noshots --scenario test/scenarios/rig.mjs
 run --noshots --scenario test/scenarios/desktop.mjs
 run --phone --scenario test/scenarios/touch.mjs
 run --noshots --place places/movement-lab.luau --scenario test/scenarios/slopes.mjs

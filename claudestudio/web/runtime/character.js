@@ -188,6 +188,17 @@ export class Character {
     res.meshes.forEach(m => { if (m.getTotalVertices() > 0) { shadows.addShadowCaster(m); m.receiveShadows = true; } });
 
     this.anim = new Animator(res);
+    // The model's parts meet face to face: each leg's outer side lies in the
+    // torso's side plane, and the arms' inner faces in the legs' outer planes.
+    // A leg swings about that axis, so its face stays in the torso's plane, and
+    // where they overlap on screen the two z-fight in stripes (seen at the hip
+    // when running). Narrow the legs 2% and move the arms out a hair (0.02
+    // model units, ~0.01 stud): invisible, and no visible faces coincide.
+    for (const n of this.anim.nodes) {
+      const r = this.anim.rest.get(n);
+      if (/^arm-(left|right)$/.test(n.name)) r.p.x += Math.sign(r.p.x) * 0.02;
+      if (/^leg-(left|right)$/.test(n.name)) r.s.x *= 0.98;
+    }
     // Jump and fall: held poses (the pack has no clips), shared with the turntable gate.
     const restOf = name => { const n = this.anim.nodes.find(n => n.name === name); return n && this.anim.rest.get(n).q; };
     for (const name of Object.keys(POSES)) this.anim.addPose(name, t => poseRotations(name, restOf, t), posePeriod(name));

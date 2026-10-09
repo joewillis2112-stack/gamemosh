@@ -321,6 +321,7 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **A test fixture can collide with the place.** The push test's crate overlapped the default place's blocks and was wedged against one; it looked like the push didn't work. Put test objects on open ground, and measure colliders before blaming them.
 - **Babylon's character controller barely pushes.** It computes the push impulse after its solver has zeroed the velocity, and its contact list is empty after `integrate()`. Detect contacts with rays and push yourself.
 - **Python's default user agent gets 403s from some CDNs** (ambientCG's media) while curl works. Send a browser UA.
+- **Isolate a render artifact by hiding parts, before fixing anything.** I blamed the arm for stripes at the hip, measured arm-leg contact, fixed that (a real but different problem), and the stripes stayed. Hiding the arm, then the legs, showed the cause in one render: leg against torso, faces in the same plane.
 ## 5. Ways to work that held up
 
 **Research pipeline**
