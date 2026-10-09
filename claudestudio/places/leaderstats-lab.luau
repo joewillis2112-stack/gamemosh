@@ -12,6 +12,9 @@ local pad = Instance.new("Part")
 pad.Name = "StagePad" pad.Anchored = true pad.Size = Vector3.new(6, 1, 6) pad.Position = Vector3.new(0, 0.5, -16)
 pad.Color = Color3.fromRGB(46, 204, 113) pad.Material = Enum.Material.Neon pad.Parent = workspace
 
+-- The player list is opt-in in Claude Studio.
+game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)
+
 local stats = Instance.new("Script") stats.Name = "Leaderstats" stats.Parent = game:GetService("ServerScriptService")
 stats.Source = [[
 local Players = game:GetService("Players")

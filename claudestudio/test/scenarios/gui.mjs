@@ -30,6 +30,7 @@ export default async function (t) {
   check(bar.w === Math.fround(bw) || Math.abs(bar.w - bw) < 1e-3, `UDim2 size: half the width less 20 (${bar.w})`);
   check(Math.abs(bar.x - (W / 2 - bw / 2)) < 1e-3 && bar.y === 10 && bar.h === 100, 'AnchorPoint (0.5, 0) centres it; 10 px under the inset');
   check(strip.y === -58 && strip.w === W, 'IgnoreGuiInset: the banner starts 58 px above the origin, full width');
+  check(await t.eval(() => window.studio.gui.playerList.el.style.display === 'none'), 'no player list unless the project turns it on (Roblox\'s own UI is opt-in)');
   const s1 = await A('Slot1'), s2 = await A('Slot2'), s3 = await A('Slot3');
   check(s3.y < s2.y && s2.y < s1.y && s2.y - s3.y === 72 && s1.y - s2.y === 72, 'UIListLayout: LayoutOrder 1,2,3 = Slot3, Slot2, Slot1, 64 px tall with 8 px padding');
   const fit = await t.eval(() => { const s = window.studio, pg = s.players.player.children.find(c => c.ClassName === 'PlayerGui'); const title = pg.children.find(g => g.props.Name === 'Hud').children.find(c => c.props.Name === 'Bar').children[0]; const el = s.gui.els.get(title).el; const b = el.firstChild.getBoundingClientRect(); return { size: parseFloat(getComputedStyle(el).fontSize), w: b.width, h: b.height, bw: el.clientWidth, bh: el.clientHeight }; });

@@ -28,6 +28,8 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Tools for it (2026-10-07):** Ghidra via bethington/ghidra-mcp for rewrites (`tools/re/ghidra.sh`), rehan-remade/universal-modder for modding, morluto/rea for reverse engineering. Skills from the last two are in `.claude/skills/`. See `tools/re/README.md`.
 - **Write-once, extend-forever.** Prefer structures that grow, such as numbered rounds and appendable files, over rebuilds.
 
+- **Build decisions are mine (user, 2026-10-09):** "Im not the one building it, it sounds good to me if its good to you." Don't ask the user to approve build order, tool choice or technical approach. Decide, say what I'm doing in a line, and do it. Ask only when the answer depends on their taste or intent and I can't infer it from the direction they've given.
+
 ## 2. Mistakes and corrections (don't repeat these)
 
 | # | What happened | Why it was wrong | Do instead |

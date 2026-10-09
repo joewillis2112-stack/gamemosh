@@ -336,7 +336,9 @@ export class DataModel {
     this.connsOf = new Map(); // inst -> Map(ev -> Set(id)): fire looks up only its own
     this.nextConn = 1;
     this.onFire = null; // (ref, args) -> void, set by the Luau bridge
-    this.coreGui = Object.fromEntries(Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All').map(k => [k, true]));
+    // Roblox's own UI is opt-in here (unlike Roblox): a project shows the player
+    // list only after StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true).
+    this.coreGui = Object.fromEntries(Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All').map(k => [k, k !== 'PlayerList']));
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
     this.tweens = new Set(); // playing (or delayed or paused) tweens
     this.hooks = {};    // runtime callbacks the API needs (e.g. Player:LoadCharacter)
