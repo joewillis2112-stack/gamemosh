@@ -304,6 +304,13 @@ export function partGrids(img, parts, cells, { mask = silhouette(img), colours =
 
 // --------------------------------------------------------------- painting the skin
 
+// Each face's cells as seen from outside (see partGrids): [axis across, reversed?, axis down, reversed?].
+const FACE_AXES = {
+  pz: [0, false, 1, true], nz: [0, true, 1, true],
+  px: [2, true, 1, true], nx: [2, false, 1, true],
+  py: [0, false, 2, false], ny: [0, false, 2, true],
+};
+
 /** Paint the skin through the model's own UVs.
  *  parts: { name: { tris: Float32Array [x,y,z, u,v] x3 per triangle (part-local),
  *  min: [x,y,z], max: [x,y,z] } } using findParts' names; size: the texture's size.
@@ -325,21 +332,10 @@ export function paintSkin(parts, grids, { size = 1024, base } = {}) {
       const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
       const ax = [0, 1, 2].reduce((a, k) => Math.abs(n[k]) > Math.abs(n[a]) ? k : a, 0);
       const face = (n[ax] > 0 ? 'p' : 'n') + 'xyz'[ax], g = faces[face];
-      // A point's cell on that face, as seen from outside (see partGrids).
-      const s = (p, k) => (p[k] - min[k]) / (ext[k] || 1); // 0..1 along axis k
-      const cellOf = p => {
-        let a, b; // a: across (left to right), b: down (top to bottom)
-        switch (face) {
-          case 'pz': a = s(p, 0); b = 1 - s(p, 1); break;
-          case 'nz': a = 1 - s(p, 0); b = 1 - s(p, 1); break;
-          case 'px': a = 1 - s(p, 2); b = 1 - s(p, 1); break;
-          case 'nx': a = s(p, 2); b = 1 - s(p, 1); break;
-          case 'py': a = s(p, 0); b = s(p, 2); break;
-          case 'ny': a = s(p, 0); b = 1 - s(p, 2); break;
-        }
-        const cx = Math.min(g.w - 1, Math.max(0, Math.floor(a * g.w))), cy = Math.min(g.h - 1, Math.max(0, Math.floor(b * g.h)));
-        return g.c[cy * g.w + cx];
-      };
+      // A point's cell on that face, as seen from outside (see partGrids): the
+      // axis running across and the one running down, each possibly reversed.
+      const [ia, fa, ib, fb] = FACE_AXES[face];
+      const ea = ext[ia] || 1, eb = ext[ib] || 1;
       // UVs repeat: bring the triangle into [0,1) as a whole, then to texels (glTF v runs down).
       const fu = Math.floor(Math.min(U[0][0], U[1][0], U[2][0])), fv = Math.floor(Math.min(U[0][1], U[1][1], U[2][1]));
       const T = U.map(([u, v]) => [(u - fu) * size, (v - fv) * size]);
@@ -353,10 +349,14 @@ export function paintSkin(parts, grids, { size = 1024, base } = {}) {
         const w2 = ((qx - T[0][0]) * (T[1][1] - T[0][1]) - (T[1][0] - T[0][0]) * (qy - T[0][1])) / -area;
         const w0 = 1 - w1 - w2, eps = -1e-6;
         if (w0 < eps || w1 < eps || w2 < eps) continue;
-        const p = [0, 1, 2].map(k => w0 * P[0][k] + w1 * P[1][k] + w2 * P[2][k]);
-        const ci = cellOf(p), c = pal[Math.max(0, ci)], o = (y * size + x) * 4;
-        // Seen once in a full suite run and never reproduced alone (2026-10-10): say exactly what, if it recurs.
-        if (!c) throw new Error(`paintSkin: no colour for ${name}.${face} cell ${ci} (palette ${pal.length}) at ${p.map(v => v.toFixed(4))}, grid ${g.w}x${g.h}`);
+        const pa = w0 * P[0][ia] + w1 * P[1][ia] + w2 * P[2][ia], pb = w0 * P[0][ib] + w1 * P[1][ib] + w2 * P[2][ib];
+        let ua = (pa - min[ia]) / ea, ub = (pb - min[ib]) / eb;
+        if (fa) ua = 1 - ua;
+        if (fb) ub = 1 - ub;
+        const cx = Math.min(g.w - 1, Math.max(0, Math.floor(ua * g.w))), cy = Math.min(g.h - 1, Math.max(0, Math.floor(ub * g.h)));
+        const ci = g.c[cy * g.w + cx], c = pal[Math.max(0, ci)], o = (y * size + x) * 4;
+        // Seen in two full suite runs, never alone (2026-10-10), with the earlier closure-and-switch form of this lookup.
+        if (!c) throw new Error(`paintSkin: no colour for ${name}.${face} cell ${ci} [${cx},${cy}] (palette ${pal.length}) at ${pa.toFixed(4)},${pb.toFixed(4)}, grid ${g.w}x${g.h}`);
         out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2]; out[o + 3] = 255; painted[y * size + x] = 1;
       }
     }
