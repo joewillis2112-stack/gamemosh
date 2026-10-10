@@ -302,6 +302,20 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - `places/lighting-lab.luau` with `test/scenarios/lighting.mjs`: 12 checks, 5 goldens (default, Realistic, sunset, night, flat), desktop and phone, mutation-checked (sky mapping, skybox texture sharing, SSAO, diffuse scale).
    - Not yet: Sky skybox faces (custom skies), SunRays, DepthOfField, Blur, ColorCorrection brightness and tint, ShadowSoftness, sky visibility for OutdoorAmbient (indoors vs outdoors), local lights (Point/Spot/Surface), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
    - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
+   - **Character pipeline: 2D reference → blocky 3D → realistic 3D (from the user, 2026-10-10).** Send the studio a 2D character image; get a low-res character (Minecraft/Roblox-like) that plays in the studio; then turn that into a high-res, realistic model.
+     - **Stage 1, image to blocky (deterministic, in the browser, no service):**
+       - Find the body in the reference with a pose model (MediaPipe Pose, runs in the browser): head, shoulders, hips, knees, and so on.
+       - Fit the studio's R6-style rig to those landmarks: part proportions within limits, so it still plays with the existing animations.
+       - Project the reference's pixels onto each part's front faces at a chosen resolution (8 px per stud, Minecraft-like, up to Roblox-like). Fill the backs and sides from the edge colours, and the hidden faces from the palette. Hair and accessories become extra blocks where the silhouette sticks out past the rig.
+       - Result: a Model with textured parts, editable like any other, and a Humanoid so it plays.
+     - **Stage 2, blocky to realistic (generative; needs a model service):**
+       - The blocky character alone has too little information, so the original reference goes in as well.
+       - Render the blocky character from 4 views (front, back, sides) with depth and normals. An image model, conditioned on those maps (ControlNet-style) and styled by the reference, paints realistic views that keep the blocky character's pose and proportions.
+       - Multi-view to 3D gives a detailed textured mesh.
+       - Rig it by carrying over the blocky rig's joint positions, so the realistic model plays with the same animations and scripts.
+       - Remesh to a budget for phones, with LODs.
+     - Stage 2 can't run deterministically in this container (no GPU). It needs fal.ai (image-to-3D, multi-view, remesh, auto-rig: the `fal-assets` skill) or a local GPU, and no fal key is set. Its checks: silhouette and colour match against the reference, joint positions within tolerance of the blocky rig, and the asset gate on the result.
+     - Order: stage 1 first (testable here, end to end, against the reference image), then stage 2 once a model service is available.
    - **Mesh editing, design (2026-10-09, started):**
      - Compile Blender's own BMesh (v4.2.0, `source/blender/bmesh`, ~37k lines of core and operators) to wasm with emscripten, as Luau was, rather than hand-port it. Results then match Blender exactly: wasm floats are strict IEEE, like x86 SSE without FMA.
      - Oracle: Blender 4.2 as a Python module (the `bpy` 4.2.0 wheel, cp311, in `.cache/bpy-venv`). `bmesh.ops` runs Blender's C operators headless (`bpy.ops` needs UI context). Same inputs into both; compare vertex coordinates bit for bit, and topology in element order.
