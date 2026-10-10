@@ -352,6 +352,15 @@ defineClass('SunRaysEffect', 'PostEffect', { props: { Intensity: ['number', 0.25
 defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
 defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
 defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
+// Local lights: direct children of a BasePart (mashup-research/ROBLOX_LIGHTING_2026-10-09.md
+// section 7). Instance.new defaults from rbx-dom's reflection database; Range is
+// clamped to 120 studs and Angle to [0, 180] when set (Roblox clamps them). Drawn
+// by runtime/locallights.js.
+defineClass('Light', 'Instance', { creatable: false, props: { Brightness: ['number', 1], Color: ['Color3', [1, 1, 1]], Enabled: ['bool', true], Shadows: ['bool', false] } });
+defineClass('PointLight', 'Light', { props: { Range: ['number', 8] } });
+defineClass('SpotLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
+defineClass('SurfaceLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
+export const LIGHT_RANGE_MAX = 120;
 // A new Studio Baseplate's Lighting children (Studio 0.727's saved place).
 export function baseplateLighting(dm) {
   const L = dm.service('Lighting');
@@ -521,6 +530,10 @@ export class DataModel {
       for (const k of changed) this.fire(inst, 'Changed', [k]);
       this.fire(inst, 'LightingChanged', [false]);
       return;
+    }
+    if (isA(inst.ClassName, 'Light')) {
+      if (key === 'Range') value = Math.min(Math.max(+value || 0, 0), LIGHT_RANGE_MAX);
+      if (key === 'Angle') value = Math.min(Math.max(+value || 0, 0), 180);
     }
     if (sameValue(inst.props[key], value)) return; // Roblox fires Changed only on a real change
     inst.props[key] = value;
