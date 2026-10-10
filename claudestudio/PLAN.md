@@ -314,7 +314,12 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
        - Multi-view to 3D gives a detailed textured mesh.
        - Rig it by carrying over the blocky rig's joint positions, so the realistic model plays with the same animations and scripts.
        - Remesh to a budget for phones, with LODs.
-     - Stage 2 can't run deterministically in this container (no GPU). It needs fal.ai (image-to-3D, multi-view, remesh, auto-rig: the `fal-assets` skill) or a local GPU, and no fal key is set. Its checks: silhouette and colour match against the reference, joint positions within tolerance of the blocky rig, and the asset gate on the result.
+     - Stage 2 can't run deterministically in this container (no GPU). Its checks: silhouette and colour match against the reference, joint positions within tolerance of the blocky rig, and the asset gate on the result.
+     - **No paid service (the user, 2026-10-10).** The free route is Hugging Face Spaces on free ZeroGPU hardware, called with `gradio_client` (`.cache/hf-venv`). Checked running on 2026-10-10:
+       - `black-forest-labs/FLUX.1-Kontext-Dev`, `/infer`: edit the reference into a realistic version, same outfit and pose.
+       - `tencent/Hunyuan3D-2`, `/generation_all`: image to textured mesh. It also takes front/back/left/right views, so the realistic edits of several blocky renders can go in together.
+       - Anonymous calls failed at once ("exceeded your ZeroGPU runs limit"): this container shares its IP. A free Hugging Face account token (read-only) gives a daily quota. It goes in the environment's settings as `HF_TOKEN`, never in chat.
+       - Offline fallback to evaluate: CPU-only models (SD-Turbo img2img for the restyle, TripoSR or Hunyuan3D-2mini shape on CPU). Slower and plainer, but unlimited.
      - Order: stage 1 first (testable here, end to end, against the reference image), then stage 2 once a model service is available.
      - **Stage 1 built (2026-10-10):** `web/runtime/charmaker.js`, the page `web/maker.html`, and `tools/charmaker.mjs` (CLI: outlined parts, face nets, skin).
        - The rig and animations stay the studio's own blocky character; only its skin texture is new, painted through the model's own UVs. So a made character moves exactly like the default one, and that's tested.
@@ -336,6 +341,7 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
        - all of BMesh, blenlib, guardedalloc and rangetree compile natively with g++ against Blender's own headers;
        - the linker's list of what's missing: CustomData (`blenkernel/intern/customdata.cc`, which needs makesdna's generated `dna_type_offsets.h`), custom-normal spaces (`BKE_lnor_*`), curve profile and bezier helpers (bevel), multires/MDisps, mesh conversion, BVH.
      - A strict-flags pragma needs a shim header, and `string_utf8.cc` has an inline `#pragma GCC diagnostic error` (compile a copy without it).
+     - Every step that compiles or runs Blender's code is in `tools/blender-build.sh` (fetch, dna, native, probe, oracle), so one narrow permission rule covers it: `Bash(bash tools/blender-build.sh:*)` in the repo's `.claude/settings.json`, added by the user (a permission given in chat doesn't satisfy the auto-mode check).
      - **Blocked (2026-10-09):** the auto-mode classifier refused to run the makesdna binary built from Blender's downloaded source ("Code from External"). The plan runs Blender's code throughout (makesdna, the native probe, the wasm build in the browser), so this needs the user's permission rule.
      - First slice after that: CustomData (real, for UVs), stubs that abort for custom normals, multires and mesh conversion; a JS binding (build a mesh, run `create_cube`, `extrude_face_region`, `inset_individual`, `inset_region`, `subdivide_edges`, `bevel`, read the mesh back). Then the oracle comparison, then an edit mode in the studio that makes MeshParts.
 4. Climb (TrussPart) and swim poses.
