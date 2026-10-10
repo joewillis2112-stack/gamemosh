@@ -354,7 +354,9 @@ export function paintSkin(parts, grids, { size = 1024, base } = {}) {
         const w0 = 1 - w1 - w2, eps = -1e-6;
         if (w0 < eps || w1 < eps || w2 < eps) continue;
         const p = [0, 1, 2].map(k => w0 * P[0][k] + w1 * P[1][k] + w2 * P[2][k]);
-        const c = pal[Math.max(0, cellOf(p))], o = (y * size + x) * 4;
+        const ci = cellOf(p), c = pal[Math.max(0, ci)], o = (y * size + x) * 4;
+        // Seen once in a full suite run and never reproduced alone (2026-10-10): say exactly what, if it recurs.
+        if (!c) throw new Error(`paintSkin: no colour for ${name}.${face} cell ${ci} (palette ${pal.length}) at ${p.map(v => v.toFixed(4))}, grid ${g.w}x${g.h}`);
         out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2]; out[o + 3] = 255; painted[y * size + x] = 1;
       }
     }
