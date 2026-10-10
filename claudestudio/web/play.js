@@ -42,6 +42,10 @@ async function main() {
 
   // The player joins after the place's scripts (as in Roblox) and spawns on a SpawnLocation.
   const player = await Character.load(scene, '../assets/characters/character-a.glb', R.shadows, Vector3.Zero());
+  // A skin from the character maker: a URL, or 'session' for the one it just handed over.
+  let skin = q.get('skin');
+  if (skin === 'session') { try { skin = sessionStorage.getItem('studio.skin'); } catch (e) { skin = null; } }
+  if (skin) await player.setSkin(skin);
   const players = new Players(dm, world, player, GRAVITY);
   players.join();
   const gui = new Gui(dm, players);

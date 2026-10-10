@@ -7,6 +7,7 @@ import { PhysicsCharacterController } from '@babylonjs/core/Physics/v2/character
 import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
+import { applySkin } from './skin.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
 const PUSH_FORCE = 10000;
@@ -237,6 +238,9 @@ export class Character {
     this.ray = new PhysicsRaycastResult();
     this.teleport(spawn ? spawn.clone() : Vector3.Zero());
   }
+
+  /** Wear a skin made for this model (runtime/charmaker.js): only the texture changes. */
+  setSkin(url) { return applySkin(this.scene, this.meshes, url); }
 
   /** Put the feet at `foot` (world), standing still. */
   teleport(foot, yaw = this.yaw) {

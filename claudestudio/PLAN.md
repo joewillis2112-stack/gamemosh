@@ -316,6 +316,18 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
        - Remesh to a budget for phones, with LODs.
      - Stage 2 can't run deterministically in this container (no GPU). It needs fal.ai (image-to-3D, multi-view, remesh, auto-rig: the `fal-assets` skill) or a local GPU, and no fal key is set. Its checks: silhouette and colour match against the reference, joint positions within tolerance of the blocky rig, and the asset gate on the result.
      - Order: stage 1 first (testable here, end to end, against the reference image), then stage 2 once a model service is available.
+     - **Stage 1 built (2026-10-10):** `web/runtime/charmaker.js`, the page `web/maker.html`, and `tools/charmaker.mjs` (CLI: outlined parts, face nets, skin).
+       - The rig and animations stay the studio's own blocky character; only its skin texture is new, painted through the model's own UVs. So a made character moves exactly like the default one, and that's tested.
+       - Parts from the silhouette: legs where it splits at the bottom; neck as the deepest narrowing below the head's widest row; arms as runs separated from the body below the neck (else the rig's proportion). A creator drags any box edge to correct it.
+       - Pixels: a median-cut palette (cuts moved to colour boundaries, so flat art keeps exact colours). Each cell is one palette colour, chosen by a vote weighted by contrast with the part's main colour. Small high-contrast blobs (eyes, teeth, buttons) are stamped into the cell under their centre, so faces survive at 8 px.
+       - Hidden faces: a head or torso back takes each row's edge colour (hair, shirt, no face); limbs mirror their front; sides carry the edge columns; the head's top is the hair colour.
+       - Detail: 8 (Minecraft-like), 16 (default) or 32 cells across the head.
+       - Tests:
+         - `test/charmaker.test.mjs`: 5 CC0 references against judged neck and crotch rows; a synthetic test card with known boxes and an asymmetric mark (left/right/up land on the right faces); every covered texel painted, plus a 2 px bleed; an inverted box handled; deterministic output.
+         - `test/scenarios/charmaker.mjs`: a 191-frame walk, jump and turn trace with a made skin equals the default skin's frame for frame; the test card's arm colours on the correct sides on screen; a golden.
+         - `test/maker.test.mjs`: the page on desktop and phone (touch drag), through to playing as the character.
+         - All mutation-checked.
+       - Not yet: hair and accessories as extra blocks (anything outside the head box is cut); body proportions from the reference (the rig is fixed); side and back views as optional extra references; non-front poses; photos (works only where the background is plain or transparent).
    - **Mesh editing, design (2026-10-09, started):**
      - Compile Blender's own BMesh (v4.2.0, `source/blender/bmesh`, ~37k lines of core and operators) to wasm with emscripten, as Luau was, rather than hand-port it. Results then match Blender exactly: wasm floats are strict IEEE, like x86 SSE without FMA.
      - Oracle: Blender 4.2 as a Python module (the `bpy` 4.2.0 wheel, cp311, in `.cache/bpy-venv`). `bmesh.ops` runs Blender's C operators headless (`bpy.ops` needs UI context). Same inputs into both; compare vertex coordinates bit for bit, and topology in element order.

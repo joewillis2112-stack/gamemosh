@@ -22,6 +22,7 @@ page.on('pageerror', e => logs.push('pageerror ' + e.message));
 page.on('response', r => { if (r.status() >= 400) logs.push('error ' + r.status() + ' ' + r.url()); });
 const q = new URLSearchParams({ test: '1', quality: phone ? 'phone' : 'high' });
 if (opt('place')) q.set('place', '../' + opt('place'));
+if (opt('skin')) q.set('skin', '../' + opt('skin'));
 await page.goto(`http://127.0.0.1:${srv.port}/web/play.html?${q}`);
 try { await page.waitForFunction(() => window.studio && (window.studio.ready || window.studio.error), null, { timeout: 120000 }); }
 catch (e) { console.log('TIMEOUT\n' + logs.join('\n')); process.exit(1); }

@@ -8,6 +8,7 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 import { createRenderer, groundDisc } from './render.js';
 import { poseRotations } from './runtime/poses.js';
+import { applySkin } from './runtime/skin.js';
 
 const q = new URLSearchParams(location.search);
 const url = q.get('asset');
@@ -50,6 +51,7 @@ async function main() {
     const restOf = name => { const i = posed.findIndex(n => n.name === name); return i < 0 ? null : (rest[i][1] || Quaternion.FromEulerVector(rest[i][2])); };
     for (const [name, rq] of Object.entries(poseRotations(heldPose, restOf))) posed.find(n => n.name === name).rotationQuaternion = rq;
   };
+  if (q.get('skin')) await applySkin(scene, res.meshes, q.get('skin'));
   if (clip) pose(clip, animT);
   applyHeld();
   scene.render();
