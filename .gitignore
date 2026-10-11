@@ -2,3 +2,7 @@ node_modules/
 test-output/
 dist/artifact.html
 tests/_qa_*
+
+# Local caches (model weights, venvs, clones) and scratch output
+/.cache/
+/build/
