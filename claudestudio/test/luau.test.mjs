@@ -1,5 +1,6 @@
 // Luau in wasm driving the JS DataModel: properties, parenting, lists,
 // vectors, Color3, Enum, events, task.wait, Signal:Wait, errors.
+// The Workspace starts with its Camera (workspace.CurrentCamera), as in Roblox.
 import createLuau from '../web/luau.mjs';
 import { DataModel, V3 } from '../web/datamodel.js';
 import { startLuau } from '../web/luau.js';
@@ -242,11 +243,11 @@ const expect = [
   'Floor Part Workspace 64 64 true',
   'mag 5 5 0.6000000238418579',
   'added Box1', 'added Box2', 'added Box3',
-  'children 4 8 Box3',
+  'children 5 8 Box3',
   'isa true false true true',
   'touched by Box2',
   'done',
-  'after destroy 3 nil',
+  'after destroy 4 nil',
   'rgb 1 128 0 Color3',
   'hex ff8000 00ff00 ff8000',
   'hsv true 0000ff',

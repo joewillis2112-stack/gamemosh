@@ -12,7 +12,7 @@ import createLuau from './luau.mjs';
 import { World } from './runtime/world.js';
 import { LocalLights } from './runtime/locallights.js';
 import { Character } from './runtime/character.js';
-import { FollowCamera } from './runtime/camera.js';
+import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
 import { Gui } from './runtime/gui.js';
@@ -53,6 +53,7 @@ async function main() {
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
+  const camSync = new CameraSync(dm, camera, canvas, world);
   const sky = new Sky(scene, '../assets/sky/sky_1k_nosun.hdr', { quality: q.get('quality') || 'high' });
   sky.attach(createSkybox(scene, sky.env)); // the same cube you see is the one that lights the scene
   const lighting = new LightingController(R, scene, dm, camera.cam, sky, q.get('quality') || 'high');
@@ -63,6 +64,7 @@ async function main() {
   const controls = new Controls(canvas, camera);
   gui.small = controls.isTouch;
   players.onSpawn = () => camera.snapBehind();
+  camSync.pre(); camera.update(0); camSync.write(); // the Camera's properties before the first frame
   const audio = new Audio();
   await audio.load();
   const sounds = new CharacterSounds(audio, player, camera);
@@ -72,7 +74,8 @@ async function main() {
   // A frame, in Roblox's order (RunService's docs): PreAnimation and
   // PreSimulation/Stepped, then physics (Havok, then the character), then
   // PostSimulation/Heartbeat, then waiting threads resume (task.wait), then
-  // PreRender/RenderStepped, the camera, and the frame is drawn.
+  // the camera (Roblox's camera scripts, bound at render priority Camera),
+  // PreRender/RenderStepped, and the frame is drawn.
   let t = 0;
   const fixed = !!q.get('test');
   const frameDt = () => fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 1 / 20);
@@ -98,11 +101,12 @@ async function main() {
     world.syncFromPhysics();
     fire('PostSimulation', [dt]); fire('Heartbeat', [dt]);
     vm.step(t);
+    if (!camSync.scriptable()) { camSync.pre(); camera.update(dt); camSync.write(); } else camSync.size();
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);
+    camSync.apply();
     gui.update();
     lighting.update();
     localLights.update();
-    camera.update(dt);
     sounds.update(dt);
   };
   if (fixed) scene.getPhysicsEngine().setTimeStep(1 / 60);
@@ -117,7 +121,7 @@ async function main() {
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, player, players, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, camSync, player, players, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

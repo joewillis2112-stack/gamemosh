@@ -116,6 +116,21 @@ function lib.Raycast(self, origin, direction, params)
   return r
 end
 
+-- Camera:ViewportPointToRay / ScreenPointToRay(x, y, depth?): a unit Ray through that pixel,
+-- starting depth studs from the camera (the engine's pinhole, Camera.__studioPointToRay).
+local function pointToRay(name, inset)
+  return function(self, x, y, depth)
+    if not self:IsA("Camera") then error(name .. " is not a valid member of " .. self.ClassName, 2) end
+    if type(x) ~= "number" then error("invalid argument #1 to '" .. name .. "' (number expected, got " .. typeof(x) .. ")", 2) end
+    if type(y) ~= "number" then error("invalid argument #2 to '" .. name .. "' (number expected, got " .. typeof(y) .. ")", 2) end
+    if depth ~= nil and type(depth) ~= "number" then error("invalid argument #3 to '" .. name .. "' (number expected, got " .. typeof(depth) .. ")", 2) end
+    local o, d = self:__studioPointToRay(x, y, depth or 0, inset)
+    return Ray.new(o, d)
+  end
+end
+lib.ViewportPointToRay = pointToRay("ViewportPointToRay", 0)
+lib.ScreenPointToRay = pointToRay("ScreenPointToRay", 58) -- the GUI inset (runtime/gui.js)
+
 lib.Ray = Ray
 lib.RaycastParams = RaycastParams
 return lib

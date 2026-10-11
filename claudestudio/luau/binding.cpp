@@ -72,6 +72,7 @@ static int enum_types_ref; // "Type" -> its Enum table (the sandbox makes Enum i
 static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yields)
 static int raycast_ref;      // WorldRoot:Raycast, written in Luau (lib_raycast.h)
+static int vp2ray_ref, sp2ray_ref; // Camera:ViewportPointToRay / ScreenPointToRay (lib_raycast.h)
 
 struct Signal { int h; char ev[56]; };
 
@@ -285,6 +286,8 @@ static int inst_index(lua_State* L) {
     const char* key = luaL_checkstring(L, 2);
     if (!strcmp(key, "WaitForChild")) { lua_getref(L, waitforchild_ref); return 1; }
     if (!strcmp(key, "Raycast")) { lua_getref(L, raycast_ref); return 1; }
+    if (!strcmp(key, "ViewportPointToRay")) { lua_getref(L, vp2ray_ref); return 1; }
+    if (!strcmp(key, "ScreenPointToRay")) { lua_getref(L, sp2ray_ref); return 1; }
     js_index(h, key);
     push_ret(L, 0, h, key);
     return 1;
@@ -1057,6 +1060,8 @@ end)";
         free(rbc);
         if (lua_pcall(L0, 0, 1, 0) != LUA_OK) { js_print(lua_tostring(L0, -1), 2); lua_pop(L0, 1); lua_newtable(L0); }
         lua_getfield(L0, -1, "Raycast"); raycast_ref = lua_ref(L0, -1); lua_pop(L0, 1);
+        lua_getfield(L0, -1, "ViewportPointToRay"); vp2ray_ref = lua_ref(L0, -1); lua_pop(L0, 1);
+        lua_getfield(L0, -1, "ScreenPointToRay"); sp2ray_ref = lua_ref(L0, -1); lua_pop(L0, 1);
         lua_getfield(L0, -1, "Ray"); lua_setglobal(L0, "Ray");
         lua_getfield(L0, -1, "RaycastParams"); lua_setglobal(L0, "RaycastParams");
         lua_pop(L0, 1);

@@ -315,13 +315,20 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - SunRays: a march toward the sun counting sky pixels, Henyey-Greenstein shaped. Spread maps to g, and the post-tonemap screen-blend scale is ours. Off on phones, as Roblox gates it by quality.
      - Found on the way: removing an effect never dirtied the lighting (the change watcher checked the new parent, nil), so destroyed effects lingered.
      - `test/scenarios/posteffects.mjs`: 16 checks, 3 goldens, desktop and phone, mutation-checked.
-     - Not yet: effects under the CurrentCamera (no Camera instance yet), ColorGradingEffect, Clouds.
+     - Not yet: ColorGradingEffect, Clouds. (Effects under the CurrentCamera count, now that it exists.)
    - **ShadowSoftness (2026-10-11):** Realistic only, as Roblox documents. It sets the light size of contact-hardening sun shadows (scale ours: 0.3 at softness 1; 0.5 all but erased a wall's shadow). Checked by the penumbra width across a wall's shadow edge, desktop and phone, mutation-checked.
    - **Raycasting (2026-10-11):** `workspace:Raycast(origin, direction, params)`, `Ray`, `RaycastParams`, `RaycastResult`.
      - The datatypes are Luau (`luau/lib_raycast.h`), and `typeof` names them. The geometry is exact JS (`web/raycast.js`): boxes and rotated boxes, spheres, cylinders, wedge slopes.
      - Roblox's rules: the nearest part the ray enters (not one it starts inside), CanQuery, RespectCanCollide, Exclude/Include filters over descendants, a copied filter list, read-only results.
      - `test/raycast.test.mjs`: 22 checks against hand-worked answers, mutation-checked.
      - Not yet: MeshParts (they cast as their box until the renderer's triangles are hooked in), character body parts beyond HumanoidRootPart, collision groups, terrain and water, Shapecast/Blockcast/Spherecast, GetPartBoundsInBox and the other spatial queries.
+   - **Camera (2026-10-11):** `workspace.CurrentCamera`, a Camera child of the Workspace as in Roblox.
+     - Custom: the engine writes CFrame, Focus and ViewportSize (canvas CSS pixels) each frame, before RenderStepped, as Roblox's camera scripts run at render priority Camera. A RenderStepped handler that moves it (camera shake) is drawn that frame and doesn't accumulate.
+     - Scriptable: the engine leaves it; the script's CFrame is drawn, roll included. FieldOfView (vertical, clamped to [1, 120]) applies in both.
+     - CameraSubject: the Humanoid on spawn; a part makes the camera follow that part, and the part doesn't block its own view (it did, at first: the golden showed the camera inside the block).
+     - `WorldToViewportPoint`, `WorldToScreenPoint` (less the 58 px GUI inset), `ViewportPointToRay`, `ScreenPointToRay`.
+     - `test/camera.test.mjs` (19 checks, hand-worked) and `test/scenarios/camera.mjs` (13 checks, desktop and phone): the projection lands on the pixels the part is drawn at, with roll and at FieldOfView 20. Mutation-checked.
+     - Not yet: the other CameraTypes (Fixed, Attach, Watch, Track, Follow, Orbital behave as Custom), `Camera:Interpolate`, `GetPartsObscuringTarget`, `ZoomToExtents`, `BindToRenderStep`, the player's camera settings (`CameraMaxZoomDistance`, `CameraMode` LockFirstPerson), mouse lock.
    - Not yet: Sky skybox faces (custom skies), sky visibility for OutdoorAmbient (indoors vs outdoors), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
    - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
    - **Character pipeline: 2D reference → blocky 3D → realistic 3D (from the user, 2026-10-10).** Send the studio a 2D character image; get a low-res character (Minecraft/Roblox-like) that plays in the studio; then turn that into a high-res, realistic model.

@@ -41,6 +41,7 @@ export const ENUMS = {
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
+  CameraType: { Fixed: 0, Attach: 1, Watch: 2, Track: 3, Follow: 4, Custom: 5, Scriptable: 6, Orbital: 7 },
   EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
   PlaybackState: { Begin: 0, Delayed: 1, Playing: 2, Paused: 3, Completed: 4, Cancelled: 5 },
@@ -109,7 +110,7 @@ defineClass('Instance', null, {
 });
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
 defineClass('Workspace', 'Instance', {
-  creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] },
+  creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500], CurrentCamera: ['Instance', null] },
   methods: {
     // The engine half of WorldRoot:Raycast (the Luau half, with RaycastParams and
     // RaycastResult, is in luau/lib_raycast.h). Returns instance, position, normal,
@@ -377,6 +378,42 @@ defineClass('PointLight', 'Light', { props: { Range: ['number', 8] } });
 defineClass('SpotLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
 defineClass('SurfaceLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
 export const LIGHT_RANGE_MAX = 120;
+// The camera (create.roblox.com/docs/reference/engine/classes/Camera). The engine
+// writes CFrame and Focus each frame unless CameraType is Scriptable, when the
+// script's CFrame is what's drawn (runtime/camera.js). FieldOfView is vertical, in
+// degrees, clamped to [1, 120]. Projections are a pinhole from these properties:
+// viewport pixels from the top-left, depth in studs along LookVector; the screen
+// is the viewport less the GUI inset at the top (runtime/gui.js).
+defineClass('Camera', 'Instance', {
+  props: {
+    CFrame: ['CFrame', null], Focus: ['CFrame', null], FieldOfView: ['number', 70], CameraType: ['Enum.CameraType', 'Custom'],
+    CameraSubject: ['Instance', null], ViewportSize: ['Vector2', [1, 1]], NearPlaneZ: ['number', -0.1],
+  },
+  methods: {
+    WorldToViewportPoint(self, p) { return cameraProject(self, p, 0); },
+    WorldToScreenPoint(self, p) { return cameraProject(self, p, GUI_INSET_PX); },
+    // The engine half of ViewportPointToRay / ScreenPointToRay (luau/lib_raycast.h builds the Ray).
+    __studioPointToRay(self, x, y, depth, inset) {
+      const P = self.props, cf = P.CFrame || new CF(), m = cf.m, W = P.ViewportSize.x, H = P.ViewportSize.y;
+      const t = Math.tan(P.FieldOfView * Math.PI / 360), a = W / H;
+      const cx = (2 * x / W - 1) * t * a, cy = (1 - 2 * (y + inset) / H) * t;
+      // Camera space (looking down -Z) into the world: columns are right, up, back.
+      const d = [0, 1, 2].map(k => m[3 + k * 3] * cx + m[4 + k * 3] * cy - m[5 + k * 3]), l = Math.hypot(...d), u = d.map(v => v / l);
+      return [new V3(m[0] + u[0] * (depth || 0), m[1] + u[1] * (depth || 0), m[2] + u[2] * (depth || 0)), new V3(u[0], u[1], u[2])];
+    },
+  },
+});
+const GUI_INSET_PX = 58; // Roblox's top bar (runtime/gui.js GUI_INSET)
+function cameraProject(cam, p, inset) {
+  const P = cam.props, m = (P.CFrame || new CF()).m, W = P.ViewportSize.x, H = P.ViewportSize.y;
+  const d = [p.x - m[0], p.y - m[1], p.z - m[2]];
+  const col = k => [m[3 + k], m[6 + k], m[9 + k]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const x = dot(d, col(0)), y = dot(d, col(1)), depth = -dot(d, col(2));
+  const t = Math.tan(P.FieldOfView * Math.PI / 360), a = W / H;
+  const sx = (x / (depth * t * a) + 1) / 2 * W, sy = (1 - y / (depth * t)) / 2 * H;
+  const on = depth > 0 && sx >= 0 && sx <= W && sy >= 0 && sy <= H;
+  return [new V3(sx, sy - inset, depth), on];
+}
 // A new Studio Baseplate's Lighting children (Studio 0.727's saved place).
 export function baseplateLighting(dm) {
   const L = dm.service('Lighting');
@@ -458,6 +495,11 @@ export class DataModel {
     this.services = {};
     this.workspace = this.service('Workspace');
     this.service('Lighting');
+    // workspace.CurrentCamera, as Roblox gives every place one.
+    const cam = this.create('Camera');
+    cam.props.Name = 'Camera'; cam.props.CFrame = new CF([0, 20, 20, 1, 0, 0, 0, 0.7071068, 0.7071068, 0, -0.7071068, 0.7071068]); cam.props.Focus = new CF();
+    this.setParent(cam, this.workspace);
+    this.workspace.props.CurrentCamera = cam;
   }
   register(inst) { this.byHandle.push(inst); return this.byHandle.length - 1; }
   service(name) {
@@ -547,6 +589,7 @@ export class DataModel {
       this.fire(inst, 'LightingChanged', [false]);
       return;
     }
+    if (inst.ClassName === 'Camera' && key === 'FieldOfView') value = Math.min(Math.max(+value || 0, 1), 120);
     if (isA(inst.ClassName, 'Light')) {
       if (key === 'Range') value = Math.min(Math.max(+value || 0, 0), LIGHT_RANGE_MAX);
       if (key === 'Angle') value = Math.min(Math.max(+value || 0, 0), 180);
@@ -669,7 +712,7 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName']);
+const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ']);
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host

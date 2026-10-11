@@ -93,6 +93,8 @@ export class Players {
     this.syncRoot();
     player.props.Character = model;
     this.dm.setParent(model, this.dm.workspace);
+    const cam = this.dm.workspace.props.CurrentCamera; // Roblox's camera scripts follow the new Humanoid
+    if (cam && !cam.destroyed) this.dm.set(cam, 'CameraSubject', hum);
     // Each spawn: PlayerGui is emptied (except ScreenGuis with ResetOnSpawn off)
     // and refilled from StarterGui; the Backpack from StarterPack.
     const gui = player.children.find(c => c.ClassName === 'PlayerGui'), pack = player.children.find(c => c.ClassName === 'Backpack');
