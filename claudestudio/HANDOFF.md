@@ -1,4 +1,4 @@
-# Handoff (2026-10-10)
+# Handoff (2026-10-11)
 
 For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first (as always), then this.
 
@@ -6,7 +6,8 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 
 - **Rendering range (task 56):** done. Lighting service, time-of-day sky, SSAO for Realistic. PLAN.md, "Rendering range".
 - **Character maker, stage 1 (2D reference → blocky character):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`; PLAN.md, "Character pipeline".
-- **Character maker, stage 2 (blocky → realistic):** next. Not started beyond checking the route.
+- **Since then, done and tested (PLAN.md, Status):** local lights, post effects (ColorCorrection, Blur, DepthOfField, SunRays, ColorGrading), ShadowSoftness, `workspace:Raycast`, the scriptable Camera.
+- **Character maker, stage 2 (blocky → realistic):** next. It needs the environment variable `HF_TOKEN`, which the previous session started too early to see. Not started beyond checking the route.
 - **Mesh editing ported from Blender (task 57):** designed, half set up, blocked on a permission rule. PLAN.md, "Mesh editing, design".
 
 ## Stage 2: what to do first
