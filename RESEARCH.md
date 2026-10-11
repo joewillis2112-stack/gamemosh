@@ -358,6 +358,8 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Enum properties hold a name or an EnumItem.** The DataModel stores defaults as names ('Custom') and script assignments as names too; compare `(v && v.name || v)`. `c.props.CameraType.name === 'Scriptable'` was always false, and the whole Scriptable mode silently did nothing until a pixel check failed.
 - **Look at every golden before trusting a passing check.** The CameraSubject check passed (Focus was right) while the golden showed the camera inside the subject part: the occlusion ray started inside it. Then add the mechanical check the picture suggested (camera distance, the subject's pixel).
 - **Pixel checks need margins in world units, not pixels.** "8 px past the edge" was 0.11 studs on desktop and 0.09 on a phone. Project a point a fixed distance outside instead.
+- **Check what a log is before acting on it.** A request named `suite2.log`; it was a day-old run from before its fixes, and the work it gated was already pushed. Read the file's timestamp and `git log` first.
+- **Extra frames move goldens.** Adding checks before a golden in the same scenario shifts the character's idle animation; the diff shows only the character. Re-save after checking that the diff is only that.
 
 ## 5. Ways to work that held up
 
@@ -500,3 +502,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-11 (Studio: ShadowSoftness):** Realistic-only contact-hardening sun shadows. The test's first measuring line ran behind the character on screen, then off the phone's screen; a fixed camera focus on the shadow edge made it the same on both.
 - **2026-10-11 (Studio: raycasting):** `workspace:Raycast`, `Ray`, `RaycastParams`, `RaycastResult` with exact box, sphere, cylinder and wedge geometry; 22 hand-worked checks, mutation-checked.
 - **2026-10-11 (Studio: Camera):** `workspace.CurrentCamera` with Custom and Scriptable, FieldOfView, CameraSubject, the four projection methods. The projections are checked against the drawn pixels (with roll and narrow FOV), desktop and phone. Found: enum props stored as names broke Scriptable; a part subject pulled the camera inside itself (seen only in the golden). The full suite also showed lights-realistic drifting (1.1% of pixels): from the ShadowSoftness commit, pushed before a full run; looked at and re-saved.
+- **2026-10-11 (Studio: ColorGradingEffect):** TonemapperPreset Default (ACES, as before) and Retro (Babylon's exponential curve at contrast 1, ours; Roblox's docs say only "less saturated, less contrast"). Only under Lighting, the latest parented wins. Contrast and saturation measured over the screen, desktop and phone, 3 mutations caught; full suite green.

@@ -5,6 +5,7 @@
 // are ours, calibrated so a new Baseplate's values give the studio's judged look.
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { Vector3, Color3 } from '@babylonjs/core/Maths/math.js';
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { createSSAO } from './ssao.js';
 import { PostEffects } from './posteffects.js';
 import { sunDirection, isA } from '../datamodel.js';
@@ -124,7 +125,16 @@ export class LightingController {
       pipe.bloomEnabled = !!bloom;
       if (bloom) { pipe.bloomThreshold = bloom.props.Threshold * BLOOM_THRESHOLD; pipe.bloomWeight = bloom.props.Intensity * BLOOM_WEIGHT; pipe.bloomKernel = Math.max(1, bloom.props.Size * BLOOM_KERNEL); }
       // ColorCorrection, Blur, SunRays and DepthOfField: runtime/posteffects.js, after the tonemap.
-      pipe.imageProcessing.contrast = BASE_CONTRAST;
+      // ColorGradingEffect: the most recently parented one under Lighting (children are in
+      // parenting order), if it's enabled. Default is the post-2019 filmic curve (ACES here);
+      // Retro, "less saturated, less contrast" (Roblox's docs), is Babylon's exponential
+      // curve at contrast 1. The Retro curve is ours: Roblox doesn't publish its.
+      const grade = kids.filter(c => c.ClassName === 'ColorGradingEffect').pop();
+      const preset = grade && grade.props.Enabled !== false ? grade.props.TonemapperPreset : 'Default';
+      const retro = (preset && preset.name || preset) === 'Retro';
+      pipe.imageProcessing.toneMappingType = retro ? ImageProcessingConfiguration.TONEMAPPING_STANDARD : ImageProcessingConfiguration.TONEMAPPING_ACES;
+      pipe.imageProcessing.contrast = retro ? 1 : BASE_CONTRAST;
+      this.tonemapper = retro ? 'Retro' : 'Default';
     }
 
     // Fog: an Atmosphere replaces FogStart/FogEnd (Roblox hides them); its

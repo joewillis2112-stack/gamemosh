@@ -5,8 +5,9 @@
 // - Blur: the largest Size wins;
 // - DepthOfField: far things blur, things at the focus stay sharp;
 // - SunRays: a halo toward the sun, nothing with the sun behind the camera; off on phones;
+// - ColorGrading: Retro lowers contrast and saturation; only under Lighting, the latest wins;
 // - our passes stay after the tonemap when the pipeline rebuilds (bloom toggled).
-// Goldens: colour correction, depth of field, sun rays.
+// Goldens: colour correction, depth of field, retro grading, sun rays.
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -114,6 +115,38 @@ export default async function (t) {
   await run(`local c = Instance.new("ColorCorrectionEffect") c.Name = "Warm" c.TintColor = Color3.fromRGB(255, 220, 190) c.Contrast = 0.15 c.Saturation = 0.2 c.Parent = game.Lighting`);
   await t.frames(3); await t.shot('post-cc'); await t.golden('post-cc');
   await run(`game.Lighting.Warm:Destroy()`);
+
+  // ColorGradingEffect (Roblox docs): Default is the post-2019 tone mapper; Retro the pre-2019
+  // look, "less saturated, less contrast". Only under Lighting; the most recently parented wins.
+  const look = async () => {
+    const raw = (await read([], [0, 0, 1, 1])).raw, L = [];
+    let sat = 0, n = 0;
+    for (let i = 0; i < raw.length; i += 16) { // every 4th pixel
+      const r = raw[i], g = raw[i + 1], b = raw[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      L.push(0.2126 * r + 0.7152 * g + 0.0722 * b); if (mx > 20) { sat += (mx - mn) / mx; n++; }
+    }
+    const m = L.reduce((a, b) => a + b, 0) / L.length, sd = Math.sqrt(L.reduce((a, b) => a + (b - m) ** 2, 0) / L.length);
+    return { sd, sat: sat / n, tm: await t.eval(() => window.studio.lighting.tonemapper) };
+  };
+  await run(`print("grade", Instance.new("ColorGradingEffect").TonemapperPreset.Name, Enum.TonemapperPreset.Retro.Value)`);
+  check(t.logs.some(l => l.endsWith('grade Default 1')), 'ColorGradingEffect: TonemapperPreset defaults to Default; Retro is 1');
+  const g0 = await look();
+  await run(`local g = Instance.new("ColorGradingEffect") g.Name = "Grade" g.TonemapperPreset = Enum.TonemapperPreset.Retro g.Parent = game.Lighting`);
+  const g1 = await look();
+  check(g0.tm === 'Default' && g1.tm === 'Retro' && g1.sd < g0.sd * 0.97 && g1.sat < g0.sat * 0.97, `Retro: less contrast (luminance spread ${g0.sd.toFixed(1)} -> ${g1.sd.toFixed(1)}) and less saturated (${g0.sat.toFixed(3)} -> ${g1.sat.toFixed(3)})`);
+  await t.frames(3); await t.shot('post-retro'); await t.golden('post-retro');
+  await run(`game.Lighting.Grade.Enabled = false`);
+  const g2 = await look();
+  check(g2.tm === 'Default' && Math.abs(g2.sd - g0.sd) < 0.5, `a disabled ColorGradingEffect does nothing (${g2.tm}, ${g2.sd.toFixed(1)})`);
+  await run(`game.Lighting.Grade.Enabled = true local d = Instance.new("ColorGradingEffect") d.Name = "Grade2" d.Parent = game.Lighting`);
+  const g3 = (await look()).tm;
+  await run(`local g = game.Lighting.Grade g.Parent = nil g.Parent = game.Lighting`);
+  const g4 = (await look()).tm;
+  check(g3 === 'Default' && g4 === 'Retro', `the most recently parented one wins (a Default added after: ${g3}; the Retro one parented again: ${g4})`);
+  await run(`for _, c in ipairs(game.Lighting:GetChildren()) do if c:IsA("ColorGradingEffect") then c:Destroy() end end
+    local g = Instance.new("ColorGradingEffect") g.TonemapperPreset = "Retro" g.Parent = workspace.CurrentCamera`);
+  check((await look()).tm === 'Default', 'under the Camera it is ignored (it counts only under Lighting)');
+  await run(`workspace.CurrentCamera:FindFirstChildOfClass("ColorGradingEffect"):Destroy()`);
 
   // Sun rays: aim at the sun.
   if (!phone) {

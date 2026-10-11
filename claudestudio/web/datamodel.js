@@ -41,6 +41,7 @@ export const ENUMS = {
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
+  TonemapperPreset: { Default: 0, Retro: 1 },
   CameraType: { Fixed: 0, Attach: 1, Watch: 2, Track: 3, Follow: 4, Custom: 5, Scriptable: 6, Orbital: 7 },
   EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
@@ -367,6 +368,8 @@ defineClass('ColorCorrectionEffect', 'PostEffect', { props: { Brightness: ['numb
 defineClass('DepthOfFieldEffect', 'PostEffect', { props: { FarIntensity: ['number', 0.75], FocusDistance: ['number', 0.05], InFocusRadius: ['number', 10], NearIntensity: ['number', 0.75] } });
 defineClass('SunRaysEffect', 'PostEffect', { props: { Intensity: ['number', 0.25], Spread: ['number', 1] } });
 defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
+// Only under Lighting, and only the most recently parented one counts (Roblox's docs).
+defineClass('ColorGradingEffect', 'PostEffect', { props: { TonemapperPreset: ['Enum.TonemapperPreset', 'Default'] } });
 defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
 defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
 // Local lights: direct children of a BasePart (mashup-research/ROBLOX_LIGHTING_2026-10-09.md

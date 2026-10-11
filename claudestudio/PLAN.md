@@ -315,7 +315,8 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - SunRays: a march toward the sun counting sky pixels, Henyey-Greenstein shaped. Spread maps to g, and the post-tonemap screen-blend scale is ours. Off on phones, as Roblox gates it by quality.
      - Found on the way: removing an effect never dirtied the lighting (the change watcher checked the new parent, nil), so destroyed effects lingered.
      - `test/scenarios/posteffects.mjs`: 16 checks, 3 goldens, desktop and phone, mutation-checked.
-     - Not yet: ColorGradingEffect, Clouds. (Effects under the CurrentCamera count, now that it exists.)
+     - ColorGradingEffect (2026-10-11): TonemapperPreset Default is the filmic curve we already used (ACES); Retro, "less saturated, less contrast" per Roblox's docs, is Babylon's exponential curve at contrast 1 (ours: Roblox doesn't publish its curve). Only under Lighting; the most recently parented one counts, and a disabled one means Default (UNSURE: whether Roblox then falls back to an older one). Checked by contrast and saturation over the screen, desktop and phone; golden post-retro; mutation-checked.
+     - Not yet: Clouds. (Effects under the CurrentCamera count, now that it exists.)
    - **ShadowSoftness (2026-10-11):** Realistic only, as Roblox documents. It sets the light size of contact-hardening sun shadows (scale ours: 0.3 at softness 1; 0.5 all but erased a wall's shadow). Checked by the penumbra width across a wall's shadow edge, desktop and phone, mutation-checked.
    - **Raycasting (2026-10-11):** `workspace:Raycast(origin, direction, params)`, `Ray`, `RaycastParams`, `RaycastResult`.
      - The datatypes are Luau (`luau/lib_raycast.h`), and `typeof` names them. The geometry is exact JS (`web/raycast.js`): boxes and rotated boxes, spheres, cylinders, wedge slopes.
