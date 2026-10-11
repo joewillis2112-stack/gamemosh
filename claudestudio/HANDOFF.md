@@ -14,7 +14,13 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 Done this session: the token works (HF user Jwilly21, read); the realistic route runs end to end (`tools/stage2/mesh_hf.py`, README "Routes"); example `tools/stage2/examples/realistic-adventurer.glb`.
 
 1. **Quota.** A free account gets about 4 min of ZeroGPU a day; this session spent it (resets ~24 h after 07:50 UTC, 2026-10-11). One Kontext edit + one Hunyuan shape fit in a day with a retry spare.
-2. **Fix the back** (blotchy). The hip flap is fixed on CPU (2026-10-11, fourth session): below the crotch, arm-column vertices go to whichever of arm or leg is nearer along the surface. It costs a thin ring at the bottom of a hand fused to the thigh, which now moves with the leg. A back view also helps both: ask Kontext for the same person from behind and feed front + back to Hunyuan's multi-view inputs (`mv_image_front`, `mv_image_back`); paint the back from that photo instead of borrowing. Costs one more Kontext call per character.
+2. **Ready to run when the quota resets** (~07:50 UTC 2026-10-12): the multi-view route is built and tested on CPU; it needs one Kontext call and one Hunyuan3D-2mv shape. Today's front photo is reused:
+   ```sh
+   cd /home/user/gamemosh && HF_HOME=.cache/hf .cache/hf-venv/bin/python -I claudestudio/tools/stage2/mesh_hf.py .cache/s2/adv/k2.png .cache/s2/mv --from-photo --views back
+   cd claudestudio && node tools/rigmesh.mjs ../.cache/s2/mv/mesh.glb out.glb --reference ../.cache/s2/mv/cutout.png
+   ```
+   (`.cache/s2/adv/k2.png` is gitignored scratch. If the container was reset, the photo is gone too: drop `--from-photo` and give it the drawing, which costs one more Kontext call.) Then judge the back with `view.py` and the walk. If Kontext's back view isn't the same person, or isn't straight on, say so before going on.
+   **Fix the back** (blotchy). The hip flap is fixed on CPU (2026-10-11, fourth session): below the crotch, arm-column vertices go to whichever of arm or leg is nearer along the surface. It costs a thin ring at the bottom of a hand fused to the thigh, which now moves with the leg. A back view also helps both: ask Kontext for the same person from behind and feed front + back to Hunyuan's multi-view inputs (`mv_image_front`, `mv_image_back`); paint the back from that photo instead of borrowing. Costs one more Kontext call per character.
 3. Try the other four fixtures (female-person, robot, zombie, soldier) through the route; the robot will test whether "a real person" is the right prompt for non-humans (likely not: let the prompt depend on the subject).
 4. The maker page: offer the realistic route from the phone (it needs the token server-side; or keep it as a CLI and load the `.glb`).
 5. LODs.

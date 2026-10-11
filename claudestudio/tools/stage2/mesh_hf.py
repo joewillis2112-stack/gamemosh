@@ -7,8 +7,12 @@
 # (the cutout, not the drawing: a real person's proportions aren't the drawing's).
 #
 # Usage: mesh_hf.py IN.png OUTDIR [--seed N] [--prompt TEXT] [--triangles N]
-#        [--from-photo]  (IN.png is already the photo: skip Kontext)
-# Writes OUTDIR/input.png, photo.png, cutout.png, shape.glb, mesh.glb.
+#        [--from-photo]  (IN.png is already the photo: skip the first Kontext call)
+#        [--views back[,left,right]]  (more views, each made by Kontext from the
+#          front photo, so it's the same person; then Hunyuan3D-2mv takes them
+#          all, and paint_cpu.py paints from them all)
+# Writes OUTDIR/input.png, photo.png, cutout.png (and photo-<view>.png,
+# cutout-<view>.png), shape.glb, mesh.glb.
 # Needs HF_TOKEN (a free read token) in the environment; gradio_client 2.x
 # takes token=, not hf_token=.
 #
@@ -33,7 +37,11 @@ ap.add_argument('--seed', type=int, default=7)
 ap.add_argument('--prompt', default=PROMPT)
 ap.add_argument('--triangles', type=int, default=20000)
 ap.add_argument('--from-photo', action='store_true')
+ap.add_argument('--views', default='', help='comma-separated: back, left, right')
 a = ap.parse_args()
+views = [v for v in a.views.split(',') if v]
+bad = [v for v in views if v not in ('back', 'left', 'right')]
+if bad: sys.exit(f'unknown view(s) {bad}: back, left or right')  # before any call spends quota
 os.makedirs(a.out, exist_ok=True)
 token = os.environ['HF_TOKEN']
 out = lambda name: os.path.join(a.out, name)
@@ -58,18 +66,42 @@ else:
     Image.open(img['path'] if isinstance(img, dict) else img).convert('RGB').save(out('photo.png'))
     print('photo', out('photo.png'))
 
-# The photo cut out: stage 1's flood fill can't take a photo's graded backdrop.
-from rembg import remove, new_session
-remove(Image.open(out('photo.png')), session=new_session('isnet-general-use')).save(out('cutout.png'))
+VIEW_PROMPTS = {
+    'back': 'Show this exact same person from directly behind: the back of their head and body. '
+            'Same clothes, same colours, same build, same pose, arms relaxed at the sides. '
+            'Full body from head to feet, plain white studio background, a real photograph.',
+    'left': 'Show this exact same person from their left side, in profile, facing the left edge of the picture. '
+            'Same clothes, same colours, same build, standing straight, arms relaxed at the sides. '
+            'Full body from head to feet, plain white studio background, a real photograph.',
+    'right': 'Show this exact same person from their right side, in profile, facing the right edge of the picture. '
+             'Same clothes, same colours, same build, standing straight, arms relaxed at the sides. '
+             'Full body from head to feet, plain white studio background, a real photograph.',
+}
+for v in views:
+    kontext = Client('black-forest-labs/FLUX.1-Kontext-Dev', token=token, verbose=False)
+    img, _ = kontext.predict(handle_file(out('photo.png')), VIEW_PROMPTS[v], a.seed, False, 2.5, 28, api_name='/infer')
+    Image.open(img['path'] if isinstance(img, dict) else img).convert('RGB').save(out(f'photo-{v}.png'))
+    print('photo', out(f'photo-{v}.png'))
 
-hy = Client('tencent/Hunyuan3D-2', token=token, verbose=False)
-res = hy.predict(None, handle_file(out('photo.png')), None, None, None, None,
-                 30, 5.0, 1234, 256, True, 8000, False, api_name='/shape_generation')
+# The photos cut out: stage 1's flood fill can't take a photo's graded backdrop.
+from rembg import remove, new_session
+session = new_session('isnet-general-use')
+remove(Image.open(out('photo.png')), session=session).save(out('cutout.png'))
+for v in views: remove(Image.open(out(f'photo-{v}.png')), session=session).save(out(f'cutout-{v}.png'))
+
+if views:  # the multi-view model: front, back, left, right
+    hy = Client('tencent/Hunyuan3D-2mv', token=token, verbose=False)
+    mv = {v: (handle_file(out(f'photo-{v}.png')) if v in views else None) for v in ('back', 'left', 'right')}
+    res = hy.predict(None, None, handle_file(out('photo.png')), mv['back'], mv['left'], mv['right'],
+                     10, 5.0, 1234, 256, True, 8000, False, api_name='/shape_generation')
+else:
+    hy = Client('tencent/Hunyuan3D-2', token=token, verbose=False)
+    res = hy.predict(None, handle_file(out('photo.png')), None, None, None, None,
+                     30, 5.0, 1234, 256, True, 8000, False, api_name='/shape_generation')
 f = res[0]
 path = f.get('value', f) if isinstance(f, dict) else f
 path = path['path'] if isinstance(path, dict) else path
 if os.path.exists(path):  # gradio_client downloaded it
-    Image  # (nothing to do)
     data = open(path, 'rb').read()
 else:  # an update dict carries the Space's own path: fetch it
     req = urllib.request.Request(hy.src.rstrip('/') + '/gradio_api/file=' + path, headers={'Authorization': 'Bearer ' + token})
@@ -78,4 +110,5 @@ open(out('shape.glb'), 'wb').write(data)
 print('shape', out('shape.glb'), res[2].get('number_of_faces'), 'faces')
 
 here = os.path.dirname(os.path.abspath(__file__))
-subprocess.run([sys.executable, os.path.join(here, 'paint_cpu.py'), out('shape.glb'), out('cutout.png'), out('mesh.glb'), str(a.triangles)], check=True)
+extra = sum((['--' + v, out(f'cutout-{v}.png')] for v in views), [])
+subprocess.run([sys.executable, os.path.join(here, 'paint_cpu.py'), out('shape.glb'), out('cutout.png'), out('mesh.glb'), str(a.triangles)] + extra, check=True)

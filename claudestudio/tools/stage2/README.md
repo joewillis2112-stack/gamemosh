@@ -133,6 +133,6 @@ checkpoint uses, and loading fails with missing keys.
   arm's columns.)
 - A small skin-coloured patch on the hip where the photo's hand covered the
   thigh.
-- Only one view goes in (the front). A back view from Kontext ("the same person
+- Multi-view is built (2026-10-11) but not yet run on real photos (no quota left that day): `mesh_hf.py --views back[,left,right]` has Kontext make each view from the front photo, Hunyuan3D-2mv takes them together, and `paint_cpu.py --back/--left/--right` paints each face from the photo that faces it most squarely (`test/paint_cpu.test.py`: a box and four two-colour photos, every face in its view's colour on the correct side, mutation-checked against a mirrored back and swapped sides). The old note: only one view went in (the front). A back view from Kontext ("the same person
   from behind") into Hunyuan's multi-view inputs would fix both, at the cost of
   quota.

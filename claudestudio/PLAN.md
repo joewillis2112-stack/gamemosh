@@ -373,6 +373,7 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
          - Stage 1's `findParts` now handles a real person's proportions: the neck searched from 8% of the height if not seen from 20%, and an arm ends below its hand rather than at the feet standing in its columns. Judged on the photo cutout (`test/fixtures/characters/realistic-person.png`); the five cartoon fixtures unchanged.
          - The rigger severs fusions (arm to leg, arm to torso below the armpit) and caps the holes; on the TripoSR fixture too (241 faces), which removed skin stretched from hand to leg in its walk golden (re-saved after looking).
          - Hip flap fixed (fourth session): arm-column vertices below the crotch go to the nearer of arm and leg along the surface; tested on a wide-hipped mannequin with hands below the crotch, mutation-checked; walk golden re-saved (the swinging hand is whole now).
+         - Multi-view built (CPU side tested, not yet run on real photos): extra Kontext views of the same person into Hunyuan3D-2mv, painted per face from the photo facing it. `test/paint_cpu.test.py` (Python, hf-venv).
          - Known defects: blotchy back; a thin ring at the bottom of a hand fused to the thigh moves with the leg. See the stage-2 README.
        - Not yet: a real Hunyuan3D-2 download through the page; textured meshes are tested only with a synthetic mannequin; proportions far from the drawing's (the cuts come from the drawing); T-poses; LODs.
    - **Mesh editing, design (2026-10-09, started):**
