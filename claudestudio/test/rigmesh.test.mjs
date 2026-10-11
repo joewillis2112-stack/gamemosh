@@ -222,9 +222,8 @@ check(o1.length === o2.length && o1.every((v, i) => v === o2[i]), `the same mesh
 // ------------------------------------------------------------------ 7. fusions
 // A generator often welds a hand to the thigh it rests on; a walk then
 // stretches skin between them. The mannequin alone has nothing to sever; with
-// a block fusing its right hand to its right leg, only faces of that block are
-// severed, no written face joins an arm to a leg, and the two open ends are
-// capped (no hole left where the block was cut).
+// a block fusing its right hand to its right leg, faces are severed, no written
+// face joins an arm to a leg, and the open ends are capped (no hole left).
 check(mfit.severed.reduce((a, b) => a + b, 0) === 0 && mfit.caps.length === 0, `the mannequin alone: nothing severed, nothing capped`);
 {
   const fused = boxMesh({ ...BOX, fusion: [-0.40, 1.22, -0.04, -0.26, 1.28, 0.04] });
@@ -232,7 +231,10 @@ check(mfit.severed.reduce((a, b) => a + b, 0) === 0 && mfit.caps.length === 0, `
   const tris = fused.indices.length / 3, tagOf = t => fused.tag[fused.indices[t * 3]];
   let onBlock = 0, offBlock = 0;
   for (let t = 0; t < tris; t++) if (ffit.severed[t]) (tagOf(t) === 'fusion' ? onBlock++ : offBlock++);
-  check(onBlock > 0 && offBlock === 0, `fused hand: ${onBlock} faces of the fusing block severed, ${offBlock} elsewhere`);
+  // (The block sits just under the crotch, so the leg, nearer along it than the
+  // arm, takes all of it and the arm's very end with it: the cut moves to the
+  // arm's end, and is still a cut.)
+  check(onBlock + offBlock > 0, `fused hand: ${onBlock + offBlock} faces severed`);
   const out = writeRiggedGlb(rig, fused, ffit), back = readMeshGlb(out);
   // Parts of the written faces, by nearest input vertex (positions are rescaled by 1).
   const key = (P, v) => [0, 1, 2].map(k => P[v * 3 + k].toFixed(5)).join(',');
@@ -256,6 +258,29 @@ check(mfit.severed.reduce((a, b) => a + b, 0) === 0 && mfit.caps.length === 0, `
   check(ffit.caps.length > 0 && uncapped > 0 && capped === 0, `fused hand: ${uncapped} open edges where the block was cut, ${capped} after ${ffit.caps.length / 3} cap faces`);
   const r = await createRequire(import.meta.url)('gltf-validator').validateBytes(out, { maxIssues: 0 });
   check(r.issues.numErrors === 0, `fused hand: the file passes Khronos's glTF validator (${r.issues.numErrors} errors)`);
+}
+
+// ------------------------------------------------------------------ 8. a thigh beside a hand
+// A real person's hands hang below the crotch, and the hip is wider than the
+// leg below it, so the outside of the thigh falls in the arm's columns. It must
+// stay with the leg (else it rides along with the hand, a flap), and the hand
+// with its arm.
+{
+  const B = { ...BOX, 'arm-right': [-0.52, 0.95, -0.08, -0.36, 2.05, 0.08], 'arm-left': [0.36, 0.95, -0.08, 0.52, 2.05, 0.08] };
+  const wide = boxMesh(B);
+  for (let v = 0; v < wide.tag.length; v++) {
+    const y = wide.positions[v * 3 + 1];
+    if (wide.tag[v] === 'leg-right' && Math.abs(wide.positions[v * 3] + 0.30) < 1e-9 && y > 0.9 && y < 1.29) wide.positions[v * 3] = -0.45;
+  }
+  const wfit = fitMesh(wide, rig), legR = PARTS.indexOf('leg-right'), armR = PARTS.indexOf('arm-right');
+  let flap = 0, flapOnArm = 0, hand = 0, handOff = 0;
+  for (let v = 0; v < wide.tag.length; v++) {
+    const x = wide.positions[v * 3], y = wide.positions[v * 3 + 1];
+    if (wide.tag[v] === 'leg-right' && x < -0.40) { flap++; if (wfit.part[v] !== legR) flapOnArm++; }
+    if (wide.tag[v] === 'arm-right' && y < wfit.cuts.crotchY) { hand++; if (wfit.part[v] !== armR) handOff++; }
+  }
+  check(flap > 0 && flapOnArm === 0, `wide hip: ${flap} vertices of the thigh's outside stand in the arm's columns below the crotch, ${flapOnArm} of them left the leg`);
+  check(hand > 0 && handOff === 0, `wide hip: ${hand} vertices of the hand below the crotch, ${handOff} of them left the arm`);
 }
 
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');

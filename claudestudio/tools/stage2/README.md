@@ -75,7 +75,7 @@ CPU route:
 cd /home/user/gamemosh
 uv venv -p python3.11 .cache/gen-venv
 uv pip install -p .cache/gen-venv/bin/python --index-url https://download.pytorch.org/whl/cpu torch torchvision
-uv pip install -p .cache/gen-venv/bin/python diffusers accelerate safetensors omegaconf einops trimesh pillow scikit-image huggingface_hub scipy fast-simplification "transformers==4.35.0"
+uv pip install -p .cache/gen-venv/bin/python diffusers "accelerate==0.24.1" safetensors omegaconf einops trimesh pillow scikit-image huggingface_hub scipy fast-simplification "rembg[cpu]" "transformers==4.35.0"
 git clone --depth 1 https://github.com/VAST-AI-Research/TripoSR.git .cache/TripoSR
 HF_HOME=.cache/hf .cache/gen-venv/bin/python -c "from huggingface_hub import snapshot_download as d; d('stabilityai/TripoSR', token=False); d('facebook/dino-vitb16', token=False, allow_patterns=['*.json','*.safetensors','*.txt'])"
 ```
@@ -124,8 +124,15 @@ checkpoint uses, and loading fails with missing keys.
 
 - The back of the shirt has darker blotches: hidden areas borrow from the
   nearest seen point, and some of those sit in the photo's shadows near the arms.
-- A flap of hip surface rides with each hand in the walk: the hand overlaps the
-  thigh in the front view, so the box cut can't tell them apart there.
+- Fixed: a flap of hip surface rode with each hand (the hand overlaps the thigh
+  in the front view, so the box cut can't tell them apart). Now arm-column
+  vertices below the crotch go to the nearer of arm and leg along the surface.
+  Cost: where a hand is fused to the thigh, a thin ring at the hand's bottom
+  goes with the leg. (Charging for steps between columns kept the ring but
+  brought the flap back: on this mesh the flap reaches the hand inside the
+  arm's columns.)
+- A small skin-coloured patch on the hip where the photo's hand covered the
+  thigh.
 - Only one view goes in (the front). A back view from Kontext ("the same person
   from behind") into Hunyuan's multi-view inputs would fix both, at the cost of
   quota.

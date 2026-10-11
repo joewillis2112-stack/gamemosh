@@ -1,4 +1,4 @@
-# Handoff (2026-10-11, third session)
+# Handoff (2026-10-11, fourth session)
 
 For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first (as always), then this.
 
@@ -14,12 +14,32 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 Done this session: the token works (HF user Jwilly21, read); the realistic route runs end to end (`tools/stage2/mesh_hf.py`, README "Routes"); example `tools/stage2/examples/realistic-adventurer.glb`.
 
 1. **Quota.** A free account gets about 4 min of ZeroGPU a day; this session spent it (resets ~24 h after 07:50 UTC, 2026-10-11). One Kontext edit + one Hunyuan shape fit in a day with a retry spare.
-2. **Fix the back** (blotchy) and the **hip flap** riding with each hand: ask Kontext for the same person from behind and feed front + back to Hunyuan's multi-view inputs (`mv_image_front`, `mv_image_back`); paint the back from that photo instead of borrowing. Costs one more Kontext call per character.
+2. **Fix the back** (blotchy). The hip flap is fixed on CPU (2026-10-11, fourth session): below the crotch, arm-column vertices go to whichever of arm or leg is nearer along the surface. It costs a thin ring at the bottom of a hand fused to the thigh, which now moves with the leg. A back view also helps both: ask Kontext for the same person from behind and feed front + back to Hunyuan's multi-view inputs (`mv_image_front`, `mv_image_back`); paint the back from that photo instead of borrowing. Costs one more Kontext call per character.
 3. Try the other four fixtures (female-person, robot, zombie, soldier) through the route; the robot will test whether "a real person" is the right prompt for non-humans (likely not: let the prompt depend on the subject).
 4. The maker page: offer the realistic route from the phone (it needs the token server-side; or keep it as a CLI and load the `.glb`).
 5. LODs.
 7. The `gui` (desktop, phone) and `leaderstats` goldens fail in a fresh container on the commit before this session too (0.66% and 0.21% of pixels; text rendering, I think). Not caused by stage 2; not re-saved. Look at the diffs before deciding.
 6. `tools/turntable.mjs --zoom` seemed to have no effect on this mesh (frames it whole regardless); not looked into.
+
+## Tools: checked 2026-10-11 (fourth session)
+
+All verified working in this container:
+
+| Tool | Status |
+|---|---|
+| rehan-remade/universal-modder | public: the git proxy serves it with no attach (`add_repo` says so). Clone at `/home/user/rehan-remade/universal-modder`; `bin/um --help` works (uv makes its venv). Its skills are already in `.claude/skills`. |
+| `npm ci` (root and `claudestudio/`) | ok; preinstalled Chromium at `/opt/pw-browsers/chromium` |
+| emsdk + Luau wasm (`luau/build.sh`) | ok, emsdk cached in `build/emsdk`. The rebuilt `web/luau.mjs` differs from the committed one (newer emscripten): the committed file was kept. Rebuild only when the binding changes, and run `npm test` after. |
+| `.cache/hf-venv` (gradio_client, pillow, trimesh, rembg) | ok; `HF_TOKEN` valid (read) |
+| bpy 4.2.0 | ok: `bash tools/blender-build.sh oracle` prints Blender 4.2.0; a Cycles CPU render works. The venv lives at the repo root's `.cache/bpy-venv`; `claudestudio/.cache/bpy-venv` is a symlink to it (the script expects the latter). |
+| Stage 2 CPU setup (TripoSR) | ok after two README fixes: `rembg[cpu]` was missing (TripoSR imports it), and `accelerate` must be 0.24.1 (`transformers` 4.35's `tokenizers` caps huggingface-hub at 0.17). `make.sh` runs end to end. |
+| Roblox docs as Markdown | ok (`.../classes/PointLight.md`, `.../enums/Material.md`) |
+| rbx-dom | ok: `raw.githubusercontent.com/rojo-rbx/rbx-dom/master/rbx_reflection_database/database.msgpack` |
+| Khronos fidelity (`tools/fetch-fidelity.sh`) | ok: 84 models, goldens |
+| Blender source (`tools/blender-build.sh fetch`) | ok: v4.2.0 in `claudestudio/.cache/blender-src`. The `dna`/`native` steps are still blocked on the permission rule below. |
+| Harness | `tools/play.mjs`, goldens, `tools/test-play.sh`: ok. `gui` and `leaderstats` goldens fail on a fresh container (item 7 below). |
+| WebSearch, WebFetch, Google Drive | ok |
+| ZeroGPU quota | spent for today; resets about 07:50 UTC on 2026-10-12 |
 
 ## Mesh editing: what's blocking
 

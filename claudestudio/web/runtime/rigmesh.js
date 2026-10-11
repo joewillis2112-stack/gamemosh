@@ -247,6 +247,16 @@ function bounds(pos) {
   return { min, max };
 }
 
+/** Per vertex, the first vertex at the same position (texture seams duplicate them). */
+function weld(pos, n) {
+  const canon = new Uint32Array(n), firstAt = new Map();
+  for (let v = 0; v < n; v++) {
+    const key = pos[v * 3].toFixed(6) + ',' + pos[v * 3 + 1].toFixed(6) + ',' + pos[v * 3 + 2].toFixed(6);
+    if (!firstAt.has(key)) firstAt.set(key, v);
+    canon[v] = firstAt.get(key);
+  }
+  return canon;
+}
 function neighbours(idx, n) {
   const adj = Array.from({ length: n }, () => new Set());
   for (let t = 0; t < idx.length; t += 3) for (let k = 0; k < 3; k++) { const a = idx[t + k], b = idx[t + (k + 1) % 3]; adj[a].add(b); adj[b].add(a); }
@@ -294,6 +304,32 @@ export function fitMesh(mesh, rig, { reference = null, pixels = 256, blend = 0.4
     else if (x > torsoX1 - 1.5 * px && y >= armLeftBottom) part[v] = P['arm-left'];
     else if (y < crotchY) part[v] = x >= legSplitX ? P['leg-left'] : P['leg-right'];
     else part[v] = P.torso;
+  }
+
+  // Below the crotch, an arm's columns also hold the outside of the thigh (a
+  // hand hangs beside it, overlapping it in the front view). Those vertices go
+  // to whichever is nearer along the surface: the arm above the crotch, or the
+  // leg. (Seam duplicates are welded, so a texture seam isn't a wall.) Where a
+  // generator fused a hand to the thigh, the few hand vertices right at the
+  // fusion go to the leg too: tried charging for each step between an arm's
+  // columns and the rest, which kept them, but the thigh's outside then
+  // reached the hand inside the arm's columns and the flap came back.
+  const canon = weld(pos, n), adjW = neighbours(Uint32Array.from(mesh.indices, v => canon[v]), n);
+  const armSet = [P['arm-left'], P['arm-right']], legSet = [P['leg-left'], P['leg-right']];
+  const low = v => armSet.includes(part[v]) && pos[v * 3 + 1] < crotchY;
+  if (Array.from({ length: n }, (_, v) => v).some(v => canon[v] === v && low(v))) {
+    const seedOf = new Int32Array(n).fill(-1), dist = new Float64Array(n).fill(Infinity), heap = [];
+    const push = (d, v) => { heap.push([d, v]); let i = heap.length - 1; while (i > 0) { const q = (i - 1) >> 1; if (heap[q][0] <= heap[i][0]) break; [heap[q], heap[i]] = [heap[i], heap[q]]; i = q; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    for (let v = 0; v < n; v++) if (canon[v] === v && !low(v) && (armSet.includes(part[v]) || legSet.includes(part[v]))) { dist[v] = 0; seedOf[v] = part[v]; push(0, v); }
+    while (heap.length) {
+      const [d, v] = pop(); if (d > dist[v]) continue;
+      for (const u of adjW[v]) {
+        const e = d + Math.hypot(pos[u * 3] - pos[v * 3], pos[u * 3 + 1] - pos[v * 3 + 1], pos[u * 3 + 2] - pos[v * 3 + 2]);
+        if (e < dist[u]) { dist[u] = e; seedOf[u] = seedOf[v]; push(e, u); }
+      }
+    }
+    for (let v = 0; v < n; v++) { const c = canon[v]; if (low(v) && legSet.includes(seedOf[c])) part[v] = seedOf[c]; }
   }
 
   // Each part's box, and its joint at the same relative spot as the rig's.
@@ -378,12 +414,6 @@ export function fitMesh(mesh, rig, { reference = null, pixels = 256, blend = 0.4
   // fanned from its first vertex, wound against the faces around it.
   // Topology by position: a texture seam duplicates vertices, and a hole's
   // edge often runs along one.
-  const canon = new Uint32Array(n), firstAt = new Map();
-  for (let v = 0; v < n; v++) {
-    const key = pos[v * 3].toFixed(6) + ',' + pos[v * 3 + 1].toFixed(6) + ',' + pos[v * 3 + 2].toFixed(6);
-    if (!firstAt.has(key)) firstAt.set(key, v);
-    canon[v] = firstAt.get(key);
-  }
   const caps = [], next = new Map(), I = mesh.indices.map(v => canon[v]);
   const onCut = new Set();
   for (let t = 0; t < tris; t++) if (severed[t]) for (let k = 0; k < 3; k++) onCut.add(I[t * 3 + k]);

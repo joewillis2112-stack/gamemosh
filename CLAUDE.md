@@ -12,6 +12,7 @@ When a task goes sideways, check RESEARCH.md for a lesson that already covers it
 
 The rules that matter most (details in RESEARCH.md §1):
 - Push deliverables straight to `main` (no PRs; the user asked, 2026-10-07). Never force-push `main`.
+- **Another session works on this repo at the same time (user, 2026-10-11).** Before making any change, `git fetch origin main` and check what it changed; pull it in first. Re-check right before every commit and push, re-run the tests for anything either session touched, and never overwrite or revert the other session's work.
 - Don't watch PRs or schedule check-ins unless asked. If an auto-subscription appears, unsubscribe.
 - Write notes, findings and long summaries to files. Keep chat replies short.
 - No legal caveats. These are personal, never-distributed projects.
