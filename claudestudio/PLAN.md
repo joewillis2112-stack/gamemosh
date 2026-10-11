@@ -317,6 +317,11 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - `test/scenarios/posteffects.mjs`: 16 checks, 3 goldens, desktop and phone, mutation-checked.
      - Not yet: effects under the CurrentCamera (no Camera instance yet), ColorGradingEffect, Clouds.
    - **ShadowSoftness (2026-10-11):** Realistic only, as Roblox documents. It sets the light size of contact-hardening sun shadows (scale ours: 0.3 at softness 1; 0.5 all but erased a wall's shadow). Checked by the penumbra width across a wall's shadow edge, desktop and phone, mutation-checked.
+   - **Raycasting (2026-10-11):** `workspace:Raycast(origin, direction, params)`, `Ray`, `RaycastParams`, `RaycastResult`.
+     - The datatypes are Luau (`luau/lib_raycast.h`), and `typeof` names them. The geometry is exact JS (`web/raycast.js`): boxes and rotated boxes, spheres, cylinders, wedge slopes.
+     - Roblox's rules: the nearest part the ray enters (not one it starts inside), CanQuery, RespectCanCollide, Exclude/Include filters over descendants, a copied filter list, read-only results.
+     - `test/raycast.test.mjs`: 22 checks against hand-worked answers, mutation-checked.
+     - Not yet: MeshParts (they cast as their box until the renderer's triangles are hooked in), character body parts beyond HumanoidRootPart, collision groups, terrain and water, Shapecast/Blockcast/Spherecast, GetPartBoundsInBox and the other spatial queries.
    - Not yet: Sky skybox faces (custom skies), sky visibility for OutdoorAmbient (indoors vs outdoors), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
    - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
    - **Character pipeline: 2D reference → blocky 3D → realistic 3D (from the user, 2026-10-10).** Send the studio a 2D character image; get a low-res character (Minecraft/Roblox-like) that plays in the studio; then turn that into a high-res, realistic model.

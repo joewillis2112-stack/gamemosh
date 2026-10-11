@@ -71,11 +71,13 @@ static int enum_cache_ref; // "Type.Name" -> EnumItem userdata, so == is identit
 static int enum_types_ref; // "Type" -> its Enum table (the sandbox makes Enum itself read-only)
 static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yields)
+static int raycast_ref;      // WorldRoot:Raycast, written in Luau (lib_raycast.h)
 
 struct Signal { int h; char ev[56]; };
 
 #include "cframe.h"
 #include "gui_types.h"
+#include "lib_raycast.h"
 
 // TweenInfo: immutable, as Roblox's. Enum fields are kept by name.
 static const char* TWEENINFO_MT = "TweenInfo";
@@ -282,6 +284,7 @@ static int inst_index(lua_State* L) {
     int h = check_instance(L, 1);
     const char* key = luaL_checkstring(L, 2);
     if (!strcmp(key, "WaitForChild")) { lua_getref(L, waitforchild_ref); return 1; }
+    if (!strcmp(key, "Raycast")) { lua_getref(L, raycast_ref); return 1; }
     js_index(h, key);
     push_ret(L, 0, h, key);
     return 1;
@@ -495,6 +498,12 @@ static int g_print(lua_State* L, int level) {
 }
 static int l_typeof(lua_State* L) {
     if (lua_type(L, 1) == LUA_TVECTOR) { lua_pushstring(L, "Vector3"); return 1; }
+    // Datatypes written in Luau (Ray, RaycastParams, RaycastResult) are tables whose metatable names them.
+    if (lua_type(L, 1) == LUA_TTABLE && lua_getmetatable(L, 1)) {
+        lua_getfield(L, -1, "__type");
+        if (lua_type(L, -1) == LUA_TSTRING) return 1;
+        lua_pop(L, 2);
+    }
     lua_pushvalue(L, lua_upvalueindex(1));
     lua_pushvalue(L, 1);
     lua_call(L, 1, 1);
@@ -1036,6 +1045,22 @@ end)";
     if (lua_pcall(L0, 0, 1, 0) != LUA_OK) { js_print(lua_tostring(L0, -1), 2); lua_pop(L0, 1); lua_pushnil(L0); }
     waitforchild_ref = lua_ref(L0, -1);
     lua_pop(L0, 1);
+
+    // Ray, RaycastParams, RaycastResult and WorldRoot:Raycast (lib_raycast.h).
+    {
+        size_t rlen;
+        static const char* libMutable[] = { "typeof", nullptr }; // typeof is overridden: don't inline the builtin
+        lua_CompileOptions lopts = {};
+        lopts.optimizationLevel = 1; lopts.debugLevel = 1; lopts.mutableGlobals = libMutable;
+        char* rbc = luau_compile(RAYCAST_LIB, strlen(RAYCAST_LIB), &lopts, &rlen);
+        if (luau_load(L0, "=RaycastLib", rbc, rlen, 0) != 0) js_print(lua_tostring(L0, -1), 2);
+        free(rbc);
+        if (lua_pcall(L0, 0, 1, 0) != LUA_OK) { js_print(lua_tostring(L0, -1), 2); lua_pop(L0, 1); lua_newtable(L0); }
+        lua_getfield(L0, -1, "Raycast"); raycast_ref = lua_ref(L0, -1); lua_pop(L0, 1);
+        lua_getfield(L0, -1, "Ray"); lua_setglobal(L0, "Ray");
+        lua_getfield(L0, -1, "RaycastParams"); lua_setglobal(L0, "RaycastParams");
+        lua_pop(L0, 1);
+    }
 
     // Lock the shared metatables (as Roblox does), so one script can't
     // rewrite Instance, Color3 or EnumItem behaviour for every script.

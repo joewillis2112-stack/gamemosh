@@ -3,6 +3,7 @@
 // Luau reaches it through `host` (see bridge in luau.js): values cross as
 // {t, n, s, v} with the tags in binding.cpp.
 import { CF } from './cframe.js';
+import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
 export { CF };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17 };
@@ -16,7 +17,11 @@ export class TweenInfo { constructor(time = 1, style = 'Quad', dir = 'Out', repe
 // Returned by an async method: the calling script yields until `ev` fires on
 // `inst`, and resumes with the event's args (Instance:async below makes one).
 export class Yield { constructor(inst, ev) { this.inst = inst; this.ev = ev; } }
-export class LuaTable { constructor(entries) { this.entries = entries; } }
+export class LuaTable {
+  constructor(entries) { this.entries = entries; }
+  // The array part (keys 1..n) in order.
+  list() { const m = new Map(this.entries.filter(([k]) => typeof k === 'number').map(([k, v]) => [k, v])), out = []; for (let i = 1; m.has(i); i++) out.push(m.get(i)); return out; }
+}
 // Vector3 values are tagged so a list of three numbers isn't mistaken for one.
 export class V3 { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } }
 // Color3: components 0..1 (sRGB, as Roblox stores them).
@@ -35,6 +40,7 @@ export const ENUMS = {
   },
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+  RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
   PlaybackState: { Begin: 0, Delayed: 1, Playing: 2, Paused: 3, Completed: 4, Cancelled: 5 },
@@ -102,7 +108,17 @@ defineClass('Instance', null, {
   events: ['ChildAdded', 'ChildRemoved', 'Changed', 'Destroying'],
 });
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
-defineClass('Workspace', 'Instance', { creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] } });
+defineClass('Workspace', 'Instance', {
+  creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500] },
+  methods: {
+    // The engine half of WorldRoot:Raycast (the Luau half, with RaycastParams and
+    // RaycastResult, is in luau/lib_raycast.h). Returns instance, position, normal,
+    // material, distance; or nothing.
+    __studioRaycast(self, origin, direction, filter, filterType, respectCanCollide) {
+      return self.dm.raycast(origin, direction, { filter: filter instanceof LuaTable ? filter.list() : (filter || []), include: filterType === 1, respectCanCollide: !!respectCanCollide });
+    },
+  },
+});
 defineClass('Folder', 'Instance');
 // The frame's events, fired by play.js in Roblox's documented order:
 // PreAnimation, PreSimulation (Stepped), physics, PostSimulation (Heartbeat),
@@ -257,7 +273,7 @@ defineClass('BasePart', 'Instance', {
   creatable: false,
   props: {
     CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
-    Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], Transparency: ['number', 0],
+    Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], CanQuery: ['bool', true], Transparency: ['number', 0],
     Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
     // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
     AssemblyLinearVelocity: ['Vector3', [0, 0, 0]], AssemblyAngularVelocity: ['Vector3', [0, 0, 0]],
@@ -613,6 +629,31 @@ export class DataModel {
     return root;
   }
   watch(fn) { this.watchers.push(fn); }
+
+  // WorldRoot:Raycast's engine half (web/raycast.js): the nearest queryable part the ray
+  // enters. Rays longer than 15000 studs are cut there (UNSURE: Roblox's documented cap).
+  raycast(origin, direction, { filter = [], include = false, respectCanCollide = false } = {}) {
+    const len = Math.min(Math.hypot(direction.x, direction.y, direction.z), 15000);
+    if (!(len > 0)) return [];
+    const dir = [direction.x / Math.hypot(direction.x, direction.y, direction.z), direction.y / Math.hypot(direction.x, direction.y, direction.z), direction.z / Math.hypot(direction.x, direction.y, direction.z)];
+    const listed = new Set(filter.filter(i => i instanceof Instance));
+    const inList = inst => { for (let a = inst; a; a = a.parent) if (listed.has(a)) return true; return false; };
+    const cands = [];
+    const walk = inst => {
+      for (const c of inst.children) {
+        if (isA(c.ClassName, 'BasePart') && c.props.CFrame && c.props.CanQuery !== false && !(respectCanCollide && !c.props.CanCollide) && inList(c) === include) {
+          const shape = c.ClassName === 'WedgePart' ? 'Wedge' : c.ClassName === 'MeshPart' ? 'Mesh' : (c.props.Shape || 'Block');
+          cands.push({ inst: c, cf: c.props.CFrame, size: c.props.Size, shape, mesh: shape === 'Mesh' });
+        }
+        walk(c);
+      }
+    };
+    walk(this.workspace);
+    const hit = castRay([origin.x, origin.y, origin.z], dir, len, cands, this.hooks.meshRaycast);
+    if (!hit) return [];
+    const p = [0, 1, 2].map(k => [origin.x, origin.y, origin.z][k] + dir[k] * hit.t);
+    return [hit.inst, new V3(...p), new V3(...hit.normal), enumItem('Material', hit.inst.props.Material || 'Plastic'), hit.t];
+  }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }
 }
 function sameValue(a, b) {
