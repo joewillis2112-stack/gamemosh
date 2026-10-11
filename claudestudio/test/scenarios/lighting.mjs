@@ -104,9 +104,36 @@ export default async function (t) {
   check(s.ssao, 'LightingStyle Realistic adds ambient occlusion');
   await t.frames(3);
   await t.shot('lighting-realistic'); await t.golden('lighting-realistic');
+  // ShadowSoftness: the back wall's shadow edge on the floor (around z = -3 at x = 0.5),
+  // read along a line across it; the penumbra is the run of pixels between 15% and 85%
+  // of the way from shadow to light. Realistic: softer is wider. Soft: no change.
+  const penumbra = () => t.eval(() => {
+    const S = window.studio; S.frames(3, { move: [0, 0] });
+    const c = document.getElementById('c'), g = S.scene.getEngine()._gl, V = S.cam.position.constructor, W = c.width, H = c.height;
+    const pr = p => V.Project(new V(...p), S.scene.getTransformMatrix().constructor.Identity(), S.scene.getTransformMatrix(), S.cam.viewport.toGlobal(W, H));
+    const a = pr([0.5, 0, -6.5]), b = pr([0.5, 0, 0.5]), n = 120, L = [];
+    for (let i = 0; i <= n; i++) { const x = Math.round(a.x + (b.x - a.x) * i / n), y = Math.round(a.y + (b.y - a.y) * i / n), px = new Uint8Array(4); g.readPixels(x, H - 1 - y, 1, 1, g.RGBA, g.UNSIGNED_BYTE, px); L.push(0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]); }
+    const lo = Math.min(...L), hi = Math.max(...L);
+    return { width: L.filter(v => v > lo + 0.15 * (hi - lo) && v < lo + 0.85 * (hi - lo)).length, range: hi - lo, L: L.map(Math.round), ends: [a.x / W, a.y / H, b.x / W, b.y / H] };
+  });
+  await t.eval(() => window.studio.player.holder.getChildMeshes().forEach(m => m.isVisible = false)); // it stands in front of the edge on screen
+  // The same view on any screen: from behind the character, looking at the edge.
+  await t.eval(() => { const c = window.studio.camera; c.savedView = [c.yaw, c.pitch, c.zoom, c.z, c.dist]; c.focus = [0.5, 0, -3]; c.yaw = 0; c.pitch = 0.6; c.zoom = c.z = c.dist = 14; c.update(0); });
+  await run(`game:GetService("Lighting").ShadowSoftness = 0`); const hard = await penumbra();
+  await run(`game:GetService("Lighting").ShadowSoftness = 1`); const softer = await penumbra();
+  check(hard.ends.every(v => v > 0 && v < 1) && hard.range > 30 && softer.width > hard.width + 3, `Realistic: ShadowSoftness 1 widens the shadow's edge (${hard.width} -> ${softer.width} samples of 121)`);
+  await run(`game:GetService("Lighting").ShadowSoftness = 0.2`);
+  await t.eval(() => { const c = window.studio.camera; [c.yaw, c.pitch, c.zoom, c.z, c.dist] = c.savedView; c.focus = null; c.update(0); window.studio.player.holder.getChildMeshes().forEach(m => m.isVisible = true); });
   await run(`local L = game:GetService("Lighting") L.LightingStyle = Enum.LightingStyle.Soft L.ClockTime = 17.2`);
   await t.sim(1); s = await state();
   check(!s.ssao, 'back to Soft: no ambient occlusion');
+  {
+    const run2 = async src => { await t.eval(s => window.studio.vm.run('lab', s), src); await t.sim(1); };
+    await run2(`game:GetService("Lighting").ShadowSoftness = 0`); const a = await t.eval(() => window.studio.R.shadows.useContactHardeningShadow);
+    await run2(`game:GetService("Lighting").ShadowSoftness = 1`); const b = await t.eval(() => window.studio.R.shadows.useContactHardeningShadow);
+    await run2(`game:GetService("Lighting").ShadowSoftness = 0.2`);
+    check(a === false && b === false, 'Soft: ShadowSoftness changes nothing (documented as Realistic only)');
+  }
   await t.frames(3);
   await t.shot('lighting-sunset'); await t.golden('lighting-sunset');
   await run(`game:GetService("Lighting").ClockTime = 0`);

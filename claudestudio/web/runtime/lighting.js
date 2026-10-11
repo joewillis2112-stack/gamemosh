@@ -15,6 +15,7 @@ const MOON_PER_BRIGHTNESS = 0.06;     // the moon, much dimmer, bluish
 const SUN_COLOR = new Color3(1.0, 0.96, 0.9), LOW_SUN_COLOR = new Color3(1.0, 0.58, 0.32), MOON_COLOR = new Color3(0.62, 0.7, 0.9);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const BASE_CONTRAST = 1.15;           // the studio's look before ColorCorrection
+const SHADOW_SOFTNESS_UV = 0.3;       // contact-hardening light size at ShadowSoftness 1 (ours: 0.5 all but erased a wall's shadow)
 const FOG_PER_DENSITY = 156;          // Atmosphere.Density 0.3 -> fog fully opaque at 520 studs
 const HORIZON = new Color3(0.72, 0.77, 0.84); // the sky's horizon colour (fog takes distant things to it)
 // Bloom: Roblox's threshold is in its HDR range (0..4 in a gamma-2 buffer); these
@@ -75,6 +76,15 @@ export class LightingController {
     // A low sun is reddened by the long path through the air (ours: a blend by elevation).
     R.sun.diffuse = day ? Color3.Lerp(LOW_SUN_COLOR, SUN_COLOR, smooth(0.0, 0.35, sy)) : MOON_COLOR;
     R.sun.shadowEnabled = P.GlobalShadows;
+    // ShadowSoftness (Realistic only, as Roblox documents): 0 hard, 1 soft, as the
+    // light size of contact-hardening shadows (the scale is ours). Soft keeps the
+    // filtered shadows it always had.
+    if (R.shadows) {
+      const soft = P.LightingStyle === 'Realistic' ? Math.min(1, Math.max(0, P.ShadowSoftness)) : 0;
+      R.shadows.useContactHardeningShadow = soft > 0;
+      R.shadows.usePercentageCloserFiltering = soft === 0;
+      if (soft > 0) R.shadows.contactHardeningLightSizeUVRatio = SHADOW_SOFTNESS_UV * soft;
+    }
     // The sky follows the same sun and moon (re-rendered only when they move).
     const key = sx + ',' + sy + ',' + sz;
     if (this.sky && key !== this.skyKey) { this.skyKey = key; this.pending = this.sky.set([sx, sy, sz], [-sx, -sy, sz]); }
