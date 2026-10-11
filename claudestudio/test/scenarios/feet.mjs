@@ -2,7 +2,8 @@
 // only as its leg passes under the hip. At that moment the leg sweeping
 // backward is the planted one, and its world speed should be ~0 (positive =
 // skating forward, negative = moonwalking). Reported per stick deflection;
-// every step must stay under 8% of body speed.
+// every step must stay under 8% of body speed. Runs on any character
+// (tools/play.mjs --character for a stage-2 body).
 export default async function (t) {
   await t.sim(30);
   const results = [];
@@ -10,8 +11,9 @@ export default async function (t) {
     await t.sim(60, { move: [0, mv] });
     const r = await t.eval(([mv]) => {
       const S = window.studio, p = S.player, V = p.holder.position.constructor;
-      const legs = p.meshes.filter(m => /^leg-(left|right)$/.test(m.name));
-      const sole = m => { const b = m.getBoundingInfo().boundingBox; m.computeWorldMatrix(true); return V.TransformCoordinates(new V((b.minimum.x + b.maximum.x) / 2, b.minimum.y, (b.minimum.z + b.maximum.z) / 2), m.getWorldMatrix()); };
+      // Each leg's box, from its own mesh (blocky) or its joint (a skinned body).
+      const legs = p.parts.filter(b => /^leg-(left|right)$/.test(b.name));
+      const sole = b => b.sole();
       const fr = [];
       for (let i = 0; i < 180; i++) { S.sim(1, { move: [0, mv] }); fr.push({ soles: legs.map(sole), body: p.holder.position.clone() }); }
       const slips = [];

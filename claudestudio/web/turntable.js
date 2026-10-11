@@ -114,7 +114,7 @@ async function main() {
 
   // Five views. glTF characters face +Z.
   const h = max.y - min.y, w = Math.max(max.x - min.x, max.z - min.z, h * 0.6);
-  const radius = Math.max(h, w) * 1.9;
+  const radius = Math.max(h, w) * 1.9 / (+q.get('zoom') || 1);
   cam.radius = radius;
   cam.target = new Vector3(0, h / 2, 0);
   const views = [
@@ -128,7 +128,7 @@ async function main() {
   if (strip) {
     const sc = res.animationGroups.find(g => g.name === strip);
     views.length = 0;
-    for (let i = 0; i < 6; i++) views.push([`${strip} ${i}/6`, Math.PI / 3, Math.PI / 2.3, sc, i / 6]);
+    for (let i = 0; i < 6; i++) views.push([`${strip} ${i}/6`, q.get('stripalpha') !== null ? +q.get('stripalpha') : Math.PI / 3, Math.PI / 2.3, sc, i / 6]);
   }
   if (q.get('extra')) views.push(['below-angled', Math.PI / 2 + 0.5, Math.PI * 0.72], ['three-quarter', Math.PI / 4, Math.PI / 2.6]);
   const shots = [];

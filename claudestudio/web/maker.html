@@ -16,7 +16,10 @@ button.on{background:var(--accent);border-color:var(--accent);color:#0b1220}
 button.primary{background:var(--accent);border-color:var(--accent);color:#0b1220;font-weight:600}
 .samples img{width:44px;height:58px;object-fit:contain;background:#2a2e36;border-radius:6px;cursor:pointer;border:2px solid transparent}
 .samples img.on{border-color:var(--accent)}
-#status{color:var(--dim);font-size:13px;min-height:1.4em}
+#status,#status2{color:var(--dim);font-size:13px;min-height:1.4em}
+.note{color:var(--dim);font-size:13px;margin:0}
+#stage2{grid-column:1/-1}
+button:disabled{opacity:.45;cursor:default}
 .found{color:var(--ok)}.assumed{color:var(--warn)}
 input[type=file]{display:none}
 </style>
@@ -30,10 +33,16 @@ input[type=file]{display:none}
     <div id="status"></div>
   </section>
   <section class="panel">
-    <h2>Blocky character</h2>
+    <h2 id="previewTitle">Blocky character</h2>
     <canvas id="view"></canvas>
     <div class="row" id="detail"><span style="color:var(--dim)">Detail</span></div>
     <div class="row"><button class="primary" id="play">Play as this character</button><button id="download">Download skin</button></div>
+  </section>
+  <section class="panel" id="stage2">
+    <h2>Realistic: rig a generated model</h2>
+    <p class="note">Make a 3D model of the drawing with any image-to-3D generator (the free Hunyuan3D-2 or TripoSR Spaces on Hugging Face work from a phone), then load its .glb here. It's turned to face the drawing, cut where the boxes say, and rigged to move like the blocky character.</p>
+    <div class="row"><label class="btn">Load model (.glb)…<input type="file" id="meshFile" accept=".glb,model/gltf-binary"></label><button class="primary" id="playRigged" disabled>Play as the rigged character</button><button id="downloadRigged" disabled>Download rigged .glb</button><button id="showBlocky" disabled>Show blocky</button></div>
+    <div id="status2"></div>
   </section>
 </main>
 <script type="module" src="../build/web/maker.js"></script>

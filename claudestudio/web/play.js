@@ -42,7 +42,15 @@ async function main() {
   vm.run('place', place);
 
   // The player joins after the place's scripts (as in Roblox) and spawns on a SpawnLocation.
-  const player = await Character.load(scene, '../assets/characters/character-a.glb', R.shadows, Vector3.Zero());
+  // The character: the blocky default, or another rigged to its nodes (character maker stage 2).
+  // 'session': the one the maker just handed over (a data URL in sessionStorage).
+  let charSrc = q.get('character') || '../assets/characters/character-a.glb';
+  if (charSrc === 'session') {
+    const d = sessionStorage.getItem('studio.character');
+    if (!d) throw new Error('no character was handed over');
+    charSrc = new File([await (await fetch(d)).blob()], 'character.glb', { type: 'model/gltf-binary' });
+  }
+  const player = await Character.load(scene, charSrc, R.shadows, Vector3.Zero());
   // A skin from the character maker: a URL, or 'session' for the one it just handed over.
   let skin = q.get('skin');
   if (skin === 'session') { try { skin = sessionStorage.getItem('studio.skin'); } catch (e) { skin = null; } }

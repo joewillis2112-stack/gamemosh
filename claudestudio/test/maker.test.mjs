@@ -1,7 +1,9 @@
 // The character maker page (web/maker.html), driven like a creator would, on
 // a desktop and a phone: a sample becomes a skin on the preview character;
 // the detail buttons and a dragged box edge remake it; "Play as this
-// character" opens the game wearing it. Screenshots go to build/maker/.
+// character" opens the game wearing it. Stage 2: a generated model (the
+// TripoSR fixture) loads, is rigged and previewed, and "Play as the rigged
+// character" opens the game as it. Screenshots go to build/maker/.
 import fs from 'node:fs';
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { serve } from '../tools/serve.mjs';
@@ -70,6 +72,23 @@ for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 900 
   check(worn === skin, `${label}: "Play as this character" opens the game wearing the skin`);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `build/maker/play-${label}.png` });
+
+  // Stage 2: load a generated model of the first sample; it's rigged and shown; play as it.
+  await page.goto(`http://127.0.0.1:${srv.port}/web/maker.html`);
+  await ready(1);
+  await page.setInputFiles('#meshFile', 'test/fixtures/stage2/male-adventurer-tripo.glb');
+  await page.waitForFunction(() => (window.maker.riggedReady || 0) >= 1 || /could not/.test(document.getElementById('status2').textContent), null, { timeout: 240000 });
+  const s2 = await page.evaluate(() => ({ status: document.getElementById('status2').textContent, showing: window.maker.showing, bytes: window.maker.rigged && window.maker.rigged.length, play: !document.getElementById('playRigged').disabled }));
+  check(/^rigged: 12,000 triangles/.test(s2.status) && s2.showing === 'rigged' && s2.bytes > 100000 && s2.play, `${label}: a generated model is rigged and previewed (${s2.status})`);
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.getElementById('view').scrollIntoView({ block: 'center' }));
+  await page.screenshot({ path: `build/maker/maker-rigged-${label}.png` });
+  await page.click('#playRigged');
+  await page.waitForFunction(() => window.studio && (window.studio.player || window.studio.error), null, { timeout: 240000 });
+  const pl = await page.evaluate(() => ({ error: window.studio.error, skinned: window.studio.player && window.studio.player.meshes.filter(m => m.skeleton).length, joints: window.studio.player && window.studio.player.parts.map(b => b.name).sort().join(' ') }));
+  check(!pl.error && pl.skinned === 1 && pl.joints === 'arm-left arm-right head leg-left leg-right torso', `${label}: "Play as the rigged character" opens the game as it (${pl.error || pl.skinned + ' skinned body; parts ' + pl.joints})`);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `build/maker/play-rigged-${label}.png` });
   check(!errors.length, `${label}: no page errors${errors.length ? ' (' + errors.slice(0, 3).join(' | ') + ')' : ''}`);
   await ctx.close();
 }

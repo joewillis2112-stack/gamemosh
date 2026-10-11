@@ -1,6 +1,6 @@
 // Asset gate, step 1: render an asset from five views and save a contact
 // sheet + metrics. With --golden, compare the views with saved goldens.
-// node tools/turntable.mjs <asset.glb> [--height 5] [--anim idle --t 0.3] [--out dir] [--golden name] [--update]
+// node tools/turntable.mjs <asset.glb> [--height 5] [--anim idle --t 0.3] [--zoom 2] [--out dir] [--golden name] [--update]
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +33,8 @@ const q = new URLSearchParams({ asset: '../' + asset, height: opt('height', '5')
 for (const f of ['nosky', 'nopost', 'noskybox', 'extra']) if (args.includes('--' + f)) q.set(f, '1');
 if (opt('strip')) q.set('strip', opt('strip'));
 if (opt('pose')) q.set('pose', opt('pose'));
+if (opt('zoom')) q.set('zoom', opt('zoom'));
+if (opt('stripalpha')) q.set('stripalpha', opt('stripalpha')); // camera angle for --strip (0 = from +X)
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
 await page.goto(`http://127.0.0.1:${port}/web/turntable.html?${q}`);
 await page.waitForFunction(() => window.result, null, { timeout: 180000 });

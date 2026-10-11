@@ -1,5 +1,7 @@
 // The character maker page: a 2D reference becomes the blocky character's
 // skin (runtime/charmaker.js), previewed on the real character, playable.
+// Stage 2: a model generated from the same drawing is oriented, cut by the
+// same boxes and rigged to the same rig (runtime/rigmesh.js), then playable.
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
@@ -8,12 +10,13 @@ import { createRenderer, groundDisc } from './render.js';
 import { silhouette, findParts, rigFromGlb, makeSkin } from './runtime/charmaker.js';
 import { parseGlb } from './runtime/glb.js';
 import { applySkin } from './runtime/skin.js';
+import { readMeshGlb, rigFromKenney, orientMesh, fitMesh, writeRiggedGlb, vertexColorsFromTexture } from './runtime/rigmesh.js';
 
 const MODEL = '../assets/characters/character-a.glb', TEXTURE = '../assets/characters/Textures/texture-a.png';
 const SAMPLES = ['male-adventurer', 'female-person', 'robot', 'zombie', 'soldier'].map(n => `../test/fixtures/characters/${n}.png`);
 const PARTS = { head: '#ff5d5d', torso: '#5fd18b', armLeft: '#5aa9ff', armRight: '#f0b35a', legLeft: '#c77dff', legRight: '#3dd6d0' };
 const MAX_SIDE = 512; // references are scaled down to this for speed
-const state = { img: null, parts: null, headPx: 16, skinUrl: null, busy: false };
+const state = { img: null, parts: null, headPx: 16, skinUrl: null, busy: false, mesh: null, rigged: null };
 window.maker = state;
 
 const $ = id => document.getElementById(id);
@@ -28,12 +31,12 @@ const cam = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 2.2, 14, new Vecto
 cam.lowerRadiusLimit = 4; cam.upperRadiusLimit = 20; cam.wheelPrecision = 30; cam.minZ = 0.05;
 cam.attachControl(view, true);
 scene.activeCamera = cam; R.attachCamera(cam);
-let character = null, rig = null, base = null, spin = true;
+let character = null, rig = null, base = null, spin = true, kenney = null, riggedRes = null;
 view.addEventListener('pointerdown', () => { spin = false; });
 scene.onBeforeRenderObservable.add(() => { if (spin) cam.alpha += engine.getDeltaTime() * 0.0004; });
 
 async function loadModel() {
-  const [glbBuf, res, tex] = await Promise.all([
+  const [glbBuf, res, tex] = await Promise.all([ // (glbBuf also feeds stage 2's rig)
     fetch(MODEL).then(r => r.arrayBuffer()),
     SceneLoader.ImportMeshAsync('', MODEL.slice(0, MODEL.lastIndexOf('/') + 1), MODEL.slice(MODEL.lastIndexOf('/') + 1), scene),
     imageData(TEXTURE),
@@ -47,7 +50,7 @@ async function loadModel() {
   res.animationGroups.forEach(g => g.stop());
   const idle = res.animationGroups.find(g => g.name === 'idle'); if (idle) idle.start(true);
   res.meshes.forEach(m => { if (m.getTotalVertices() > 0) shadows.addShadowCaster(m); });
-  character = res; rig = glb;
+  character = res; rig = glb; kenney = rigFromKenney(glbBuf);
 }
 
 // ---------------------------------------------------------------- reference
@@ -105,7 +108,7 @@ refCanvas.addEventListener('pointermove', e => {
   r[drag.edge] = Math.max(0, Math.min(drag.edge[0] === 'x' ? state.img.width : state.img.height, v));
   drawRef();
 });
-refCanvas.addEventListener('pointerup', () => { if (drag) { drag = null; rebuild(); } });
+refCanvas.addEventListener('pointerup', () => { if (drag) { drag = null; rebuild().then(() => state.mesh && rigMesh()); } });
 function toImage(e) {
   const b = refCanvas.getBoundingClientRect(), x = (e.clientX - b.left) * fit.dpr, y = (e.clientY - b.top) * fit.dpr;
   return { x: (x - fit.ox) / fit.k, y: (y - fit.oy) / fit.k };
@@ -115,6 +118,7 @@ function toImage(e) {
 async function useReference(src) {
   try {
     state.img = await imageData(src);
+    dropRigged();
     const found = findParts(state.img, silhouette(state.img));
     state.parts = found; state.found = found.found;
     drawRef();
@@ -157,6 +161,71 @@ $('play').onclick = () => {
   if (!state.skinUrl) return;
   try { sessionStorage.setItem('studio.skin', state.skinUrl); } catch (e) { status.textContent = 'could not hand the skin to the game: ' + e.message; return; }
   location.href = 'play.html?skin=session';
+};
+
+// ---------------------------------------------------------------- stage 2: a generated model, rigged
+const status2 = $('status2');
+// Orient (by the drawing), cut (by the boxes) and rig (to the blocky rig) the loaded model, then preview it.
+async function rigMesh() {
+  if (!state.mesh || !state.img || !kenney) return;
+  const t0 = performance.now();
+  const o = orientMesh(state.mesh, state.img, silhouette(state.img));
+  const fit = fitMesh(o.mesh, kenney, { reference: state.parts });
+  state.rigged = writeRiggedGlb(kenney, o.mesh, fit);
+  state.orientScore = o.scores[0].score;
+  if (riggedRes) disposeRes(riggedRes);
+  riggedRes = await SceneLoader.ImportMeshAsync('', '', new File([state.rigged], 'rigged.glb'), scene, null, '.glb');
+  const root = riggedRes.meshes[0]; root.computeWorldMatrix(true);
+  const { min, max } = root.getHierarchyBoundingVectors(true), s = 5 / (max.y - min.y);
+  root.scaling.scaleInPlace(s); root.position.y -= min.y * s;
+  riggedRes.animationGroups.forEach(g => g.stop());
+  const idle = riggedRes.animationGroups.find(g => g.name === 'idle'); if (idle) idle.start(true);
+  riggedRes.meshes.forEach(m => { if (m.getTotalVertices() > 0) shadows.addShadowCaster(m); });
+  showRigged(true);
+  const tris = state.mesh.indices.length / 3;
+  status2.textContent = `rigged: ${tris.toLocaleString()} triangles, turned to match the drawing (score ${state.orientScore.toFixed(2)}) · ${Math.round(performance.now() - t0)} ms` + (tris > 30000 ? ' · heavy for phones: reduce it to ~12k triangles' : '');
+  ['playRigged', 'downloadRigged', 'showBlocky'].forEach(id => { $(id).disabled = false; });
+  state.riggedReady = (state.riggedReady || 0) + 1;
+}
+function disposeRes(res) { res.animationGroups.forEach(g => g.dispose()); res.meshes.slice().forEach(m => m.dispose(false, true)); res.transformNodes.forEach(n => n.dispose()); }
+function showRigged(on) {
+  character.meshes.forEach(m => m.setEnabled(!on));
+  if (riggedRes) riggedRes.meshes.forEach(m => m.setEnabled(on));
+  $('showBlocky').textContent = on ? 'Show blocky' : 'Show rigged';
+  $('previewTitle').textContent = on ? 'Rigged character' : 'Blocky character';
+  state.showing = on ? 'rigged' : 'blocky';
+}
+function dropRigged() {
+  state.mesh = null; state.rigged = null;
+  if (riggedRes) { disposeRes(riggedRes); riggedRes = null; }
+  if (character) showRigged(false);
+  ['playRigged', 'downloadRigged', 'showBlocky'].forEach(id => { $(id).disabled = true; });
+  status2.textContent = '';
+}
+$('meshFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    status2.textContent = 'rigging…';
+    const mesh = readMeshGlb(new Uint8Array(await f.arrayBuffer()));
+    // A textured model: colours for matching it to the drawing come from its texture.
+    if (!mesh.colors && mesh.image) {
+      const bmp = await createImageBitmap(new Blob([mesh.image.bytes], { type: mesh.image.mimeType }));
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      const g = c.getContext('2d'); g.drawImage(bmp, 0, 0);
+      mesh.colors = vertexColorsFromTexture(mesh, g.getImageData(0, 0, c.width, c.height));
+    }
+    state.mesh = mesh;
+    await rigMesh();
+  } catch (err) { status2.textContent = 'could not rig that model: ' + err.message; }
+  e.target.value = '';
+});
+$('showBlocky').onclick = () => showRigged(state.showing !== 'rigged');
+$('downloadRigged').onclick = () => { if (!state.rigged) return; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([state.rigged], { type: 'model/gltf-binary' })); a.download = 'character-rigged.glb'; a.click(); };
+$('playRigged').onclick = async () => {
+  if (!state.rigged) return;
+  const url = await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(new Blob([state.rigged], { type: 'model/gltf-binary' })); });
+  try { sessionStorage.setItem('studio.character', url); } catch (err) { status2.textContent = 'could not hand the character to the game: ' + err.message; return; }
+  location.href = 'play.html?character=session';
 };
 window.addEventListener('resize', () => { engine.resize(); drawRef(); });
 

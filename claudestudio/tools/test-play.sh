@@ -39,6 +39,9 @@ run --phone --place places/leaderstats-lab.luau --scenario test/scenarios/leader
 run --place places/lighting-lab.luau --scenario test/scenarios/lighting.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/lighting.mjs
 run --scenario test/scenarios/charmaker.mjs
+run --scenario test/scenarios/charmaker2.mjs
+run --phone --scenario test/scenarios/charmaker2.mjs
+node tools/rigmesh.mjs test/fixtures/stage2/male-adventurer-tripo.glb build/stage2/male-rigged.glb --reference test/fixtures/characters/male-adventurer.png >/dev/null && run --noshots --character build/stage2/male-rigged.glb --scenario test/scenarios/feet.mjs
 run --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
 run --phone --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
@@ -54,6 +57,7 @@ node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || {
 node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }
 node test/camera.test.mjs | tail -1 | grep -q PASS && echo "camera test PASS" || { echo "FAILED: camera test"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
+node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
 node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }
 [ $fail -eq 0 ] && echo "ALL PASSED" || echo "SOME FAILED"
 exit $fail

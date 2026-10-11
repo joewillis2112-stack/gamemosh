@@ -163,11 +163,42 @@ function clipContacts(anim, clipName, legName) {
   return out;
 }
 
+// Each body part as a box that follows its node: a rigid part's own mesh
+// bounds, or, for a skinned body (character maker stage 2), the box its joint
+// carries in the file's extras. Poses, soles and footprints are measured on
+// these, so both kinds of character measure the same way.
+function partBoxes(res) {
+  const out = [];
+  const add = (name, node, min, max) => out.push({
+    name, node,
+    corners() {
+      node.computeWorldMatrix(true);
+      const m = node.getWorldMatrix(), c = [];
+      for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) c.push(Vector3.TransformCoordinates(new Vector3(x, y, z), m));
+      return c;
+    },
+    // The centre of the lowest face, in world space.
+    sole() { node.computeWorldMatrix(true); return Vector3.TransformCoordinates(new Vector3((min.x + max.x) / 2, min.y, (min.z + max.z) / 2), node.getWorldMatrix()); },
+  });
+  for (const m of res.meshes) {
+    if (!m.getTotalVertices() || m.skeleton) continue;
+    const b = m.getBoundingInfo().boundingBox;
+    add(m.name, m, b.minimum.clone(), b.maximum.clone());
+  }
+  for (const n of res.transformNodes) {
+    const box = n.metadata && n.metadata.gltf && n.metadata.gltf.extras && n.metadata.gltf.extras.part;
+    if (box) add(n.name, n, Vector3.FromArray(box.min), Vector3.FromArray(box.max));
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ character
 export class Character {
+  /** url: a .glb's URL, or a File/Blob holding one (a rigged character handed over by the maker). */
   static async load(scene, url, shadows, spawn) {
-    const cut = url.lastIndexOf('/') + 1;
-    const res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene);
+    let res;
+    if (typeof url === 'string') { const cut = url.lastIndexOf('/') + 1; res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene); }
+    else res = await SceneLoader.ImportMeshAsync('', '', url, scene, null, '.glb');
     return new Character(scene, res, shadows, spawn);
   }
 
@@ -207,13 +238,14 @@ export class Character {
     const leg = res.transformNodes.concat(res.meshes).find(n => n.name === 'leg-left');
     this.holder.computeWorldMatrix(true); root.computeWorldMatrix(true); leg.computeWorldMatrix(true);
     this.legLength = leg.getAbsolutePosition().y - this.holder.position.y;
-    const legs = res.meshes.filter(m => /^leg-(left|right)$/.test(m.name));
+    this.parts = partBoxes(res);
+    const legs = this.parts.filter(b => /^leg-(left|right)$/.test(b.name));
     this.walkNatural = this.soleGroundSpeed('walk', legs) || clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
     this.sprintNatural = this.soleGroundSpeed('sprint', legs) || clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
     this.contacts = { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
     this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
-    this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), res.meshes) : null;
+    this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), this.parts) : null;
     this.anim.play('idle', 0);
 
     // Physics, Roblox's way: the body hovers. The collision capsule starts
@@ -252,19 +284,15 @@ export class Character {
 
   // The box a clip's pose occupies at time `t`, in the character's own frame
   // (feet at the origin, facing +Z): {min, max} in studs.
-  measurePose(clip, t, meshes) {
+  measurePose(clip, t, meshes = this.parts) {
     if (!this.anim.clips[clip]) return null;
     this.anim.layers = [{ clip, time: t, weight: 1, target: 1, speed: 0 }];
     this.anim.update(0);
     const inv = this.holder.computeWorldMatrix(true).clone().invert();
     const min = new Vector3(Infinity, Infinity, Infinity), max = min.scale(-1);
-    for (const m of meshes) {
-      if (!m.getTotalVertices()) continue;
-      m.computeWorldMatrix(true);
-      for (const c of m.getBoundingInfo().boundingBox.vectorsWorld) {
-        const l = Vector3.TransformCoordinates(c, inv);
-        min.minimizeInPlace(l); max.maximizeInPlace(l);
-      }
+    for (const b of meshes) for (const c of b.corners()) {
+      const l = Vector3.TransformCoordinates(c, inv);
+      min.minimizeInPlace(l); max.maximizeInPlace(l);
     }
     this.anim.layers = [];
     return { min, max };
@@ -286,12 +314,7 @@ export class Character {
     for (let i = 0; i <= n + 1; i++) {
       this.anim.layers = [{ clip, time: (i * dt) % len, weight: 1, target: 1, speed: 0 }];
       this.anim.update(0);
-      soles.push(legs.map(m => {
-        m.computeWorldMatrix(true);
-        const b = m.getBoundingInfo().boundingBox;
-        const w = Vector3.TransformCoordinates(new Vector3((b.minimum.x + b.maximum.x) / 2, b.minimum.y, (b.minimum.z + b.maximum.z) / 2), m.getWorldMatrix());
-        return Vector3.TransformCoordinates(w, inv);
-      }));
+      soles.push(legs.map(b => Vector3.TransformCoordinates(b.sole(), inv)));
     }
     this.anim.layers = [];
     // The speed to hold the clip to at each phase: on the ground (the lower
@@ -329,11 +352,7 @@ export class Character {
     let low = 0;
     this.holder.computeWorldMatrix(true);
     const base = this.holder.position.y;
-    for (const m of this.meshes) {
-      if (!m.getTotalVertices()) continue;
-      m.computeWorldMatrix(true);
-      low = Math.min(low, m.getBoundingInfo().boundingBox.minimumWorld.y - base);
-    }
+    for (const b of this.parts) for (const c of b.corners()) low = Math.min(low, c.y - base);
     this.lift = Math.max(this.lift || 0, -low); // never sink back once lifted
     return this.lift;
   }

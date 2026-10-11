@@ -1,34 +1,33 @@
-# Handoff (2026-10-11)
+# Handoff (2026-10-11, second session)
 
 For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first (as always), then this.
 
 ## Where things stand
 
-- **Rendering range (task 56):** done. Lighting service, time-of-day sky, SSAO for Realistic. PLAN.md, "Rendering range".
-- **Character maker, stage 1 (2D reference → blocky character):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`; PLAN.md, "Character pipeline".
-- **Since then, done and tested (PLAN.md, Status):** local lights, post effects (ColorCorrection, Blur, DepthOfField, SunRays, ColorGrading), ShadowSoftness, `workspace:Raycast`, the scriptable Camera.
-- **Character maker, stage 2 (blocky → realistic):** next. It needs the environment variable `HF_TOKEN`, which the previous session started too early to see. Not started beyond checking the route.
+- **Rendering range (task 56):** done. PLAN.md, "Rendering range".
+- **Character maker, stage 1 (2D reference → blocky):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`.
+- **Character maker, stage 2 (generated model → rigged character):** rigging done and tested; generation works on CPU (TripoSR) but isn't realistic. `web/runtime/rigmesh.js`, `tools/stage2/` (its README has the routes, setup and how the fit works), PLAN.md "Stage 2 built".
 - **Mesh editing ported from Blender (task 57):** designed, half set up, blocked on a permission rule. PLAN.md, "Mesh editing, design".
 
-## Stage 2: what to do first
+## Stage 2: what's next
 
-1. Check the token without printing it: `[ -n "$HF_TOKEN" ] && echo set`. Then `curl -s -H "Authorization: Bearer $HF_TOKEN" https://huggingface.co/api/whoami-v2` should name the user's account.
-2. The free route (the user ruled out paid services such as fal.ai): Hugging Face Spaces on ZeroGPU through `gradio_client`. Recreate the venv if it's missing: `uv venv -p python3.11 .cache/hf-venv && uv pip install -p .cache/hf-venv/bin/python gradio_client pillow`. Pass `hf_token=os.environ["HF_TOKEN"]` to `Client(...)`.
-   - `black-forest-labs/FLUX.1-Kontext-Dev`, `/infer(input_image, prompt, seed, randomize_seed, guidance_scale, steps)`: the realistic edit of the reference.
-   - `tencent/Hunyuan3D-2`, `/generation_all(caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right, steps, guidance_scale, seed, octree_resolution, check_box_rembg, num_chunks, randomize_seed)`: textured mesh, optionally from 4 views.
-   - Test input: `test/fixtures/characters/male-adventurer.png` (CC0). `build/stage2/input.png` is it on white, 1024².
-3. Then: rig the mesh with the blocky rig's joints so it plays with the same animations; checks as listed in PLAN.md (silhouette and colour against the reference, joint positions, the asset gate, and the same mechanical trace test stage 1 uses).
-4. A CPU-only fallback (no account, unlimited, plainer) is worth evaluating: SD-Turbo img2img for the edit, TripoSR or Hunyuan3D-2mini shape on CPU.
+1. **The token.** `HF_TOKEN` is set in the environment but Hugging Face rejects it (`whoami-v2` says "Invalid username or password"; `gradio_client` then falls back to the spent anonymous quota). Likely the revoked one. The user needs to make a new read token and replace it in the environment settings. Check without printing it: `curl -s -H "Authorization: Bearer $HF_TOKEN" https://huggingface.co/api/whoami-v2 | head -c 200`. Note `gradio_client` 2.x takes `token=`, not `hf_token=`.
+2. With a working token: FLUX.1 Kontext (`/infer`) to edit the drawing photo-real, then Hunyuan3D-2 (`/generation_all`) for a textured mesh, then `node tools/rigmesh.mjs MESH.glb OUT.glb --reference drawing.png`. Write it as `tools/stage2/mesh_hf.py` emitting the contract (or let `orientMesh` turn it). Judge it with `tools/stage2/view.py` and the turntable before claiming "realistic".
+3. Without a token, the user can do step 2 on the Spaces' own websites from their phone and load the `.glb` in the maker page. Not yet tried with a real Hunyuan3D download: the first one will show whether its axes, texture and proportions fit (only a synthetic textured mesh is tested).
+4. Then: LODs; proportions that differ from the drawing (realistic edits change them; the cuts come from the drawing's boxes, so they'd need the edited image's boxes instead).
 
 ## Mesh editing: what's blocking
 
-The auto-mode check refuses to run binaries built from Blender's downloaded source. A permission given in chat doesn't satisfy it. Every such step is in `tools/blender-build.sh`. The user has been asked to add this to the repo's `.claude/settings.json` (no such file existed yet):
+Unchanged. The auto-mode check refuses to run binaries built from Blender's downloaded source; it needs this in the repo's `.claude/settings.json` (still not there):
 
 ```json
 { "permissions": { "allow": ["Bash(bash tools/blender-build.sh:*)", "Bash(bash claudestudio/tools/blender-build.sh:*)"] } }
 ```
 
-If it's there, run from `claudestudio/`: `bash tools/blender-build.sh fetch dna native probe oracle`, then continue with PLAN.md's "First slice after that".
+## Setup in a fresh container
+
+- `npm ci` in `claudestudio/` (the repo root has its own `package.json` for Gloamreach, and `npm ci` there too: the tools import `../../node_modules/playwright-core`).
+- Stage 2's Python side: `tools/stage2/README.md`, "Setup" (~7 GB of models in `.cache/hf`).
 
 ## The user, lately
 

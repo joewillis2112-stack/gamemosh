@@ -1,5 +1,5 @@
 // Drive the play page headless: load a place, run a scenario, take shots.
-// node tools/play.mjs [--place places/x.luau] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
+// node tools/play.mjs [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
@@ -23,11 +23,17 @@ page.on('response', r => { if (r.status() >= 400) logs.push('error ' + r.status(
 const q = new URLSearchParams({ test: '1', quality: phone ? 'phone' : 'high' });
 if (opt('place')) q.set('place', '../' + opt('place'));
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
-await page.goto(`http://127.0.0.1:${srv.port}/web/play.html?${q}`);
-try { await page.waitForFunction(() => window.studio && (window.studio.ready || window.studio.error), null, { timeout: 120000 }); }
-catch (e) { console.log('TIMEOUT\n' + logs.join('\n')); process.exit(1); }
-const err = await page.evaluate(() => window.studio.error);
-if (err) { console.log('ERROR', err, '\n' + logs.join('\n')); process.exit(1); }
+if (opt('character')) q.set('character', '../' + opt('character'));
+async function load(extra = {}) {
+  const p = new URLSearchParams(q);
+  for (const [k, v] of Object.entries(extra)) p.set(k, v);
+  await page.goto(`http://127.0.0.1:${srv.port}/web/play.html?${p}`);
+  try { await page.waitForFunction(() => window.studio && (window.studio.ready || window.studio.error), null, { timeout: 120000 }); }
+  catch (e) { console.log('TIMEOUT\n' + logs.join('\n')); process.exit(1); }
+  const err = await page.evaluate(() => window.studio.error);
+  if (err) { console.log('ERROR', err, '\n' + logs.join('\n')); process.exit(1); }
+}
+await load();
 
 // The test clock: render frames at a fixed 1/60 s so runs are repeatable.
 const api = {
@@ -44,6 +50,8 @@ const api = {
     else { console.log(`golden ${name}: ${(r.frac * 100).toFixed(3)}% pixels differ, mean ${r.mean.toFixed(3)}/255`); if (!r.ok) mismatches.push(name); }
   },
   async eval(fn, arg) { return page.evaluate(fn, arg); },
+  // Load the page again with extra query parameters (e.g. { character: '../x.glb' }).
+  reload: load,
 };
 const mismatches = [];
 const scenario = opt('scenario');
