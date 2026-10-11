@@ -70,6 +70,8 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 
 ## Phases
 
+Reference for the editor (Phase 2), posing and motion (Phase 5): ArtCraft, an open-source (MIT/Apache) AI staging app with a three.js scene editor. What to port and what not to: `ARTCRAFT.md`.
+
 0. **De-risk:**
    - Luau builds to wasm and runs a script that touches a JS-side `Instance`.
    - Pick the renderer (three.js or Babylon.js) by building the same reference scene in both and measuring them on a phone profile.
