@@ -73,3 +73,74 @@ goldens looked at, desktop and phone.
 
 ArtCraft itself runs on Windows and macOS (getartcraft.com) and is worth trying for staging
 shots. Generating in it costs credits or a subscription.
+
+## The Craft apps: the Adobe (and Office) suite, separate repos (added 2026-10-11, second session)
+
+The press story (PetaPixel, Ars, 2026-10-07) is not the `artcraft` repo above but a family of
+sibling repos in the same org: clean-room Rust remakes of Adobe and Microsoft apps. Read at the
+commits below (shallow clones in `/home/user/ext/`, not kept in the repo).
+
+| Repo | Target | Rust lines | `#[test]` files | Own parity claim ("ready for real work") |
+|---|---|---|---|---|
+| photocraft `f9e94aa` | Photoshop | 452k | 806 | ~45%, alpha |
+| vectorcraft `2ac3ba2` | Illustrator | 381k | 762 | ~62%, alpha |
+| filmcraft `0800a8b` | Premiere | 360k | 532 | ~56%, alpha |
+| effectcraft `67434e9` | After Effects | 338k | 451 | ~47% (mainstream user), alpha |
+| printcraft `3d2bdfe` | Acrobat | 342k | 319 | ~49%, alpha |
+| lightcraft `76b5377` | Lightroom (CC) | 234k | 408 | ~77% breadth, alpha |
+| designcraft `ca343e8` | InDesign | 128k | 186 | ~47%, pre-alpha |
+
+Not cloned, same org: wordcraft (Word), gridcraft (Excel), deckcraft (PowerPoint), soundcraft
+(Pro Tools), cadcraft (CAD), pdfcraft, craft-libs (shared crates), spark (a three.js Gaussian
+splat renderer). **No 3D modeller (no Blender equivalent)**, so our BMesh port has no shortcut here.
+
+How they were built (checked in git, not taken from the press): photocraft, vectorcraft and
+filmcraft all start on **2026-09-30**, 12 days before this note, with 1,382 to 2,063 commits each;
+most commits carry a `Co-Authored-By: Claude` trailer (photocraft: 1,591 trailers over 1,524
+commits, so several per commit). The press quotes the founder as saying they were built with
+Claude Opus 5.5. Each repo has an AGENTS.md/CLAUDE.md written for agents.
+
+Licence: MIT or Apache-2.0, as above. Not covered: the ArtCraft name and logos (`docs/brand/`),
+and third-party fonts, icons and word lists listed in each NOTICE/ATTRIBUTION.md (keep their own
+licences). Free, no account needed; every app ships a self-hostable WebAssembly build
+(`photocraft-web-<ver>.zip` on the GitHub release; not hosted publicly).
+
+### What they do that we should copy (method, not code)
+
+Their working method matches ours (oracles, parity numbers, agents first) and goes further in
+places:
+
+- **Everything is a command.** One registry (500+ in photocraft) behind every menu item, the CLI,
+  a JSON control channel and an MCP server, so an agent can do anything a user can. Claude
+  Studio's editor should start this way: each editor action a named command over the DataModel,
+  which also gives undo and scripting from one place.
+- **A CPU reference renderer checked against the GPU one** (photocraft's compositor oracle), and
+  against Photoshop's own merged image in PSDs. Ours: Babylon against Blender Cycles (bpy is set up).
+- **Parity as measured numbers with evidence and hour estimates** (`ROADMAP.md`,
+  `docs/target-app-parity.md`, a generated menu checklist, `scorecard/*.toml`). Our PLAN.md has
+  per-feature status but no single parity measure against Roblox Studio or Blender; worth adding.
+- **A "never panic on input" rule, enforced by clippy, with a test that fuzzes every command with
+  hostile parameters** (`panic_hunt`). Our Luau API could get the same: fuzz every exposed method.
+- **Layering enforced by a build check** (`cargo xtask layers`).
+
+### What we could use directly (code, all MIT/Apache)
+
+All of it compiles to wasm, as the apps' own web builds show; Claude Studio is JS + Babylon,
+so a Rust crate comes in the way Luau did (compiled to wasm, behind a small binding).
+
+- **`photocraft-psd`**: a standalone crate (deps: thiserror, flate2), round-trips 307 of 309
+  psd-tools corpus files by their own test. Import a creator's layered PSD as textures or GUI.
+- **photocraft `paint`** (brush engine) and **vectorcraft**'s vector crates: candidates for
+  texture painting on our models and for vector GUI art, the "paint" and "vector" tools PLAN.md
+  lists. Not yet read closely; check their wasm size before choosing them.
+- **The apps themselves** as companion tools: a creator edits a texture in PhotoCraft and the
+  studio imports the PSD/PNG. The cheapest route to Adobe-class 2D tools, and needs nothing from
+  us but import.
+
+### Cautions
+
+- Alpha by their own numbers (45–62% "ready for real work"), 12 days old, moving fast (hundreds
+  of commits a day). Pin a commit for anything we port.
+- Their parity percentages are self-assessed estimates, not independent measurements.
+- For a phone-first studio, check wasm size and WebGL2 fallback before embedding anything
+  (their web builds use WebGPU and fall back to WebGL2).
