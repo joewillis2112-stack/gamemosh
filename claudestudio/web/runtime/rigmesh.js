@@ -358,7 +358,50 @@ export function fitMesh(mesh, rig, { reference = null, pixels = 256, blend = 0.4
     let s = 0; for (let k = 0; k < PARTS.length; k++) s += w[v * PARTS.length + k];
     for (let k = 0; k < PARTS.length; k++) w[v * PARTS.length + k] /= s;
   }
-  return { scale, positions: pos, part, parts, joints, weights: w, found: f.found, cuts: { neckY, crotchY, torsoX0, torsoX1, legSplitX, k: px } };
+  // Fusions to sever: a generator often welds a hand to the thigh it rests on,
+  // or a forearm to the hip, and a walk then stretches skin between them. A
+  // face joining an arm to a leg, or to the torso below the upper third of the
+  // arm (the armpit's seam stays), is dropped when written.
+  const tris = mesh.indices.length / 3, severed = new Uint8Array(tris);
+  const arms = [P['arm-left'], P['arm-right']], legs = [P['leg-left'], P['leg-right']];
+  for (let t = 0; t < tris; t++) {
+    const ps = [0, 1, 2].map(k => part[mesh.indices[t * 3 + k]]);
+    const arm = ps.find(q => arms.includes(q));
+    if (arm === undefined) continue;
+    if (ps.some(q => legs.includes(q))) { severed[t] = 1; continue; }
+    if (ps.includes(T)) {
+      const s = parts[PARTS[arm]], y = [0, 1, 2].reduce((a, k) => a + pos[mesh.indices[t * 3 + k] * 3 + 1], 0) / 3;
+      if (y < s.max[1] - (s.max[1] - s.min[1]) / 3) severed[t] = 1;
+    }
+  }
+  // Close the holes severing leaves: each boundary loop next to a severed face,
+  // fanned from its first vertex, wound against the faces around it.
+  // Topology by position: a texture seam duplicates vertices, and a hole's
+  // edge often runs along one.
+  const canon = new Uint32Array(n), firstAt = new Map();
+  for (let v = 0; v < n; v++) {
+    const key = pos[v * 3].toFixed(6) + ',' + pos[v * 3 + 1].toFixed(6) + ',' + pos[v * 3 + 2].toFixed(6);
+    if (!firstAt.has(key)) firstAt.set(key, v);
+    canon[v] = firstAt.get(key);
+  }
+  const caps = [], next = new Map(), I = mesh.indices.map(v => canon[v]);
+  const onCut = new Set();
+  for (let t = 0; t < tris; t++) if (severed[t]) for (let k = 0; k < 3; k++) onCut.add(I[t * 3 + k]);
+  const half = new Set();
+  for (let t = 0; t < tris; t++) if (!severed[t]) for (let k = 0; k < 3; k++) half.add(I[t * 3 + k] + ',' + I[t * 3 + (k + 1) % 3]);
+  for (let t = 0; t < tris; t++) if (!severed[t]) for (let k = 0; k < 3; k++) {
+    const a = I[t * 3 + k], c = I[t * 3 + (k + 1) % 3];
+    if (onCut.has(a) && onCut.has(c) && !half.has(c + ',' + a)) { if (!next.has(a)) next.set(a, []); next.get(a).push(c); }
+  }
+  for (const start of next.keys()) {
+    while (next.get(start).length) {
+      const loop = [start];
+      let v = next.get(start).pop();
+      while (v !== start && next.has(v) && next.get(v).length && loop.length < 4096) { loop.push(v); v = next.get(v).pop(); }
+      if (v === start && loop.length >= 3) for (let i = 1; i + 1 < loop.length; i++) caps.push(loop[0], loop[i + 1], loop[i]);
+    }
+  }
+  return { scale, positions: pos, part, parts, joints, weights: w, severed, caps: Uint32Array.from(caps), found: f.found, cuts: { neckY, crotchY, torsoX0, torsoX1, legSplitX, k: px } };
 }
 
 // --------------------------------------------------------------- glb out
@@ -379,15 +422,26 @@ export function writeRiggedGlb(rig, mesh, fit) {
 
   const n = fit.positions.length / 3;
   const pos = Float32Array.from(fit.positions), b = bounds(pos);
+  // The faces written: the mesh's, less the fusions fitMesh severed, plus the
+  // caps closing their holes.
+  let idx = mesh.indices;
+  if (fit.severed) {
+    const f = [];
+    for (let t = 0; t < idx.length; t += 3) if (!fit.severed[t / 3]) f.push(idx[t], idx[t + 1], idx[t + 2]);
+    idx = Uint32Array.from(f.concat(Array.from(fit.caps || [])));
+  }
   // Smooth normals from the faces.
-  const nor = new Float32Array(n * 3), idx = mesh.indices;
+  const nor = new Float32Array(n * 3);
   for (let t = 0; t < idx.length; t += 3) {
     const [a, c, d] = [idx[t], idx[t + 1], idx[t + 2]];
     const u = [0, 1, 2].map(k => pos[c * 3 + k] - pos[a * 3 + k]), v = [0, 1, 2].map(k => pos[d * 3 + k] - pos[a * 3 + k]);
     const nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0];
     for (const i of [a, c, d]) { nor[i * 3] += nx; nor[i * 3 + 1] += ny; nor[i * 3 + 2] += nz; }
   }
-  for (let i = 0; i < n; i++) { const l = Math.hypot(nor[i * 3], nor[i * 3 + 1], nor[i * 3 + 2]) || 1; nor[i * 3] /= l; nor[i * 3 + 1] /= l; nor[i * 3 + 2] /= l; }
+  for (let i = 0; i < n; i++) {
+    const l = Math.hypot(nor[i * 3], nor[i * 3 + 1], nor[i * 3 + 2]);
+    if (l) { nor[i * 3] /= l; nor[i * 3 + 1] /= l; nor[i * 3 + 2] /= l; } else nor[i * 3 + 1] = 1; // in no face written (severed): any unit normal
+  }
   // Up to four influences per vertex.
   const J = new Uint8Array(n * 4), W = new Float32Array(n * 4);
   for (let v = 0; v < n; v++) {

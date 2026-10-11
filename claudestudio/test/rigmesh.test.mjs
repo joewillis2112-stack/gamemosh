@@ -219,5 +219,44 @@ check(o1.length === o2.length && o1.every((v, i) => v === o2[i]), `the same mesh
   check(r.issues.numErrors + r.issues.numWarnings === 0, `textured: passes Khronos's glTF validator (${r.issues.numErrors} errors, ${r.issues.numWarnings} warnings${r.issues.messages.length ? ': ' + r.issues.messages.slice(0, 3).map(m => m.code).join(', ') : ''})`);
 }
 
+// ------------------------------------------------------------------ 7. fusions
+// A generator often welds a hand to the thigh it rests on; a walk then
+// stretches skin between them. The mannequin alone has nothing to sever; with
+// a block fusing its right hand to its right leg, only faces of that block are
+// severed, no written face joins an arm to a leg, and the two open ends are
+// capped (no hole left where the block was cut).
+check(mfit.severed.reduce((a, b) => a + b, 0) === 0 && mfit.caps.length === 0, `the mannequin alone: nothing severed, nothing capped`);
+{
+  const fused = boxMesh({ ...BOX, fusion: [-0.40, 1.22, -0.04, -0.26, 1.28, 0.04] });
+  const ffit = fitMesh(fused, rig);
+  const tris = fused.indices.length / 3, tagOf = t => fused.tag[fused.indices[t * 3]];
+  let onBlock = 0, offBlock = 0;
+  for (let t = 0; t < tris; t++) if (ffit.severed[t]) (tagOf(t) === 'fusion' ? onBlock++ : offBlock++);
+  check(onBlock > 0 && offBlock === 0, `fused hand: ${onBlock} faces of the fusing block severed, ${offBlock} elsewhere`);
+  const out = writeRiggedGlb(rig, fused, ffit), back = readMeshGlb(out);
+  // Parts of the written faces, by nearest input vertex (positions are rescaled by 1).
+  const key = (P, v) => [0, 1, 2].map(k => P[v * 3 + k].toFixed(5)).join(',');
+  const partAt = new Map(); for (let v = 0; v < fused.positions.length / 3; v++) partAt.set(key(ffit.positions, v), ffit.part[v]);
+  const arms = [PARTS.indexOf('arm-left'), PARTS.indexOf('arm-right')], legs = [PARTS.indexOf('leg-left'), PARTS.indexOf('leg-right')];
+  let joined = 0;
+  for (let t = 0; t < back.indices.length; t += 3) {
+    const ps = [0, 1, 2].map(k => partAt.get(key(back.positions, back.indices[t + k])));
+    if (ps.some(q => arms.includes(q)) && ps.some(q => legs.includes(q))) joined++;
+  }
+  check(joined === 0, `fused hand: no written face joins an arm to a leg (${joined})`);
+  // Open edges on the block, welded by position: none after capping. (Counted
+  // on the fit's faces: the writer drops a fan's collinear, zero-area slivers.)
+  const kept = []; for (let t = 0; t < tris; t++) if (!ffit.severed[t]) kept.push(...fused.indices.slice(t * 3, t * 3 + 3));
+  const open = idx => { const c = new Map(); for (let t = 0; t < idx.length; t += 3) for (let k = 0; k < 3; k++) {
+      const a = key(ffit.positions, idx[t + k]), b = key(ffit.positions, idx[t + (k + 1) % 3]); const e = a < b ? a + '|' + b : b + '|' + a; c.set(e, (c.get(e) || 0) + 1); }
+    // (Only edges on the block: the mannequin's boxes share faces elsewhere, a foot with its leg.)
+    const onBlock = e => e.split('|').every(q => { const [x, y] = q.split(',').map(Number); return x > -0.41 && x < -0.25 && y > 1.21 && y < 1.29; });
+    let o = 0; for (const [e, m] of c) if (m !== 2 && onBlock(e)) o++; return o; };
+  const uncapped = open(kept), capped = open(kept.concat(Array.from(ffit.caps)));
+  check(ffit.caps.length > 0 && uncapped > 0 && capped === 0, `fused hand: ${uncapped} open edges where the block was cut, ${capped} after ${ffit.caps.length / 3} cap faces`);
+  const r = await createRequire(import.meta.url)('gltf-validator').validateBytes(out, { maxIssues: 0 });
+  check(r.issues.numErrors === 0, `fused hand: the file passes Khronos's glTF validator (${r.issues.numErrors} errors)`);
+}
+
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);

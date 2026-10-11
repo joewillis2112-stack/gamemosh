@@ -1,4 +1,4 @@
-# Handoff (2026-10-11, second session)
+# Handoff (2026-10-11, third session)
 
 For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first (as always), then this.
 
@@ -6,15 +6,20 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 
 - **Rendering range (task 56):** done. PLAN.md, "Rendering range".
 - **Character maker, stage 1 (2D reference → blocky):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`.
-- **Character maker, stage 2 (generated model → rigged character):** rigging done and tested; generation works on CPU (TripoSR) but isn't realistic. `web/runtime/rigmesh.js`, `tools/stage2/` (its README has the routes, setup and how the fit works), PLAN.md "Stage 2 built".
+- **Character maker, stage 2 (generated model → rigged character):** rigging done and tested; realistic generation works through free Hugging Face Spaces plus a CPU texturer (known defects: blotchy back, hip flaps). `web/runtime/rigmesh.js`, `tools/stage2/` (its README has the routes, setup and how the fit works), PLAN.md "Stage 2 built".
 - **Mesh editing ported from Blender (task 57):** designed, half set up, blocked on a permission rule. PLAN.md, "Mesh editing, design".
 
 ## Stage 2: what's next
 
-1. **The token.** `HF_TOKEN` is set in the environment but Hugging Face rejects it (`whoami-v2` says "Invalid username or password"; `gradio_client` then falls back to the spent anonymous quota). Likely the revoked one. The user needs to make a new read token and replace it in the environment settings. Check without printing it: `curl -s -H "Authorization: Bearer $HF_TOKEN" https://huggingface.co/api/whoami-v2 | head -c 200`. Note `gradio_client` 2.x takes `token=`, not `hf_token=`.
-2. With a working token: FLUX.1 Kontext (`/infer`) to edit the drawing photo-real, then Hunyuan3D-2 (`/generation_all`) for a textured mesh, then `node tools/rigmesh.mjs MESH.glb OUT.glb --reference drawing.png`. Write it as `tools/stage2/mesh_hf.py` emitting the contract (or let `orientMesh` turn it). Judge it with `tools/stage2/view.py` and the turntable before claiming "realistic".
-3. Without a token, the user can do step 2 on the Spaces' own websites from their phone and load the `.glb` in the maker page. Not yet tried with a real Hunyuan3D download: the first one will show whether its axes, texture and proportions fit (only a synthetic textured mesh is tested).
-4. Then: LODs; proportions that differ from the drawing (realistic edits change them; the cuts come from the drawing's boxes, so they'd need the edited image's boxes instead).
+Done this session: the token works (HF user Jwilly21, read); the realistic route runs end to end (`tools/stage2/mesh_hf.py`, README "Routes"); example `tools/stage2/examples/realistic-adventurer.glb`.
+
+1. **Quota.** A free account gets about 4 min of ZeroGPU a day; this session spent it (resets ~24 h after 07:50 UTC, 2026-10-11). One Kontext edit + one Hunyuan shape fit in a day with a retry spare.
+2. **Fix the back** (blotchy) and the **hip flap** riding with each hand: ask Kontext for the same person from behind and feed front + back to Hunyuan's multi-view inputs (`mv_image_front`, `mv_image_back`); paint the back from that photo instead of borrowing. Costs one more Kontext call per character.
+3. Try the other four fixtures (female-person, robot, zombie, soldier) through the route; the robot will test whether "a real person" is the right prompt for non-humans (likely not: let the prompt depend on the subject).
+4. The maker page: offer the realistic route from the phone (it needs the token server-side; or keep it as a CLI and load the `.glb`).
+5. LODs.
+7. The `gui` (desktop, phone) and `leaderstats` goldens fail in a fresh container on the commit before this session too (0.66% and 0.21% of pixels; text rendering, I think). Not caused by stage 2; not re-saved. Look at the diffs before deciding.
+6. `tools/turntable.mjs --zoom` seemed to have no effect on this mesh (frames it whole regardless); not looked into.
 
 ## Mesh editing: what's blocking
 
@@ -27,7 +32,7 @@ Unchanged. The auto-mode check refuses to run binaries built from Blender's down
 ## Setup in a fresh container
 
 - `npm ci` in `claudestudio/` (the repo root has its own `package.json` for Gloamreach, and `npm ci` there too: the tools import `../../node_modules/playwright-core`).
-- Stage 2's Python side: `tools/stage2/README.md`, "Setup" (~7 GB of models in `.cache/hf`).
+- Stage 2's Python side: `tools/stage2/README.md`, "Setup" (realistic route: a small venv; CPU route: ~7 GB of models in `.cache/hf`).
 
 ## The user, lately
 

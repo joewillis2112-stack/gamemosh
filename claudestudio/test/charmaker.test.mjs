@@ -17,12 +17,18 @@ const JUDGED = {
   robot: { neck: [149, 158], crotch: [214, 224] },
   zombie: { neck: [157, 165], crotch: [214, 224] },
   soldier: { neck: [58, 66], crotch: [90, 98] },
+  // A real person's proportions (head about an eighth of the height): FLUX.1
+  // Kontext's photo-real edit of male-adventurer, cut out with rembg.
+  'realistic-person': { neck: [44, 50], crotch: [157, 164], hands: [168, 176] },
 };
 for (const [name, j] of Object.entries(JUDGED)) {
   const img = loadPNG(`test/fixtures/characters/${name}.png`), p = findParts(img);
   const inR = (v, [a, b]) => v >= a && v <= b;
   check(inR(p.head.y1, j.neck) && inR(p.torso.y1, j.crotch) && p.found.neck && p.found.legs,
     `${name}: neck at ${p.head.y1} (judged ${j.neck.join('-')}), crotch at ${p.torso.y1} (judged ${j.crotch.join('-')})`);
+  // Long legs stand in the arms' columns: an arm still ends at the hand.
+  if (j.hands) check(inR(p.armLeft.y1, j.hands) && inR(p.armRight.y1, j.hands),
+    `${name}: arms end at the hands, rows ${p.armRight.y1} and ${p.armLeft.y1} (judged ${j.hands.join('-')}), not at the feet`);
 }
 
 // 2. A test card: a figure drawn with known boxes and one colour per part, and

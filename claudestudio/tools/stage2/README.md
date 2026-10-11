@@ -23,15 +23,21 @@ What the rigger expects (`orientMesh` produces it from any axes):
 
 | Route | Where | Quality | Status |
 |---|---|---|---|
-| TripoSR on CPU (`mesh_cpu.py`) | this container, ~40 s | the drawing's style in 3D, vertex colours, guessed depth | **working, tested** |
-| Any image-to-3D website (Hunyuan3D-2, TripoSR, TRELLIS Spaces on Hugging Face), then the maker page's "Load model (.glb)" | the user's phone or browser, their own free Hugging Face login | Hunyuan3D-2: textured, much better depth | the page path is tested with the TripoSR fixture; **not yet tried with a real Hunyuan3D download** |
-| Hugging Face Spaces from here (`gradio_client`, `HF_TOKEN`) | this container | as above | **blocked**: Hugging Face rejects the `HF_TOKEN` in the environment ("Invalid username or password"), and anonymous ZeroGPU quota from this shared IP is spent |
-| SD-Turbo img2img restyle to "realistic" (`restyle_cpu.py`) | CPU | — | **tried, rejected**: even at strength 0.9 the cartoon stays a cartoon |
+| **Realistic, free (`mesh_hf.py`)**: FLUX.1 Kontext (photo of a real person), rembg cutout, Hunyuan3D-2 shape, `paint_cpu.py` texture | Hugging Face ZeroGPU Spaces with `HF_TOKEN` (free read token), the rest on CPU | a real person's face and clothes on the front; the back borrows the nearest seen colour (even, a little blotchy) | **working** (2026-10-11): `examples/realistic-adventurer.glb` |
+| TripoSR on CPU (`mesh_cpu.py`) | this container, ~40 s | the drawing's style in 3D, vertex colours, guessed depth | working, tested |
+| Any image-to-3D website, then the maker page's "Load model (.glb)" | the user's phone, their own Hugging Face login | Hunyuan3D-2 on its site textures too | page path tested with the TripoSR fixture only |
+| Hunyuan's own texturing from here | — | — | **not usable on a free account**: Hunyuan3D-2's `/generation_all` fails in the Space (`NameError`); Hunyuan3D-2.1's asks for 270 s of GPU, more than a free day's quota |
+| SD-Turbo img2img restyle (`restyle_cpu.py`) | CPU | — | tried, rejected: the cartoon stays a cartoon |
 
-"Realistic" needs a real image model in front of the mesh step (FLUX.1 Kontext
-edits the drawing into a photo-real one; then Hunyuan3D-2). Neither runs on
-this container's 4 CPUs in useful time; both run on ZeroGPU Spaces with a
-valid token. The rigger doesn't care which mesh it gets.
+Kontext needs a firm prompt. "Turn this into a photorealistic person, same
+outfit" gave a vinyl toy with the drawing's big head; asking for "a real
+photograph of a real adult man… normal adult body proportions (head about one
+seventh of his height)… not a toy, not a cartoon" gave a real person. That
+changes the proportions, so rig against the **cutout**, not the drawing
+(stage 1's `findParts` handles both since 2026-10-11).
+
+Free quota: about 4 minutes of ZeroGPU a day. One Kontext edit and one shape
+fit in it, with room for a retry.
 
 ## Tools
 
@@ -40,14 +46,30 @@ valid token. The rigger doesn't care which mesh it gets.
 - `budget.py IN.glb OUT.glb [triangles] [smooth]`: Taubin smoothing (removes
   marching-cubes terraces), quadric decimation to a phone budget (12k
   default), colours carried over.
-- `view.py MESH.glb OUT.png [size]`: front, left, back and top close-ups
-  (orthographic, CPU), for judging a mesh or a rig's parts.
+- `mesh_hf.py drawing.png OUTDIR`: the realistic route (Kontext, rembg,
+  Hunyuan3D-2 shape, `paint_cpu.py`). Then
+  `node tools/rigmesh.mjs OUTDIR/mesh.glb out.glb --reference OUTDIR/cutout.png`.
+- `paint_cpu.py SHAPE.glb CUTOUT.png OUT.glb [triangles]`: textures an
+  untextured mesh from the photo it was made from: front faces get the photo
+  projected; hidden ones the colour of the nearest seen point along the
+  surface (sampled 12 px inside the silhouette, from a blurred copy beside the
+  photo in the texture); the back of the head takes the crown's hair. Drops
+  Hunyuan's degenerate faces (a third of them) before decimating.
+- `view.py MESH.glb OUT.png [size] [--crop y0 y1]`: front, left, back and top
+  close-ups (orthographic, CPU, textures sampled per pixel), for judging a mesh
+  or a rig's parts; `--crop 0.82 1` for the head.
 - `node tools/rigmesh.mjs MESH.glb OUT.glb --reference drawing.png [--parts]`:
   rig a contract mesh; `--parts` paints each body part one colour.
 - `shim/torchmcubes.py`: scikit-image stand-in for TripoSR's CUDA/C++
   marching-cubes extension.
 
 ## Setup (once per container)
+
+Realistic route only (small): `uv venv -p python3.11 .cache/hf-venv && uv pip
+install -p .cache/hf-venv/bin/python gradio_client trimesh pillow numpy scipy
+fast-simplification "rembg[cpu]"` (rembg fetches its 180 MB model on first use).
+
+CPU route:
 
 ```sh
 cd /home/user/gamemosh
@@ -76,7 +98,12 @@ checkpoint uses, and loading fails with missing keys.
    over the thigh, not halfway to the toes). Proportions follow the mesh.
 4. **Weights**: rigid per part, smoothed across each limb's seam with the
    torso only near that limb's joint.
-5. **File**: the blocky rig's nodes and clips; translation keys moved with
+5. **Fusions**: a generator welds a hand to the thigh it rests on (Hunyuan
+   did; so did TripoSR). Faces joining an arm to a leg, or to the torso below
+   the arm's upper third, are severed, and each hole's boundary loop (traced by
+   position, across texture seams) is capped with a fan. Without this a walk
+   stretches skin from hand to hip.
+6. **File**: the blocky rig's nodes and clips; translation keys moved with
    their joints; one skinned body; each joint carries its part's box (soles,
    footprints). Passes Khronos's validator with nothing to report.
 
@@ -92,3 +119,13 @@ checkpoint uses, and loading fails with missing keys.
   mid-walk; death footprint; golden.
 - `test/scenarios/feet.mjs --character`: no foot slip on the rigged body.
 - `test/maker.test.mjs`: the page loads a model, rigs, previews, plays.
+
+## Known defects (realistic route, 2026-10-11)
+
+- The back of the shirt has darker blotches: hidden areas borrow from the
+  nearest seen point, and some of those sit in the photo's shadows near the arms.
+- A flap of hip surface rides with each hand in the walk: the hand overlaps the
+  thigh in the front view, so the box cut can't tell them apart there.
+- Only one view goes in (the front). A back view from Kontext ("the same person
+  from behind") into Hunyuan's multi-view inputs would fix both, at the cost of
+  quota.

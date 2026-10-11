@@ -20,5 +20,5 @@ if (args.includes('--parts')) {
 }
 fs.writeFileSync(dst, writeRiggedGlb(rig, mesh, fit));
 const r = v => v.map(x => +x.toFixed(3));
-console.log(JSON.stringify({ vertices: fit.positions.length / 3, triangles: mesh.indices.length / 3, found: fit.found, cuts: Object.fromEntries(Object.entries(fit.cuts).map(([k, v]) => [k, +v.toFixed(3)])),
+console.log(JSON.stringify({ vertices: fit.positions.length / 3, triangles: mesh.indices.length / 3, severed: fit.severed.reduce((a, b) => a + b, 0), caps: fit.caps.length / 3, found: fit.found, cuts: Object.fromEntries(Object.entries(fit.cuts).map(([k, v]) => [k, +v.toFixed(3)])),
   joints: Object.fromEntries(Object.entries(fit.joints).map(([k, v]) => [k, { mesh: r(v), rig: r(rig.joints[k].pos) }])) }, null, 1));

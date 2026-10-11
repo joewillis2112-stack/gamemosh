@@ -85,14 +85,21 @@ export function findParts(img, mask = silhouette(img)) {
   // Neck: the deepest narrowing below the head's widest row (width relative to
   // the widest row above it). Under 15% narrower, there's no visible neck and
   // the rig's proportion is assumed.
+  // Searched from 20% of the height down (a cartoon's big head), then, if none
+  // is seen, from 8% (a real person's head is about an eighth of their height).
   const rowWidth = y => runs(mask, W, y, x0, x1).reduce((s, q) => s + q[1] - q[0], 0);
-  let neck = -1, deepest = 0, widest = 0;
-  for (let y = y0; y < Math.min(crotch - Math.round(h * 0.1), y0 + Math.round(h * 0.75)); y++) {
-    const n = rowWidth(y);
-    if (y >= y0 + h * 0.2 && widest > 0 && 1 - n / widest > deepest + 0.005) { deepest = 1 - n / widest; neck = y; }
-    widest = Math.max(widest, n);
-  }
-  if (neck > 0 && deepest >= 0.15) found.neck = true;
+  const findNeck = from => {
+    let at = -1, deepest = 0, widest = 0;
+    for (let y = y0; y < Math.min(crotch - Math.round(h * 0.1), y0 + Math.round(h * 0.75)); y++) {
+      const n = rowWidth(y);
+      if (y >= y0 + h * from && widest > 0 && 1 - n / widest > deepest + 0.005) { deepest = 1 - n / widest; at = y; }
+      widest = Math.max(widest, n);
+    }
+    return at > 0 && deepest >= 0.15 ? at : -1;
+  };
+  let neck = findNeck(0.2);
+  if (neck < 0) neck = findNeck(0.08);
+  if (neck > 0) found.neck = true;
   else neck = y0 + Math.round(h * 0.3);
 
   // Arms: between the neck and the crotch, rows with a run separated from the
@@ -114,7 +121,13 @@ export function findParts(img, mask = silhouette(img)) {
   // The body's width below the neck: the torso is what's between the arms.
   const torso = { x0: Math.round(armRightInner), y0: neck, x1: Math.round(armLeftInner), y1: crotch };
   // Arms run from the shoulder (neck) down to their lowest opaque pixel.
-  const armBottom = (xa, xb) => { let yb = neck; for (let y = neck; y < y1; y++) if (runs(mask, W, y, xa, xb).length) yb = y + 1; return yb; };
+  // When arms hang clear of the body, an arm ends at the first empty row below
+  // its hand (a long-legged figure's feet can stand in the same columns).
+  const armBottom = (xa, xb) => {
+    let yb = neck;
+    for (let y = neck; y < y1; y++) { if (runs(mask, W, y, xa, xb).length) yb = y + 1; else if (found.arms && y > crotch) break; }
+    return yb;
+  };
   const armOuter = (xa, xb) => { let lo = xb, hi = xa; for (let y = neck; y < crotch; y++) { const r = runs(mask, W, y, xa, xb); if (r.length) { lo = Math.min(lo, r[0][0]); hi = Math.max(hi, r[r.length - 1][1]); } } return [lo, hi]; };
   const [rl] = armOuter(x0, torso.x0), [, lh] = armOuter(torso.x1, x1);
   const armRight = { x0: Math.min(rl, torso.x0 - 1), y0: neck, x1: torso.x0, y1: armBottom(x0, torso.x0) };
