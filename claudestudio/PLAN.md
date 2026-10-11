@@ -308,7 +308,15 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
      - Light budget: a mesh shades at most 8 local lights (4 on phone), the ones nearest the camera, re-chosen every 10 frames and at once when a light turns on or off. Babylon's own first-come choice made a big floor flicker.
      - `places/lights-lab.luau` with `test/scenarios/lights.mjs`: 18 checks and 2 goldens, desktop and phone, mutation-checked (falloff edge, face direction, specular in Soft, the budget).
      - Not yet: lights under Attachments (no Attachment class yet) and in character parts; more lights per mesh than the budget (Babylon's clustered lighting supports only its default falloff and no shadows, so it's for later).
-   - Not yet: Sky skybox faces (custom skies), SunRays, DepthOfField, Blur, ColorCorrection brightness and tint, ShadowSoftness, sky visibility for OutdoorAmbient (indoors vs outdoors), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
+   - **Post effects (2026-10-11):** `web/runtime/posteffects.js`, per research section 5. Each pass exists only while its effect does, and all run after Babylon's tonemap, kept last when the pipeline rebuilds.
+     - ColorCorrection: every enabled instance composes into one affine transform (Brightness adds, TintColor multiplies, Saturation lerps from grey, Contrast about 0.5, which is our pivot). It replaces the old partial mapping.
+     - Blur: the largest Size wins.
+     - DepthOfField: sharp within FocusDistance ± InFocusRadius studs, ramping over the radius (ours) to Far/NearIntensity. The blur weights each tap by its own blur amount, so in-focus things don't halo; the size scales with resolution.
+     - SunRays: a march toward the sun counting sky pixels, Henyey-Greenstein shaped. Spread maps to g, and the post-tonemap screen-blend scale is ours. Off on phones, as Roblox gates it by quality.
+     - Found on the way: removing an effect never dirtied the lighting (the change watcher checked the new parent, nil), so destroyed effects lingered.
+     - `test/scenarios/posteffects.mjs`: 16 checks, 3 goldens, desktop and phone, mutation-checked.
+     - Not yet: effects under the CurrentCamera (no Camera instance yet), ColorGradingEffect, Clouds.
+   - Not yet: Sky skybox faces (custom skies), ShadowSoftness, sky visibility for OutdoorAmbient (indoors vs outdoors), reflections beyond the sky (SSR or probes). SSAO halos remain on phone (half resolution): a better AO (GTAO, or thickness-aware) is the fix, not more tuning.
    - Next: the first Blender-class tool, mesh editing ported from Blender's source and checked against Blender.
    - **Character pipeline: 2D reference → blocky 3D → realistic 3D (from the user, 2026-10-10).** Send the studio a 2D character image; get a low-res character (Minecraft/Roblox-like) that plays in the studio; then turn that into a high-res, realistic model.
      - **Stage 1, image to blocky (deterministic, in the browser, no service):**

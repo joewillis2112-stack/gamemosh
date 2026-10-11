@@ -41,6 +41,8 @@ run --phone --place places/lighting-lab.luau --scenario test/scenarios/lighting.
 run --scenario test/scenarios/charmaker.mjs
 run --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
 run --phone --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
+run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
+run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }

@@ -5,9 +5,9 @@
 // are ours, calibrated so a new Baseplate's values give the studio's judged look.
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { Vector3, Color3 } from '@babylonjs/core/Maths/math.js';
-import { ColorCurves } from '@babylonjs/core/Materials/colorCurves.js';
 import { createSSAO } from './ssao.js';
-import { sunDirection } from '../datamodel.js';
+import { PostEffects } from './posteffects.js';
+import { sunDirection, isA } from '../datamodel.js';
 
 // Ours (calibrated to the look judged on 2026-10-08 at a Baseplate's Brightness 3):
 const SUN_PER_BRIGHTNESS = 3.2 / 3;   // directional light intensity per unit of Brightness
@@ -42,9 +42,17 @@ export class LightingController {
     // scaled apart from the specular part, and recaptured whenever the sky changes.
     this.env = sky ? sky.env : scene.environmentTexture;
     if (sky) { scene.environmentTexture = sky.env; sky.onEnvironment = () => { this.baseSH = null; this.dirty = true; this.update(); }; }
+    this.post = camera ? new PostEffects(scene, camera, dm, { quality, sun: R.sun }) : null;
     this.pending = Promise.resolve();
     this.dirty = true;
-    dm.watch(inst => { if (inst === this.L || (inst && inst.parent === this.L)) this.dirty = true; });
+    // A change to Lighting or a child of it; and any effect-like object changing parent
+    // (an effect removed has no parent left to tell us it was Lighting's).
+    const LOOKS = new Set(['Atmosphere', 'Sky', 'Clouds']);
+    dm.watch((inst, key) => {
+      if (!inst) return;
+      if (inst === this.L || inst.parent === this.L) this.dirty = true;
+      else if (key === 'Parent' && (isA(inst.ClassName, 'PostEffect') || LOOKS.has(inst.ClassName))) this.dirty = true;
+    });
   }
 
   // Resolves once the sky for the current time is in the environment.
@@ -105,15 +113,8 @@ export class LightingController {
       const bloom = find('BloomEffect');
       pipe.bloomEnabled = !!bloom;
       if (bloom) { pipe.bloomThreshold = bloom.props.Threshold * BLOOM_THRESHOLD; pipe.bloomWeight = bloom.props.Intensity * BLOOM_WEIGHT; pipe.bloomKernel = Math.max(1, bloom.props.Size * BLOOM_KERNEL); }
-      // ColorCorrection: Contrast and Saturation so far (Brightness and TintColor: not yet).
-      const cc = kids.filter(c => c.ClassName === 'ColorCorrectionEffect' && c.props.Enabled);
-      const contrast = cc.reduce((k, c) => k * (1 + c.props.Contrast), 1), sat = cc.reduce((k, c) => k + c.props.Saturation, 0);
-      pipe.imageProcessing.contrast = BASE_CONTRAST * contrast;
-      if (sat !== 0) {
-        pipe.imageProcessing.colorCurvesEnabled = true;
-        const curves = pipe.imageProcessing.colorCurves || (pipe.imageProcessing.colorCurves = new ColorCurves());
-        curves.globalSaturation = Math.max(-100, Math.min(100, sat * 100));
-      } else pipe.imageProcessing.colorCurvesEnabled = false;
+      // ColorCorrection, Blur, SunRays and DepthOfField: runtime/posteffects.js, after the tonemap.
+      pipe.imageProcessing.contrast = BASE_CONTRAST;
     }
 
     // Fog: an Atmosphere replaces FogStart/FogEnd (Roblox hides them); its
@@ -138,5 +139,6 @@ export class LightingController {
       scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline('ssao', this.camera);
       this.ssao.dispose(); this.ssao = null;
     }
+    if (this.post) this.post.update();
   }
 }
