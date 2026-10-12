@@ -15,6 +15,7 @@ import { PhysicsMaterialCombineMode } from '@babylonjs/core/Physics/v2/physicsMa
 import { isA, CF, V3 } from '../datamodel.js';
 import { loadGltfContainer } from './gltf.js';
 import { loadMesh, renderArrays, extent } from '../modeling/editable.js';
+import { TerrainView } from './terrain.js';
 
 const STUD = 0.28; // metres (Roblox's conversion); glTF files are in metres
 
@@ -60,6 +61,7 @@ export class World {
     dm.hooks.loadMesh = url => this.meshAsset(url).then(a => ({ size: a.size.map(v => v / STUD) }));
     dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
+    this.terrain = new TerrainView(scene, dm, shadows); // workspace.Terrain (runtime/terrain.js)
   }
 
   // Each part owns its material, updated in place when Color or Material
@@ -177,7 +179,7 @@ export class World {
   }
 
   added(inst) {
-    if (isA(inst.ClassName, 'BasePart') && !inst.isCharacter) this.build(inst); // the controller moves character parts
+    if (isA(inst.ClassName, 'BasePart') && !inst.isCharacter && inst.ClassName !== 'Terrain') this.build(inst); // the controller moves character parts; Terrain is runtime/terrain.js's
     for (const c of inst.children) this.added(c);
   }
   removed(inst) {
@@ -416,6 +418,7 @@ export class World {
   }
 
   changed(inst, key) {
+    if (inst.ClassName === 'Terrain') return; // runtime/terrain.js draws it
     // A decal changed (or moved): redo its part's decals.
     if (inst.ClassName === 'Decal' || inst.ClassName === 'Texture') {
       for (const p of [inst.parent, inst.lastParent]) { const e = p && this.parts.get(p); if (e) this.decals(p, e); }

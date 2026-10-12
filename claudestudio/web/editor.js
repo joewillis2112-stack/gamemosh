@@ -26,6 +26,7 @@ import { Explorer, Properties } from './editor/panels.js';
 import { ModalTransform } from './editor/modal.js';
 import { EditMode, MESH_OPS } from './editor/editmode.js';
 import { AnimateMode } from './editor/animate.js';
+import { TerrainTools } from './editor/terrain.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
@@ -121,7 +122,12 @@ async function main() {
     this.selection.set([rig]);
     return rig;
   });
-  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag;
+  // Terrain: Studio's Terrain Editor brushes (web/editor/terrain.js).
+  const terrainTools = new TerrainTools({ scene, dm, commands, camera, layer: gizmos.layer, canvas, bar: document.getElementById('terrainbar'), onState: s => {
+    document.body.classList.toggle('terraining', s.active);
+    document.querySelector('#ui [data-act=terrain]').classList.toggle('on', s.active);
+  } });
+  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
   camera.pick = pickPoint;
@@ -134,6 +140,7 @@ async function main() {
     if (gizmos.layer.utilityLayerScene.pick(x, y, null, false, camera.cam)?.hit) return undefined; // on a handle: not a selection click
     const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible && !m.metadata.instance.props.Locked, false, camera.cam);
     let inst = h && h.hit ? h.pickedMesh.metadata.instance : null;
+    if (inst && inst.ClassName === 'Terrain') inst = null; // as in Studio, a click on terrain selects nothing
     if (inst && !alt) { let top = null; for (let a = inst.parent; a && a !== dm.workspace; a = a.parent) if (a.ClassName === 'Model') top = a; if (top) inst = top; }
     return inst;
   };
@@ -143,6 +150,7 @@ async function main() {
     const d = downs.get(e.pointerId); downs.delete(e.pointerId);
     if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || edit.dragging || anim.drag || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
     if (anim.active) { const r = canvas.getBoundingClientRect(); anim.click(e.clientX - r.left, e.clientY - r.top); return; }
+    if (terrainTools.active) return; // a click paints, it doesn't select
     if (edit.active) { const r = canvas.getBoundingClientRect(); if (!gizmos.layer.utilityLayerScene.pick(e.clientX - r.left, e.clientY - r.top, m => edit.arrows && m.isPickable, false, camera.cam)?.hit) edit.click(e.clientX - r.left, e.clientY - r.top, e.shiftKey); return; }
     const r = canvas.getBoundingClientRect(), inst = instanceAt(e.clientX - r.left, e.clientY - r.top, e.altKey);
     if (inst === undefined) return;
@@ -160,7 +168,7 @@ async function main() {
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
     editmesh: () => edit.active ? edit.exit() : edit.enter(),
-    rig: () => commands.run('insertRig'), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
+    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
@@ -191,7 +199,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

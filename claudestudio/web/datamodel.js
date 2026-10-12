@@ -6,6 +6,7 @@ import { CF } from './cframe.js';
 import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
+import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
 export { CF };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -291,6 +292,36 @@ defineClass('BasePart', 'Instance', {
   },
   events: ['Touched', 'TouchEnded'],
 });
+// Smooth terrain (create.roblox.com/docs/reference/engine/classes/Terrain):
+// workspace.Terrain, a grid of 4-stud cells (terrain/voxels.js), drawn and
+// collided by runtime/terrain.js. Water defaults from Roblox's API dump.
+const terrainMaterial = v => {
+  const name = v instanceof EnumItem ? v.name : v;
+  if (!TERRAIN_MATERIALS.includes(name)) throw new Error(`Unable to cast value to terrain Material (${name})`);
+  return name;
+};
+const terrainChanged = t => t.dm.notify(t, 'Voxels');
+const v3 = v => { if (!(v instanceof V3)) throw new Error('Unable to cast value to Vector3'); return v; };
+const cframe = v => { if (!(v instanceof CF)) throw new Error('Unable to cast value to CFrame'); return v; };
+defineClass('Terrain', 'BasePart', {
+  creatable: false,
+  props: { WaterColor: ['Color3', [0.05, 0.33, 0.36]], WaterReflectance: ['number', 1], WaterTransparency: ['number', 0.3], WaterWaveSize: ['number', 0.15], WaterWaveSpeed: ['number', 10] },
+  methods: {
+    FillBlock(self, cf, size, mat) { cframe(cf); v3(size); const b = boxBounds(cf.m, size); self.voxels.fill(shapes.block(cf.m, size), b.min, b.max, terrainMaterial(mat)); terrainChanged(self); return []; },
+    FillBall(self, c, r, mat) { v3(c); r = +r; self.voxels.fill(shapes.ball(c, r), [c.x - r, c.y - r, c.z - r], [c.x + r, c.y + r, c.z + r], terrainMaterial(mat)); terrainChanged(self); return []; },
+    FillCylinder(self, cf, height, r, mat) { cframe(cf); height = +height; r = +r; const b = boxBounds(cf.m, new V3(2 * r, height, 2 * r)); self.voxels.fill(shapes.cylinder(cf.m, height, r), b.min, b.max, terrainMaterial(mat)); terrainChanged(self); return []; },
+    FillWedge(self, cf, size, mat) { cframe(cf); v3(size); const b = boxBounds(cf.m, size); self.voxels.fill(shapes.wedge(cf.m, size), b.min, b.max, terrainMaterial(mat)); terrainChanged(self); return []; },
+    Clear(self) { self.voxels.clear(); terrainChanged(self); return []; },
+    CountCells(self) { return [self.voxels.count()]; },
+    WorldToCell(self, p) { v3(p); return [new V3(Math.floor(p.x / CELL), Math.floor(p.y / CELL), Math.floor(p.z / CELL))]; },
+    WorldToCellPreferSolid(self, p) { v3(p); return [new V3(Math.floor(p.x / CELL), Math.floor(p.y / CELL), Math.floor(p.z / CELL))]; },
+    WorldToCellPreferEmpty(self, p) { v3(p); return [new V3(Math.floor(p.x / CELL), Math.floor(p.y / CELL), Math.floor(p.z / CELL))]; },
+    CellCenterToWorld(self, x, y, z) { return [new V3((Math.floor(x) + 0.5) * CELL, (Math.floor(y) + 0.5) * CELL, (Math.floor(z) + 0.5) * CELL)]; },
+    CellCornerToWorld(self, x, y, z) { return [new V3(Math.floor(x) * CELL, Math.floor(y) * CELL, Math.floor(z) * CELL)]; },
+    GetMaterialColor(self, mat) { const c = self.voxels.colors[terrainMaterial(mat)]; if (!c) throw new Error('Material has no colour'); return [new C3(c[0] / 255, c[1] / 255, c[2] / 255)]; },
+    SetMaterialColor(self, mat, col) { const name = terrainMaterial(mat); if (!(col instanceof C3)) throw new Error('Unable to cast value to Color3'); self.voxels.colors[name] = [col.r * 255, col.g * 255, col.b * 255].map(Math.round); for (const k of self.voxels.chunks.keys()) self.voxels.dirty.add(k); terrainChanged(self); return []; },
+  },
+});
 defineClass('Part', 'BasePart', { props: { Shape: ['Enum.PartType', 'Block'] } });
 defineClass('SpawnLocation', 'Part');
 // A wedge: its sloped face is the front (-Z), rising to the back (+Z) top edge.
@@ -550,6 +581,7 @@ export class Instance {
       for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : d;
     }
     this.props.Name = cls;
+    if (cls === 'Terrain') this.voxels = new Voxels();
     this.handle = dm.register(this);
   }
   get Name() { return this.props.Name; }
@@ -581,6 +613,10 @@ export class DataModel {
     cam.props.Name = 'Camera'; cam.props.CFrame = new CF([0, 20, 20, 1, 0, 0, 0, 0.7071068, 0.7071068, 0, -0.7071068, 0.7071068]); cam.props.Focus = new CF();
     this.setParent(cam, this.workspace);
     this.workspace.props.CurrentCamera = cam;
+    // workspace.Terrain, as every Roblox place has.
+    const terrain = new Instance(this, 'Terrain');
+    terrain.props.Anchored = true; terrain.props.Locked = true;
+    this.setParent(terrain, this.workspace);
   }
   register(inst) { this.byHandle.push(inst); return this.byHandle.length - 1; }
   service(name) {
@@ -825,7 +861,7 @@ export class DataModel {
     const cands = [];
     const walk = inst => {
       for (const c of inst.children) {
-        if (isA(c.ClassName, 'BasePart') && c.props.CFrame && c.props.CanQuery !== false && !(respectCanCollide && !c.props.CanCollide) && inList(c) === include) {
+        if (isA(c.ClassName, 'BasePart') && c.ClassName !== 'Terrain' && c.props.CFrame && c.props.CanQuery !== false && !(respectCanCollide && !c.props.CanCollide) && inList(c) === include) {
           const shape = c.ClassName === 'WedgePart' ? 'Wedge' : c.ClassName === 'MeshPart' ? 'Mesh' : (c.props.Shape || 'Block');
           cands.push({ inst: c, cf: c.props.CFrame, size: c.props.Size, shape, mesh: shape === 'Mesh' });
         }

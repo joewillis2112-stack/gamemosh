@@ -6,7 +6,7 @@
 // (a part's Position and Orientation, from its CFrame) aren't saved. References
 // (a Model's PrimaryPart, Workspace.CurrentCamera) are saved as ids inside the
 // file and come back pointing at the loaded copies; ones pointing outside the
-// saved tree come back nil.
+// saved tree come back nil. Terrain's cells ride on its node as `voxels`.
 import { DataModel, Instance, V3, V2, C3, UDim, UDim2, isA, propertiesOf } from './datamodel.js';
 import { CF } from './cframe.js';
 
@@ -74,6 +74,7 @@ export function savePlace(dm) {
   };
   const node = (inst, top) => {
     const n = { class: inst.ClassName, id: ids.get(inst), props: props(inst) };
+    if (inst.voxels && inst.voxels.chunks.size) n.voxels = inst.voxels.save(); // Terrain's cells (terrain/voxels.js)
     const kids = top && RUNTIME_CHILDREN.has(inst.ClassName) ? [] : inst.children.filter(c => ids.has(c));
     if (kids.length) n.children = kids.map(c => node(c, false));
     return n;
@@ -106,6 +107,7 @@ export function loadPlace(dm, file) {
     if (!inst) { warnings.push(`can't create a ${n.class} (skipped with its children)`); return; }
     byId.set(n.id, inst);
     apply(inst, n.props);
+    if (n.voxels && inst.voxels) inst.voxels.load(n.voxels);
     if (inst.parent !== parent) dm.setParent(inst, parent); // parented complete, top-down, so watchers see each one whole
     for (const c of n.children || []) build(c, inst);
   };

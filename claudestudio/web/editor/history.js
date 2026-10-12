@@ -30,6 +30,8 @@ export class Transaction {
     this.parent(inst, parent);
     return inst;
   }
+  // A change outside instance properties (terrain cells) the caller already made: `undo()` puts it back, `redo()` again.
+  custom(undo, redo) { this.ops.push({ op: 'call', before: undo, after: redo }); }
   // A change the caller already made (a gizmo drag): record it as from -> to.
   recordSet(inst, key, before, after) { if (before !== after) this.ops.push({ op: 'set', inst, key, before, after }); }
 }
@@ -79,6 +81,7 @@ function replay(dm, ops, side) {
   const list = side === 'before' ? [...ops].reverse() : ops;
   for (const o of list) {
     if (o.op === 'set') dm.set(o.inst, o.key, o[side]);
+    else if (o.op === 'call') o[side]();
     else dm.setParent(o.inst, o[side]);
   }
 }

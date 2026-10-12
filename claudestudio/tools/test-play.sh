@@ -49,6 +49,7 @@ run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffec
 run --scenario test/scenarios/camera.mjs
 run --phone --scenario test/scenarios/camera.mjs
 run --scenario test/scenarios/animation.mjs
+run --scenario test/scenarios/terrain.mjs
 run --page editor --scenario test/scenarios/editor.mjs
 run --page editor --phone --scenario test/scenarios/editor.mjs
 run --page editor --scenario test/scenarios/editor-modal.mjs
@@ -57,6 +58,8 @@ run --page editor --scenario test/scenarios/editor-mesh.mjs
 run --page editor --phone --scenario test/scenarios/editor-mesh.mjs
 run --page editor --scenario test/scenarios/editor-animate.mjs
 run --page editor --phone --scenario test/scenarios/editor-animate.mjs
+run --page editor --scenario test/scenarios/editor-terrain.mjs
+run --page editor --phone --scenario test/scenarios/editor-terrain.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
@@ -67,6 +70,7 @@ node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" 
 node test/camera.test.mjs | tail -1 | grep -q PASS && echo "camera test PASS" || { echo "FAILED: camera test"; fail=1; }
 node test/editor-commands.test.mjs | tail -1 | grep -q PASS && echo "editor commands test PASS" || { echo "FAILED: editor commands test"; fail=1; }
 node test/animation.test.mjs | tail -1 | grep -q PASS && echo "animation test PASS" || { echo "FAILED: animation test"; fail=1; }
+node test/terrain.test.mjs | tail -1 | grep -q PASS && echo "terrain test PASS" || { echo "FAILED: terrain test"; fail=1; }
 node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place file test PASS" || { echo "FAILED: place file test"; fail=1; }
 vt=$(npx vitest run web/modeling/kernel test/modeling.test.mjs 2>&1); echo "$vt" | grep -q "Tests .*passed" && ! echo "$vt" | grep -q "failed" && echo "modeling tests PASS ($(echo "$vt" | grep -o "Tests .*passed[^)]*"))" || { echo "FAILED: modeling tests"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }

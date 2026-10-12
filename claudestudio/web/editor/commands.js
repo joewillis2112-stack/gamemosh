@@ -158,7 +158,7 @@ function isService(i) { return !i.parent || i.parent === i.dm.game || i === i.dm
 // The parts an item stands for: itself, or a Model's descendant parts.
 export function allParts(items) {
   const out = [];
-  const walk = i => { if (isA(i.ClassName, 'BasePart')) out.push(i); for (const c of i.children) walk(c); };
+  const walk = i => { if (isA(i.ClassName, 'BasePart') && i.ClassName !== 'Terrain') out.push(i); for (const c of i.children) walk(c); }; // Terrain isn't a box to move
   top(items).forEach(walk);
   return out;
 }
