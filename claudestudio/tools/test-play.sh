@@ -48,6 +48,10 @@ run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs
 run --phone --scenario test/scenarios/camera.mjs
+run --page editor --scenario test/scenarios/editor.mjs
+run --page editor --phone --scenario test/scenarios/editor.mjs
+run --page editor --scenario test/scenarios/editor-modal.mjs
+run --page editor --scenario test/scenarios/editor-play.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
@@ -56,6 +60,8 @@ node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { e
 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
 node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }
 node test/camera.test.mjs | tail -1 | grep -q PASS && echo "camera test PASS" || { echo "FAILED: camera test"; fail=1; }
+node test/editor-commands.test.mjs | tail -1 | grep -q PASS && echo "editor commands test PASS" || { echo "FAILED: editor commands test"; fail=1; }
+node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place file test PASS" || { echo "FAILED: place file test"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
 node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
 node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }

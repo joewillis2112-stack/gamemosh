@@ -1,7 +1,8 @@
 // Boots the Luau VM (luau.mjs, built by luau/build.sh) against a DataModel.
 import { makeHost, isA } from './datamodel.js';
 
-export async function startLuau(createLuau, dm, log = console.log) {
+// runScripts false: Script instances don't start (the editor's edit mode, as in Studio).
+export async function startLuau(createLuau, dm, log = console.log, { runScripts = true } = {}) {
   const host = makeHost(dm, log);
   const Module = await createLuau({ studio: host, print: s => log(s, 0), printErr: s => log(s, 2) });
   // Deferred events, as Roblox's default SignalBehavior: firing queues the
@@ -29,7 +30,7 @@ export async function startLuau(createLuau, dm, log = console.log) {
     };
     visit(inst);
   };
-  dm.watch((inst, key) => { if ((key === 'Parent' && inst.parent) || (key === 'Enabled' && inst.props.Enabled)) consider(inst); });
+  if (runScripts) dm.watch((inst, key) => { if ((key === 'Parent' && inst.parent) || (key === 'Enabled' && inst.props.Enabled)) consider(inst); });
   const startScripts = () => {
     while (starting.length) {
       const sc = starting.shift();

@@ -1,5 +1,6 @@
 // Drive the play page headless: load a place, run a scenario, take shots.
-// node tools/play.mjs [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
+// node tools/play.mjs [--page play|editor] [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
+// --page editor drives web/editor.html instead (its handle is window.editor; sim() is play-only).
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
@@ -11,6 +12,7 @@ const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i
 const phone = args.includes('--phone');
 const noShots = args.includes('--noshots'); // measurements only
 const outDir = opt('out', 'build/play');
+const pageName = opt('page', 'play'), G = pageName === 'editor' ? 'editor' : 'studio'; // the page's window handle
 fs.mkdirSync(outDir, { recursive: true });
 const srv = serve();
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -27,10 +29,10 @@ if (opt('character')) q.set('character', '../' + opt('character'));
 async function load(extra = {}) {
   const p = new URLSearchParams(q);
   for (const [k, v] of Object.entries(extra)) p.set(k, v);
-  await page.goto(`http://127.0.0.1:${srv.port}/web/play.html?${p}`);
-  try { await page.waitForFunction(() => window.studio && (window.studio.ready || window.studio.error), null, { timeout: 120000 }); }
+  await page.goto(`http://127.0.0.1:${srv.port}/web/${pageName}.html?${p}`);
+  try { await page.waitForFunction(g => window[g] && (window[g].ready || window[g].error), G, { timeout: 120000 }); }
   catch (e) { console.log('TIMEOUT\n' + logs.join('\n')); process.exit(1); }
-  const err = await page.evaluate(() => window.studio.error);
+  const err = await page.evaluate(g => window[g].error, G);
   if (err) { console.log('ERROR', err, '\n' + logs.join('\n')); process.exit(1); }
 }
 await load();
@@ -38,7 +40,7 @@ await load();
 // The test clock: render frames at a fixed 1/60 s so runs are repeatable.
 const api = {
   page, outDir, logs, // logs: console lines from the page (Luau prints arrive as '[luau] ...')
-  async frames(n, input = null) { if (noShots) return; await page.evaluate(([n, input]) => window.studio.frames(n, input), [n, input]); },
+  async frames(n, input = null) { if (noShots) return; await page.evaluate(([n, input, g]) => window[g].frames(n, input), [n, input, G]); },
   async sim(n, input = null) { await page.evaluate(([n, input]) => window.studio.sim(n, input), [n, input]); },
   async shot(name) { if (noShots) return null; const f = path.join(outDir, name + '.png'); await page.screenshot({ path: f, timeout: 300000 }); console.log('shot', f); return f; },
   // Screenshot compared with goldens/play/<name>.png (saved if missing or with --update).

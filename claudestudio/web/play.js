@@ -7,6 +7,7 @@ import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
 import { DataModel, baseplateLighting } from './datamodel.js';
+import { loadPlace } from './placefile.js';
 import { startLuau } from './luau.js';
 import createLuau from './luau.mjs';
 import { World } from './runtime/world.js';
@@ -36,10 +37,16 @@ async function main() {
   const log = (s, lvl) => (lvl === 2 ? console.error : console.log)('[luau] ' + s);
   const vm = await startLuau(createLuau, dm, log);
   const world = new World(scene, dm, R.shadows);
-  baseplateLighting(dm); // a new place's Lighting children, before the place's scripts can change them
-
-  const place = await (await fetch(q.get('place') || '../places/baseplate.luau')).text();
-  vm.run('place', place);
+  // The place: a Luau script that builds it, or a place file (.json, or 'session':
+  // the one the editor just handed over for Play).
+  const placeSrc = q.get('place') || '../places/baseplate.luau';
+  if (placeSrc === 'session' || placeSrc.endsWith('.json')) {
+    const file = placeSrc === 'session' ? JSON.parse(sessionStorage.getItem('studio.place') || 'null') : await (await fetch(placeSrc)).json();
+    for (const w of loadPlace(dm, file)) console.warn(w); // its Lighting children are in the file
+  } else {
+    baseplateLighting(dm); // a new place's Lighting children, before the place's scripts can change them
+    vm.run('place', await (await fetch(placeSrc)).text());
+  }
 
   // The player joins after the place's scripts (as in Roblox) and spawns on a SpawnLocation.
   // The character: the blocky default, or another rigged to its nodes (character maker stage 2).
@@ -128,6 +135,14 @@ async function main() {
   scene.onBeforePhysicsObservable.add(() => { if (!framePhysics) { framePhysics = true; beforePhysics(frameDt()); } });
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
   await scene.whenReadyAsync();
+  // Played from the editor: Stop goes back to it with the place as it was before Play (Studio's Stop).
+  if (q.get('from') === 'editor') {
+    const stop = document.createElement('button');
+    stop.textContent = 'Stop'; stop.id = 'stop';
+    stop.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:10;height:36px;padding:0 18px;border:0;border-radius:8px;background:#d9363e;color:#fff;font:600 14px system-ui,sans-serif';
+    stop.addEventListener('click', () => { const p = new URLSearchParams(q); p.set('place', 'session'); p.delete('from'); location.href = 'editor.html?' + p; });
+    document.body.appendChild(stop);
+  }
   window.studio = {
     dm, vm, world, scene, cam: camera.cam, camera, camSync, player, players, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).

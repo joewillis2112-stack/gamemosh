@@ -4,6 +4,8 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 
 ## Where things stand
 
+- **The editor (Phase 2) is being built by the other session (session_01UMTQXhLsBemuvNJgbY5PGW), 2026-10-12.** `web/editor.html`, `web/editor/`, PLAN.md "Phase 2, 2026-10-12". Pull before touching those files.
+
 - **Rendering range (task 56):** done. PLAN.md, "Rendering range".
 - **Character maker, stage 1 (2D reference → blocky):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`.
 - **Character maker, stage 2 (generated model → rigged character):** rigging done and tested; realistic generation works through free Hugging Face Spaces plus a CPU texturer (known defects: blotchy back, hip flaps). `web/runtime/rigmesh.js`, `tools/stage2/` (its README has the routes, setup and how the fit works), PLAN.md "Stage 2 built".

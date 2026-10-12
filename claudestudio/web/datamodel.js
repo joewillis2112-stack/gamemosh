@@ -277,6 +277,8 @@ defineClass('BasePart', 'Instance', {
     CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], CanQuery: ['bool', true], Transparency: ['number', 0],
     Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
+    // Studio only: a locked part can't be clicked to select it (it still shows in the Explorer).
+    Locked: ['bool', false],
     // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
     AssemblyLinearVelocity: ['Vector3', [0, 0, 0]], AssemblyAngularVelocity: ['Vector3', [0, 0, 0]],
   },
@@ -716,6 +718,14 @@ function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === 
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
 const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ']);
+// The editor's view of a class: every property, the class's own first (as Studio lists them
+// by class), with its type and whether scripts may write it.
+export function propertiesOf(cls) {
+  const out = [];
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) for (const [k, [ty]] of Object.entries(c.props)) out.push({ name: k, type: ty, owner: c.name, readOnly: READ_ONLY.has(c.name + '.' + k) });
+  return out;
+}
+export function classInfo(cls) { const c = CLASSES[cls]; return c ? { creatable: c.creatable, service: c.service, base: c.base } : null; }
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
 // ------------------------------------------------------------------ the Luau-facing host

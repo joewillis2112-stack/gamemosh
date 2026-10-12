@@ -392,3 +392,19 @@ Reference for the editor (Phase 2), posing and motion (Phase 5): ArtCraft, an op
 4. Climb (TrussPart) and swim poses.
 5. Phone frame rate on real hardware.
 6. Then phase 2 (the editor) and the rest of the creator suite.
+
+### Phase 2, 2026-10-12: the editor (first slice)
+
+`web/editor.html` (`web/editor.js`, `web/editor/`), built after ArtCraft's scene editor (ARTCRAFT.md), ported onto our renderer and DataModel rather than embedded.
+- The place is drawn exactly as the player draws it (same World, lighting, sky, post), with physics paused.
+- **Commands and undo** (`editor/commands.js`, `editor/history.js`): every action is a named command (the Craft apps' rule), run as one undoable step. A Transaction records each property change and reparent with its before and after, so undo and redo replay the same ops. Delete parents to nil (as Studio does), so undo restores the instance whole. Commands: undo, redo, select, insert, delete, duplicate, group, ungroup, setProperty, move, rotate, commitDrag.
+- **Selection:** a click selects the part under the pointer, or its topmost Model under Workspace (Alt: the part); Locked parts can't be clicked (new BasePart.Locked). Shift/Ctrl adds. A blue box marks each selection.
+- **Tools** (Studio's Ctrl+1-4): Move (world arrows, 1 stud snaps), Rotate (world rings, 15° snaps), Scale (a handle per face; only that face moves, in whole studs). A drag changes the DataModel live and is recorded once at its end.
+- **Explorer and Properties:** the instance tree (Studio's services, in its order) and the selection's typed properties, grouped by class; every edit is a command.
+- **Camera:** right-drag looks, middle-drag pans, the wheel moves toward the cursor, WASDQE fly, F frames the selection. Touch: one finger orbits the point it started on, two fingers pan and pinch. A tap selects.
+- **Insert** puts a part against the face the view hits (flush along the normal, snapped across it). UNSURE: whether Studio anchors inserted parts (ours does).
+- Tests: `test/editor-commands.test.mjs` (22 checks: undo all returns exactly to the start, redo exactly to the end) and `test/scenarios/editor.mjs` with real mouse, keyboard and touch input (22 desktop, 21 phone, golden editor-move). Mutation-checked.
+- Found on the way: Babylon's line shader isn't pulled in by the mesh builder (the selection box never drew), and line meshes made per frame never finish compiling (now pooled); Babylon's pick takes CSS pixels (scaling by the pixel ratio first broke every pick on phones).
+- **Place files and Play/Stop (slice 2):** `web/placefile.js` saves the DataModel as JSON (Studio's saved services; per instance its class, the properties that differ from the class's defaults, its children; references as ids inside the file; engine-written and derived properties left out). All 13 places in `places/` round-trip exactly: build, save, load, save again is identical and every property matches (`test/placefile.test.mjs`). The editor's Save downloads it, Open loads one, Play hands the place to the player (sessionStorage) and the player's Stop comes back with the place as it was before Play (Studio's loop). The play page loads `.json` places too. Edit mode runs no scripts and no physics (`startLuau(..., { runScripts: false })`). `test/scenarios/editor-play.mjs`.
+- **Modal transforms (slice 3, first half):** Blender's G/R/S (`web/editor/modal.js`, after ArtCraft's ModalTransformController, which only grabs): X/Y/Z constrain, Shift+X/Y/Z exclude, typed amounts, Enter/click confirm, Esc/right-click cancel, snapped unless Shift is held while moving. To free S, the camera now flies with WASD only while the right button is held (Unity/Unreal's convention; Studio flies without it). `test/scenarios/editor-modal.mjs`.
+- Next: posing characters (ArtCraft's FKHelper on our rig), the timeline, a script editor. Then box select, copy/paste, the local-space toggle, and Studio's collision/join options.

@@ -62,6 +62,10 @@ Also `engine/TransformControls.js` (three.js's gizmo, modified), `engine/keymap.
 Every port goes through our usual bar: tests that check behaviour (and are mutation-checked),
 goldens looked at, desktop and phone.
 
+## Ported so far
+
+- 2026-10-12: the editor's core (`web/editor/`): ArtCraft's HistoryManager and actions as one Transaction-based history over the DataModel; its controller split (camera, gizmos, selection) as `camera.js`, `gizmos.js`, `commands.js`; its GizmoController's role taken by Babylon's position and rotation gizmos plus our own face handles (Studio's resize). PLAN.md "Phase 2, 2026-10-12". Next from ArtCraft: ModalTransformController (G/R/S), FKHelper (posing), TimelineController.
+
 ## What not to do
 
 - Don't run its app or build in the cloud container. It's a Tauri desktop app, and its
