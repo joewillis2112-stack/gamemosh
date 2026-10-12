@@ -381,6 +381,12 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **Pages load their HTML live, not from the build.** Editing `web/*.html` during a suite run changes the pages the run is testing, the same as rebuilding would (two editor goldens failed that way: only the toolbar differed). Don't touch `web/` at all while the suite runs.
 - **Check what a log is before acting on it.** A request named `suite2.log`; it was a day-old run from before its fixes, and the work it gated was already pushed. Read the file's timestamp and `git log` first.
 - **Extra frames move goldens.** Adding checks before a golden in the same scenario shifts the character's idle animation; the diff shows only the character. Re-save after checking that the diff is only that.
+- **Drive a rotation ring that faces the camera.** A test that dragged the first ring it found got an edge-on one: 60 px turned the joint 1.6°. I first blamed re-attaching the gizmo each frame; reverting that changed nothing. Choose the ring whose axis is closest to the view direction.
+- **A custom pick predicate replaces Babylon's own checks.** `scene.pick(x, y, m => mine.has(m))` also hits invisible and unpickable meshes (a gizmo's hidden drag disc); add `m.isPickable && m.isVisible && m.isEnabled()`.
+- **A canvas control that reads touches itself gets each tap twice.** After touchend the browser makes up mousedown/mouseup; animation-timeline-control counted them as a double click and undid the tap's selection. `preventDefault()` on touchend (non-passive) stops them.
+- **Tests that press twice at one spot within 400 ms make a double click.** Real gestures are slower; a test pauses between a tap and a drag on the same key.
+- **A looped track seeked exactly to its end should show its last pose.** Wrapping at `>=` sent it to the first; wrap only past the end.
+- **A rig's pose test should check direction in the world, not just an angle.** "90° from rest" passed for any axis; "the hand reaches forward (toward -Z)" pinned the frame conversion, and a mutation dropping the half turn failed it.
 
 ## 5. Ways to work that held up
 
@@ -407,6 +413,10 @@ A working log for this repo. It records common themes, what has been learned, mi
 
 **Game QA**
 - Scripted Playwright suites (smoke, mobile, combat, flow), then one gametest agent doing a full playthrough, then fix everything it finds.
+
+**Keep working while the suite runs (2026-10-12)**
+- The suite loads pages and builds from the working tree, so editing or building during a run breaks it. Copy the tree (`tar` without node_modules, .cache and blender; symlink those two back in) and run the suite there; build and test freely in the original meanwhile.
+- But don't run other browser tests while it runs: two Chromiums on 4 CPUs with software WebGL starve each other, and a scenario that renders 30 frames then clicks timed out (rAF never came back in 30 s). It passed alone, twice. Edit, build and run Node tests alongside; run browser scenarios after.
 
 **Deliverables**
 - Single-file HTML builds (esbuild with WASM inlined) run anywhere, including claude.ai artifacts.
@@ -533,3 +543,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - **2026-10-12 (Studio: editor, first slice):** The user asked to rebuild ArtCraft in our system. Started with its scene editor, ported onto Babylon and our DataModel: one command registry and one undo history (Transaction records before/after of each set and reparent), click selection (Model first, Alt for the part, Locked skipped), Explorer, Properties, Move/Rotate/Scale (face handles, the opposite face stays), Studio's camera plus touch orbit/pinch. 22 node checks (undo all is exact), 22 desktop and 21 phone checks with real input, mutation-checked.
 - **2026-10-12 (Studio: place files, Play/Stop, modal transforms):** Place files (JSON, typed by the class schema, references as ids; all 13 places round-trip exactly), the editor's Save/Open/Play and the player's Stop (back to the pre-Play place), no scripts or physics in edit mode, and Blender's G/R/S with constraints and typed amounts. Found: Shift doubled as the exclude modifier and the precision modifier, so a Shift+Z grab stopped snapping; precision now follows Shift only while moving.
 - **2026-10-12 (Studio: mesh editing via 3DOO):** Found 3DOO (MIT TypeScript rebuild of Blender's BMesh and edit operations) and incorporated its kernel: MeshPart.MeshData, World drawing/colliding/saving it, the editor's Edit Mode (Tab, 1/2/3, E/I/Ctrl+B/Ctrl+R/X/M/F, G/R/S, touch arrows, adjust-last-operation). 518 kernel + 10 studio + 20 scenario checks on desktop and phone, 7 mutations caught. The compile-Blender plan is dropped.
+- **2026-10-12 (Studio: animation):** Roblox's animation API (KeyframeSequence/Keyframe/Pose, Animation, Animator, AnimationTrack with its events, KeyframeSequenceProvider), rigs (any Model with a Humanoid draws as the character, posed by its tracks, as is the player), and the editor's Animate mode: joint handles and a ring after ArtCraft's FKHelper, animation-timeline-control (MIT, vendored) as the keyframe strip, saved to ServerStorage.RBX_ANIMSAVES as Roblox's editor does, undoable, played by script in Play. Desktop and phone; mutation-checked (one mutant equivalent: this rig's rest rotations are identity). Not yet: IK, root joint, onion skin, marker signals.

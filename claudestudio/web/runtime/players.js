@@ -81,6 +81,7 @@ export class Players {
     root.props.CanCollide = false;
     root.isCharacter = true;
     this.dm.setParent(hum, model);
+    this.dm.setParent(this.dm.create('Animator'), hum); // as Roblox gives every character's Humanoid
     this.dm.setParent(root, model);
     model.props.PrimaryPart = root;
     // StarterCharacterScripts go into the new character.

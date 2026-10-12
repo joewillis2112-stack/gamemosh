@@ -25,6 +25,8 @@ import { Gizmos } from './editor/gizmos.js';
 import { Explorer, Properties } from './editor/panels.js';
 import { ModalTransform } from './editor/modal.js';
 import { EditMode, MESH_OPS } from './editor/editmode.js';
+import { AnimateMode } from './editor/animate.js';
+import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
 
@@ -53,6 +55,8 @@ async function main() {
     vm.run('place', await (await fetch(placeSrc)).text());
   }
 
+  const rigs = new Rigs(scene, dm, R.shadows); // Models with a Humanoid draw as characters
+  await rigs.load();
   const camera = new EditorCamera(scene, canvas);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
@@ -93,7 +97,31 @@ async function main() {
     this.selection.set([mp]);
     return mp;
   });
-  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging;
+  // Animate: Roblox's Animation Editor on a rig (web/editor/animate.js).
+  const anim = new AnimateMode({ scene, dm, commands, camera, rigs, layer: gizmos.layer, canvas, panel: document.getElementById('animpanel'), onState: s => {
+    if (document.body.classList.contains('animating') !== s.active) { document.body.classList.toggle('animating', s.active); engine.resize(); } // the view ends above the timeline
+    gizmos.hidden = s.active || edit.active; gizmos.refresh();
+    document.querySelector('#ui [data-act=animate]').classList.toggle('on', s.active);
+  } });
+  commands.register('insertRig', function () {
+    // A dummy as Roblox's Rig Builder makes one: a Model with a Humanoid (and its
+    // Animator) and an invisible HumanoidRootPart 3 studs above the floor.
+    const f = camera.forward(), at = camera.pos.add(f.scale(12));
+    const hit = dm.raycast(new V3(at.x, at.y + 50, at.z), new V3(0, -1000, 0));
+    const floor = hit.length ? hit[1].y : 0;
+    const rig = this.history.run('Insert Rig', tx => {
+      const m = tx.create('Model', null, { Name: 'Rig' });
+      const hum = tx.create('Humanoid', m); tx.create('Animator', hum);
+      const root = tx.create('Part', m, { Name: 'HumanoidRootPart', Size: new V3(2, 2, 1), Transparency: 1, Anchored: true, CanCollide: false });
+      tx.set(root, 'CFrame', new CF([Math.round(at.x), floor + 3, Math.round(at.z), 1, 0, 0, 0, 1, 0, 0, 0, 1]));
+      tx.set(m, 'PrimaryPart', root);
+      tx.parent(m, dm.workspace);
+      return m;
+    });
+    this.selection.set([rig]);
+    return rig;
+  });
+  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
   camera.pick = pickPoint;
@@ -113,7 +141,8 @@ async function main() {
   canvas.addEventListener('pointerdown', e => downs.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, n: downs.size + 1 }));
   canvas.addEventListener('pointerup', e => {
     const d = downs.get(e.pointerId); downs.delete(e.pointerId);
-    if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || edit.dragging || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+    if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || edit.dragging || anim.drag || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+    if (anim.active) { const r = canvas.getBoundingClientRect(); anim.click(e.clientX - r.left, e.clientY - r.top); return; }
     if (edit.active) { const r = canvas.getBoundingClientRect(); if (!gizmos.layer.utilityLayerScene.pick(e.clientX - r.left, e.clientY - r.top, m => edit.arrows && m.isPickable, false, camera.cam)?.hit) edit.click(e.clientX - r.left, e.clientY - r.top, e.shiftKey); return; }
     const r = canvas.getBoundingClientRect(), inst = instanceAt(e.clientX - r.left, e.clientY - r.top, e.altKey);
     if (inst === undefined) return;
@@ -130,7 +159,8 @@ async function main() {
     group: () => commands.run('group'), ungroup: () => commands.run('ungroup'), undo: () => commands.run('undo'), redo: () => commands.run('redo'),
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
-    editmesh: () => edit.active ? edit.exit() : edit.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
+    editmesh: () => edit.active ? edit.exit() : edit.enter(),
+    rig: () => commands.run('insertRig'), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
@@ -156,12 +186,12 @@ async function main() {
   const explorer = new Explorer(document.getElementById('explorer'), dm, commands);
   const properties = new Properties(document.getElementById('properties'), dm, commands);
   const fixed = !!q.get('test');
-  const step = dt => { camera.update(dt); lighting.update(); localLights.update(); explorer.update(); properties.update(); };
+  const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); explorer.update(); properties.update(); };
   scene.onBeforeRenderObservable.add(() => step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)));
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, V3, C3, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

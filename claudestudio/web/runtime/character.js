@@ -8,6 +8,7 @@ import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResu
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
 import { applySkin } from './skin.js';
+import { nodeOfJoint, offsetToNode } from '../animation.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
 const PUSH_FORCE = 10000;
@@ -34,7 +35,7 @@ const UP = new Vector3(0, 1, 0);
 // ------------------------------------------------------------------ animator
 // Samples clips itself: each frame every animated node starts at rest, then
 // clips are mixed by weight. Positions lerp; rotations nlerp on the shortest arc.
-class Animator {
+export class Animator {
   constructor(res) {
     this.nodes = res.transformNodes.concat(res.meshes);
     this.rest = new Map(this.nodes.map(n => [n, {
@@ -125,6 +126,26 @@ class Animator {
       n.rotationQuaternion.copyFrom(q);
       n.scaling.copyFrom(a.s);
     }
+  }
+
+  // On top of whatever update() posed: keyframe-animation joint offsets
+  // (animation.js's animatedJoints: joint -> { cf, w }), each taking share w
+  // of its node from the pose below. `scale` is studs per model unit.
+  overlay(joints, scale) {
+    for (const [name, { cf, w }] of joints) {
+      const n = this.byName(nodeOfJoint(name));
+      if (!n || w <= 0) continue;
+      const r = this.rest.get(n), o = offsetToNode(cf);
+      const q = r.q.multiply(new Quaternion(...o.q));
+      const p = r.p.add(new Vector3(o.p[0], o.p[1], o.p[2]).scale(1 / scale));
+      if (w >= 1) { n.rotationQuaternion.copyFrom(q); n.position.copyFrom(p); continue; }
+      n.rotationQuaternion.copyFrom(Quaternion.Slerp(n.rotationQuaternion, q, w));
+      n.position.copyFrom(Vector3.Lerp(n.position, p, w));
+    }
+  }
+  byName(name) {
+    if (!this.names) this.names = new Map(this.nodes.map(n => [n.name, n]));
+    return this.names.get(name);
   }
 }
 
@@ -596,6 +617,7 @@ export class Character {
     const lead = this.anim.layers.filter(l => this.contacts[l.clip]).sort((a, b) => b.weight - a.weight)[0];
     const before = lead ? lead.time : 0;
     this.anim.update(dt);
+    if (this.joints) { const j = this.joints(); if (j.size) this.anim.overlay(j, this.modelScale); } // scripts' AnimationTracks
     if (lead && lead.weight > 0.5 && state === 'walk' && this.grounded) {
       const len = this.anim.duration(lead.clip), after = lead.time;
       const crossed = c => (after >= before ? c > before && c <= after : c > before || c <= after);

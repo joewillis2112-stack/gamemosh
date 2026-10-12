@@ -16,6 +16,8 @@ import { Character } from './runtime/character.js';
 import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
+import { Rigs } from './runtime/rigs.js';
+import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
 import { LightingController } from './runtime/lighting.js';
 import { Sky } from './runtime/sky.js';
@@ -63,6 +65,10 @@ async function main() {
   if (skin === 'session') { try { skin = sessionStorage.getItem('studio.skin'); } catch (e) { skin = null; } }
   if (skin) await player.setSkin(skin);
   const players = new Players(dm, world, player, GRAVITY);
+  // The character's AnimationTracks (its Humanoid's Animator) pose it over its own clips.
+  player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
+  const rigs = new Rigs(scene, dm, R.shadows);
+  await rigs.load();
   players.join();
   const gui = new Gui(dm, players);
   const camera = new FollowCamera(scene, player);
@@ -98,6 +104,7 @@ async function main() {
   const fire = (ev, args) => { dm.fire(run, ev, args); vm.flush(); };
   const beforePhysics = dt => {
     fire('PreAnimation', [dt]);
+    dm.stepAnimations(dt); // AnimationTracks advance (their events queue for the scripts)
     fire('PreSimulation', [dt]); fire('Stepped', [t, dt]);
     dm.stepTweens(dt); vm.flush(); // tweens move parts before physics sees them
     world.trackMotion(dt); // how anchored parts moved this frame, so moving floors carry
@@ -119,6 +126,7 @@ async function main() {
     if (!camSync.scriptable()) { camSync.pre(); camera.update(dt); camSync.write(); } else camSync.size();
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);
     camSync.apply();
+    rigs.update(dt);
     gui.update();
     lighting.update();
     localLights.update();
@@ -144,7 +152,7 @@ async function main() {
     document.body.appendChild(stop);
   }
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, camSync, player, players, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
+    dm, vm, world, scene, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

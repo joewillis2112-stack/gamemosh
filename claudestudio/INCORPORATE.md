@@ -11,9 +11,9 @@ search snippets. Clones live in `../.cache/ext/` (gitignored).
 | Polygon modelling (Blender's edit mode) | [3DOO](https://github.com/renatolinsdigital/3doo) kernel, TypeScript rebuild of Blender's BMesh | MIT | **Incorporated** 2026-10-12: `web/modeling/`, the editor's Edit Mode |
 | Booleans (Roblox's Union/Negate), modifiers (mirror, array, solidify, bevel, subdivision surface, lattice), remesh, knife | Same 3DOO kernel (already vendored) | MIT | In the code, tested (kernel tests); not yet in the editor's UI |
 | Sculpting | [SculptGL](https://github.com/stephomi/sculptgl) (brushes, dynamic topology, multires, remesh, surface nets) | MIT | Next |
-| Character posing (joints) | ArtCraft `FKHelper` (rotate gizmo per bone) | MIT | Next, with IK |
-| IK (limbs) | Babylon's `BoneIKController` (in our engine) | Apache-2.0 | Next, with posing |
-| Animation timeline, keyframes | ArtCraft `TimelineController` and `timeline/` (interpolation); [animation-timeline-control](https://github.com/ievgennaida/animation-timeline-control) (canvas keyframe UI, no dependencies) | MIT, MIT | Next |
+| Character posing (joints) | ArtCraft `FKHelper` (rotate gizmo per bone), rebuilt on Babylon | MIT | **Incorporated** 2026-10-12: the editor's Animate mode (`web/editor/animate.js`) |
+| IK (limbs) | Babylon's `BoneIKController` (in our engine) | Apache-2.0 | Next (our rig's limbs are nodes, not skinned bones: a two-joint solver on nodes, or the controller on a skinned rig) |
+| Animation timeline, keyframes | ArtCraft `TimelineController` and `timeline/` (interpolation); [animation-timeline-control](https://github.com/ievgennaida/animation-timeline-control) (canvas keyframe UI, no dependencies) | MIT, MIT | **Incorporated** 2026-10-12: the control vendored (`web/vendor/animation-timeline/`); data is Roblox's own (KeyframeSequence, Keyframe, Pose), played by Animator/AnimationTrack (`web/animation.js`) |
 | Terrain (Roblox's smooth voxel terrain) | [terrain-editor-js](https://github.com/deep110/terrain-editor-js) (marching cubes field + raise/lower brushes); SculptGL's `SurfaceNets.js`/`MarchingCubes.js` | MIT, MIT | Next; Roblox's terrain materials (grass, rock...) built on top |
 | Water | Babylon `WaterMaterial` (`@babylonjs/materials`) | Apache-2.0 | Next |
 | LODs, mesh simplification | [meshoptimizer](https://github.com/zeux/meshoptimizer) JS simplifier (`js/meshopt_simplifier.js`); 3DOO's `remesh/simplify.ts` | MIT, MIT | Next |

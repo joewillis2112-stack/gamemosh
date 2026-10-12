@@ -5,6 +5,7 @@
 import { CF } from './cframe.js';
 import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
+import { compileSequence, stepTracks, stopTrack } from './animation.js';
 export { CF };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -42,6 +43,8 @@ export const ENUMS = {
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   TonemapperPreset: { Default: 0, Retro: 1 },
+  AnimationPriority: { Idle: 0, Movement: 1, Action: 2, Action2: 3, Action3: 4, Action4: 5, Core: 1000 },
+  PoseEasingStyle: { Linear: 0, Constant: 1, Elastic: 2, Cubic: 3, Bounce: 4, CubicV2: 5 }, PoseEasingDirection: { In: 0, Out: 1, InOut: 2 },
   CameraType: { Fixed: 0, Attach: 1, Watch: 2, Track: 3, Follow: 4, Custom: 5, Scriptable: 6, Orbital: 7 },
   EasingStyle: { Linear: 0, Sine: 1, Back: 2, Quad: 3, Quart: 4, Quint: 5, Bounce: 6, Elastic: 7, Exponential: 8, Circular: 9, Cubic: 10 },
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
@@ -456,8 +459,76 @@ defineClass('Humanoid', 'Instance', {
   },
   methods: {
     TakeDamage(self, amount) { self.dm.set(self, 'Health', Math.max(0, self.props.Health - (+amount || 0))); return []; },
+    // Deprecated in Roblox but still common: loads through the Humanoid's Animator (made if missing).
+    LoadAnimation(self, anim) { return [self.dm.loadAnimation(self.dm.animatorOf(self), anim)]; },
   },
   events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched'],
+});
+// Keyframe animation (create.roblox.com/docs/animation): the data, Animator and
+// AnimationTrack. The sampling and blending are in animation.js; the renderer
+// applies the result to rigs (runtime/rigs.js, runtime/character.js).
+defineClass('AnimationClip', 'Instance', { creatable: false, props: { Loop: ['bool', true], Priority: ['Enum.AnimationPriority', 'Action'] } }); // UNSURE: defaults as remembered
+defineClass('KeyframeSequence', 'AnimationClip', {
+  methods: {
+    AddKeyframe(self, kf) { if (kf instanceof Instance) self.dm.setParent(kf, self); return []; },
+    RemoveKeyframe(self, kf) { if (kf instanceof Instance && kf.parent === self) self.dm.setParent(kf, null); return []; },
+    GetKeyframes(self) { return [self.children.filter(c => c.ClassName === 'Keyframe')]; },
+  },
+});
+defineClass('Keyframe', 'Instance', {
+  props: { Time: ['number', 0] },
+  methods: {
+    AddPose(self, p) { if (p instanceof Instance) self.dm.setParent(p, self); return []; },
+    RemovePose(self, p) { if (p instanceof Instance && p.parent === self) self.dm.setParent(p, null); return []; },
+    GetPoses(self) { return [self.children.filter(c => c.ClassName === 'Pose')]; },
+    AddMarker(self, m) { if (m instanceof Instance) self.dm.setParent(m, self); return []; },
+    RemoveMarker(self, m) { if (m instanceof Instance && m.parent === self) self.dm.setParent(m, null); return []; },
+    GetMarkers(self) { return [self.children.filter(c => c.ClassName === 'KeyframeMarker')]; },
+  },
+});
+defineClass('KeyframeMarker', 'Instance', { props: { Value: ['string', ''] } });
+defineClass('PoseBase', 'Instance', { creatable: false, props: { EasingStyle: ['Enum.PoseEasingStyle', 'Linear'], EasingDirection: ['Enum.PoseEasingDirection', 'In'], Weight: ['number', 1] } });
+defineClass('Pose', 'PoseBase', {
+  props: { CFrame: ['CFrame', null] },
+  methods: {
+    AddSubPose(self, p) { if (p instanceof Instance) self.dm.setParent(p, self); return []; },
+    RemoveSubPose(self, p) { if (p instanceof Instance && p.parent === self) self.dm.setParent(p, null); return []; },
+    GetSubPoses(self) { return [self.children.filter(c => c.ClassName === 'Pose')]; },
+  },
+});
+defineClass('Animation', 'Instance', { props: { AnimationId: ['string', ''] } });
+// Roblox registers a sequence as a temporary id (for testing in Studio); here
+// that is the way to play one, as is "studio://" plus its full name
+// ("studio://ServerStorage.RBX_ANIMSAVES.Rig.Wave"). UNSURE: the id's form.
+defineClass('KeyframeSequenceProvider', 'Instance', {
+  creatable: false, service: true,
+  methods: {
+    RegisterKeyframeSequence(self, ks) { return [self.dm.registerSequence(ks)]; },
+    RegisterActiveKeyframeSequence(self, ks) { return [self.dm.registerSequence(ks)]; },
+  },
+});
+defineClass('Animator', 'Instance', {
+  methods: {
+    LoadAnimation(self, anim) { return [self.dm.loadAnimation(self, anim)]; },
+    GetPlayingAnimationTracks(self) { return [(self.tracks || []).filter(t => t.playing)]; },
+    StepAnimations(self, dt) { self.dm.stepAnimator(self, +dt || 0); return []; },
+  },
+  events: ['AnimationPlayed'],
+});
+defineClass('AnimationTrack', 'Instance', {
+  creatable: false,
+  props: {
+    Animation: ['Instance', null], IsPlaying: ['bool', false], Length: ['number', 0], Looped: ['bool', false], Priority: ['Enum.AnimationPriority', 'Action'],
+    Speed: ['number', 1], TimePosition: ['number', 0], WeightCurrent: ['number', 0], WeightTarget: ['number', 0],
+  },
+  methods: {
+    Play(self, fade = 0.1, weight = 1, speed = 1) { self.dm.playTrack(self, fade ?? 0.1, weight ?? 1, speed ?? 1); return []; },
+    Stop(self, fade = 0.1) { self.dm.stopTrack(self, fade ?? 0.1); return []; },
+    AdjustSpeed(self, speed = 1) { self.props.Speed = +(speed ?? 1); return []; },
+    AdjustWeight(self, weight = 1, fade = 0.1) { self.fadeFrom = self.weight; self.target = Math.max(0, +(weight ?? 1)); self.fade = Math.max(0, +(fade ?? 0.1)); self.props.WeightTarget = self.target; return []; },
+    GetTimeOfKeyframe(self, name) { const k = self.seq && self.seq.names.find(n => n.name === name); if (!k) throw new Error(`Could not find a keyframe by that name!`); return [k.t]; },
+  },
+  events: ['DidLoop', 'Ended', 'KeyframeReached', 'Stopped'],
 });
 // Value objects: Changed fires with the new value (not the property name), as in Roblox.
 defineClass('ValueBase', 'Instance', { creatable: false });
@@ -496,6 +567,9 @@ export class DataModel {
     this.coreGui = Object.fromEntries(Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All').map(k => [k, k !== 'PlayerList']));
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
     this.tweens = new Set(); // playing (or delayed or paused) tweens
+    this.animators = new Set(); // Animators with loaded tracks
+    this.sequences = new Map(); // registered KeyframeSequences: id -> sequence
+    this.nextSequence = 1;
     this.hooks = {};    // runtime callbacks the API needs (e.g. Player:LoadCharacter)
     this.game = new Instance(this, 'DataModel');
     this.game.props.Name = 'Game';
@@ -661,6 +735,66 @@ export class DataModel {
     const I = tw.props.TweenInfo, e = ease(alpha, I.style, I.dir), inst = tw.props.Instance;
     tw.goals.forEach(([k, to], i) => this.set(inst, k, lerpValue(tw.from[i], to, alpha >= 1 ? 1 : alpha <= 0 ? 0 : e)));
   }
+  // ---- animation (Animator, AnimationTrack; the maths is in animation.js)
+  registerSequence(ks) {
+    if (!(ks instanceof Instance) || ks.ClassName !== 'KeyframeSequence') throw new Error('Unable to cast value to KeyframeSequence');
+    const id = 'rbxtemp://' + this.nextSequence++;
+    this.sequences.set(id, ks);
+    return id;
+  }
+  // The KeyframeSequence an AnimationId names (registered, or studio:// and a full name), or null.
+  sequenceOf(id) {
+    if (this.sequences.has(id)) return this.sequences.get(id);
+    const m = /^studio:\/\/(.+)$/.exec(id || '');
+    if (!m) return null;
+    let at = this.game;
+    for (const name of m[1].split('.')) at = at && (at === this.game && CLASSES[name] && CLASSES[name].service ? this.service(name) : at.children.find(c => c.props.Name === name));
+    return at && at.ClassName === 'KeyframeSequence' ? at : null;
+  }
+  animatorOf(hum) {
+    let a = hum.children.find(c => c.ClassName === 'Animator');
+    if (!a) { a = new Instance(this, 'Animator'); this.setParent(a, hum); }
+    return a;
+  }
+  loadAnimation(animator, anim) {
+    if (!(anim instanceof Instance) || anim.ClassName !== 'Animation') throw new Error('Unable to cast value to Object');
+    const ks = this.sequenceOf(anim.props.AnimationId);
+    if (!ks) console.warn(`Failed to load animation with sanitized ID ${anim.props.AnimationId}`);
+    const tr = new Instance(this, 'AnimationTrack');
+    tr.props.Name = anim.props.Name;
+    tr.props.Animation = anim;
+    tr.seq = ks ? compileSequence(ks) : null;
+    tr.props.Length = tr.seq ? tr.seq.length : 0;
+    tr.props.Looped = tr.seq ? !!tr.seq.loop : false;
+    tr.props.Priority = tr.seq ? tr.seq.priority : 'Action';
+    tr.animator = animator; tr.time = 0; tr.weight = 0; tr.target = 0; tr.fade = 0; tr.fadeFrom = 0; tr.playing = false;
+    return tr;
+  }
+  playTrack(tr, fade, weight, speed) {
+    const a = tr.animator;
+    if (!a || a.destroyed) return;
+    a.tracks = a.tracks || [];
+    if (!a.tracks.includes(tr)) a.tracks.push(tr);
+    this.animators.add(a);
+    if (!tr.playing) { tr.time = 0; tr.ended = false; }
+    tr.playing = true;
+    tr.fadeFrom = tr.weight; tr.target = Math.max(0, +weight); tr.fade = Math.max(0, +fade);
+    if (tr.fade === 0) tr.weight = tr.target;
+    tr.props.Speed = +speed; tr.props.IsPlaying = true; tr.props.WeightTarget = tr.target; tr.props.TimePosition = tr.time; tr.lastTime = tr.time;
+    this.fire(a, 'AnimationPlayed', [tr]);
+  }
+  stopTrack(tr, fade) { stopTrack(tr, +fade, this.trackOps()); }
+  trackOps() { return { fire: (i, e, a) => this.fire(i, e, a), set: (i, k, v) => { i.props[k] = v; if (k === 'TimePosition') i.lastTime = v; } }; }
+  stepAnimator(a, dt) {
+    for (const tr of a.tracks || []) if (tr.props.TimePosition !== tr.lastTime) tr.time = tr.props.TimePosition; // a script seeked
+    stepTracks(a, dt, this.trackOps());
+  }
+  stepAnimations(dt) {
+    for (const a of [...this.animators]) {
+      if (a.destroyed || !(a.tracks && a.tracks.length)) { this.animators.delete(a); continue; }
+      this.stepAnimator(a, dt);
+    }
+  }
   // Instance:Clone(): a copy of inst and its Archivable descendants, parent
   // nil. References inside the copied tree (a Model's PrimaryPart, an
   // ObjectValue's Value) point at the copies; outside ones are kept.
@@ -719,7 +853,7 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ']);
+const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
@@ -727,6 +861,8 @@ export function propertiesOf(cls) {
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) for (const [k, [ty]] of Object.entries(c.props)) out.push({ name: k, type: ty, owner: c.name, readOnly: READ_ONLY.has(c.name + '.' + k) });
   return out;
 }
+/** A class's method (for engine-side tests and tools): fn(self, ...args) -> [returns]. */
+export function methodOf(cls, name) { return lookup(cls, 'methods', name); }
 export function classInfo(cls) { const c = CLASSES[cls]; return c ? { creatable: c.creatable, service: c.service, base: c.base } : null; }
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 
