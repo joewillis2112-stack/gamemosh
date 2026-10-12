@@ -9,7 +9,7 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
 - **Rendering range (task 56):** done. PLAN.md, "Rendering range".
 - **Character maker, stage 1 (2D reference → blocky):** done and tested. `web/maker.html`, `web/runtime/charmaker.js`.
 - **Character maker, stage 2 (generated model → rigged character):** rigging done and tested; realistic generation works through free Hugging Face Spaces plus a CPU texturer (known defects: blotchy back, hip flaps). `web/runtime/rigmesh.js`, `tools/stage2/` (its README has the routes, setup and how the fit works), PLAN.md "Stage 2 built".
-- **Mesh editing ported from Blender (task 57):** designed, half set up, blocked on a permission rule. PLAN.md, "Mesh editing, design".
+- **Mesh editing (task 57):** done another way, 2026-10-12: 3DOO's open rebuild of Blender's BMesh kernel incorporated (`web/modeling/`), with the editor's Edit Mode. No permission rule needed. PLAN.md, "Mesh editing, done another way".
 
 ## Stage 2: what's next
 
@@ -49,13 +49,9 @@ All verified working in this container:
 | WebSearch, WebFetch, Google Drive | ok |
 | ZeroGPU quota | spent for today; resets about 07:50 UTC on 2026-10-12 |
 
-## Mesh editing: what's blocking
+## Mesh editing
 
-Unchanged. The auto-mode check refuses to run binaries built from Blender's downloaded source; it needs this in the repo's `.claude/settings.json` (still not there):
-
-```json
-{ "permissions": { "allow": ["Bash(bash tools/blender-build.sh:*)", "Bash(bash claudestudio/tools/blender-build.sh:*)"] } }
-```
+No longer blocked: the compile-Blender plan was dropped for 3DOO's kernel (see PLAN.md). `tools/blender-build.sh` stays only as a way to check against real Blender, and isn't needed.
 
 ## Setup in a fresh container
 

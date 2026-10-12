@@ -1,0 +1,1572 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  type Vec3,
+  add,
+  composeMatrix,
+  createTransform,
+  cross,
+  degToRad,
+  equals,
+  length,
+  sub,
+  vec3,
+} from '../math';
+import { BMesh, cloneMesh } from '../mesh';
+import { booleanMesh } from '../ops/boolean';
+import { subdivideEdges, subdivideFaces, triangulateFaces } from '../ops/subdivide';
+import { createBox, createGrid, createPlane, createUVSphere } from '../primitives';
+
+import {
+  type LatticeCage,
+  type LatticeResolution,
+  applyModifier,
+  createLatticeMesh,
+  createModifier,
+  evaluateModifiers,
+  latticePoints,
+  latticeRestPoints,
+  resampleLattice,
+} from './index';
+import type {
+  ArrayModifier,
+  BendModifier,
+  LatticeModifier,
+  MirrorModifier,
+  ReloopModifier,
+  RemeshModifier,
+  SolidifyModifier,
+  SubdivideModifier,
+  SubsurfModifier,
+  TwistModifier,
+  WeldModifier,
+} from './types';
+
+function mirror(overrides: Partial<MirrorModifier> = {}): MirrorModifier {
+  return { ...(createModifier('mirror') as MirrorModifier), ...overrides };
+}
+
+describe('mirror modifier', () => {
+  it('doubles geometry across the X axis', () => {
+    const plane = createPlane(2);
+    // Move the plane fully into +X so the mirror has something to reflect.
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    const result = evaluateModifiers(plane, [mirror({ merge: false })]);
+
+    expect(result.faces.size).toBe(2);
+    expect(result.verts.size).toBe(8);
+    expect(result.boundingBox().min.x).toBeCloseTo(-3);
+    expect(result.boundingBox().max.x).toBeCloseTo(3);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('welds the seam when merge is on', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) {
+      vert.co = { ...vert.co, x: Math.max(0, vert.co.x) };
+    }
+
+    const result = evaluateModifiers(plane, [mirror({ merge: true, mergeThreshold: 0.01 })]);
+
+    expect(result.verts.size).toBe(6);
+    expect(result.faces.size).toBe(2);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('keeps the mirrored half facing outward', () => {
+    const cube = createBox(2);
+    for (const vert of cube.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 3 };
+
+    const result = evaluateModifiers(cube, [mirror({ merge: false })]);
+
+    for (const face of result.faces.values()) {
+      const center = result.faceCenter(face);
+      const origin = center.x > 0 ? { x: 3, y: 0, z: 0 } : { x: -3, y: 0, z: 0 };
+      const outward =
+        (center.x - origin.x) * face.normal.x +
+        (center.y - origin.y) * face.normal.y +
+        (center.z - origin.z) * face.normal.z;
+      expect(outward).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves the mesh alone when no axis is enabled', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [mirror({ axes: { x: false, y: false, z: false } })]);
+    expect(result.faces.size).toBe(6);
+  });
+
+  it('mirrors about the 3D cursor when the origin points at it', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    // Cursor at x = 4, so the copy lands at 5..7 rather than -3..-1.
+    const result = evaluateModifiers(plane, [mirror({ merge: false, origin: 'cursor' })], {
+      cursor: { x: 4, y: 0, z: 0 },
+    });
+
+    expect(result.faces.size).toBe(2);
+    expect(result.boundingBox().min.x).toBeCloseTo(1);
+    expect(result.boundingBox().max.x).toBeCloseTo(7);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('falls back to the object origin when no cursor is supplied', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    const result = evaluateModifiers(plane, [mirror({ merge: false, origin: 'cursor' })]);
+
+    expect(result.boundingBox().min.x).toBeCloseTo(-3);
+    expect(result.boundingBox().max.x).toBeCloseTo(3);
+  });
+
+  it('welds and bisects against the cursor plane too', () => {
+    const plane = createPlane(2);
+    // Spans 1..3, straddling nothing; the cursor plane at x = 2 cuts it in half.
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    const result = evaluateModifiers(
+      plane,
+      [mirror({ origin: 'cursor', bisect: true, merge: true, mergeThreshold: 0.001 })],
+      { cursor: { x: 2, y: 0, z: 0 } },
+    );
+    const box = result.boundingBox();
+
+    // The cut keeps 2..3, the reflection rebuilds 1..2, and the seam at the
+    // cursor plane is welded rather than left as a doubled edge.
+    expect(box.min.x).toBeCloseTo(1);
+    expect(box.max.x).toBeCloseTo(3);
+    expect(result.faces.size).toBe(2);
+    expect(result.verts.size).toBe(6);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('mirrors wire edges, which carry no loop to copy', () => {
+    const mesh = new BMesh();
+    const a = mesh.addVert({ x: 1, y: 0, z: 0 });
+    const b = mesh.addVert({ x: 2, y: 1, z: 0 });
+    mesh.addEdge(a, b);
+
+    const result = evaluateModifiers(mesh, [mirror({ merge: false })]);
+
+    expect(result.verts.size).toBe(4);
+    expect(result.edges.size).toBe(2);
+    expect(result.boundingBox().min.x).toBeCloseTo(-2);
+  });
+
+  it('merges across the seam without welding the rest of the mesh', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 5 };
+    // A pair tighter than the threshold, but nowhere near the mirror plane.
+    const a = plane.addVert({ x: 5, y: 0, z: 0 });
+    const b = plane.addVert({ x: 5.0005, y: 0, z: 0 });
+    const c = plane.addVert({ x: 5, y: 2, z: 0 });
+    plane.addFace([a, b, c]);
+
+    const result = evaluateModifiers(plane, [mirror({ merge: true, mergeThreshold: 0.001 })]);
+
+    expect(result.verts.size).toBe(14);
+    expect(result.faces.size).toBe(4);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('bisects a straddling face instead of dropping it whole', () => {
+    const plane = createPlane(2);
+    // Spans -3..1, so the single face crosses the mirror plane.
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x * 2 - 1 };
+
+    const result = evaluateModifiers(plane, [
+      mirror({ bisect: true, merge: true, mergeThreshold: 0.001 }),
+    ]);
+    const box = result.boundingBox();
+
+    expect(box.min.x).toBeCloseTo(-1);
+    expect(box.max.x).toBeCloseTo(1);
+    expect(result.faces.size).toBe(2);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('reflects the axis it is given and leaves the other two coordinates alone', () => {
+    const mesh = new BMesh();
+    const sources = [
+      { x: 1, y: 2, z: 3 },
+      { x: 4, y: -1, z: 0.5 },
+      { x: 2, y: 5, z: -2 },
+    ];
+    mesh.addFace(sources.map((co) => mesh.addVert(co)));
+
+    const result = evaluateModifiers(mesh, [mirror({ merge: false })]);
+    const images = [...result.verts.values()].filter((vert) => vert.co.x < 0);
+
+    expect(images).toHaveLength(3);
+    for (const source of sources) {
+      const image = images.find((vert) => Math.abs(vert.co.x + source.x) < 1e-9);
+      expect(image).toBeDefined();
+      expect(image?.co.y).toBeCloseTo(source.y);
+      expect(image?.co.z).toBeCloseTo(source.z);
+    }
+  });
+
+  it('mirrors about Y and about Z, not only about X', () => {
+    const acrossY = createPlane(2);
+    for (const vert of acrossY.verts.values()) vert.co = { ...vert.co, y: vert.co.y + 2 };
+    const y = evaluateModifiers(acrossY, [
+      mirror({ axes: { x: false, y: true, z: false }, merge: false }),
+    ]);
+
+    expect(y.verts.size).toBe(8);
+    expect(y.boundingBox().min.y).toBeCloseTo(-2);
+    expect(y.boundingBox().max.y).toBeCloseTo(2);
+    // The copy is the same width as the original: only Y was touched.
+    expect(y.boundingBox().min.x).toBeCloseTo(-1);
+    expect(y.boundingBox().max.x).toBeCloseTo(1);
+
+    const acrossZ = createPlane(2);
+    for (const vert of acrossZ.verts.values()) vert.co = { ...vert.co, z: vert.co.z + 2 };
+    const z = evaluateModifiers(acrossZ, [
+      mirror({ axes: { x: false, y: false, z: true }, merge: false }),
+    ]);
+
+    expect(z.verts.size).toBe(8);
+    expect(z.boundingBox().min.z).toBeCloseTo(-3);
+    expect(z.boundingBox().max.z).toBeCloseTo(3);
+    expect(z.boundingBox().min.x).toBeCloseTo(-1);
+    expect(z.validate()).toEqual([]);
+  });
+
+  it('builds all eight copies when every axis is on', () => {
+    const cube = createBox(1);
+    for (const vert of cube.verts.values()) {
+      vert.co = { x: vert.co.x + 2, y: vert.co.y + 2, z: vert.co.z + 2 };
+    }
+
+    const result = evaluateModifiers(cube, [
+      mirror({ axes: { x: true, y: true, z: true }, merge: false }),
+    ]);
+    const box = result.boundingBox();
+
+    expect(result.verts.size).toBe(64);
+    expect(result.faces.size).toBe(48);
+    for (const axis of ['x', 'y', 'z'] as const) {
+      expect(box.min[axis]).toBeCloseTo(-2.5);
+      expect(box.max[axis]).toBeCloseTo(2.5);
+    }
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('keeps every copy of a three-axis mirror facing outward', () => {
+    const cube = createBox(1);
+    for (const vert of cube.verts.values()) {
+      vert.co = { x: vert.co.x + 2, y: vert.co.y + 2, z: vert.co.z + 2 };
+    }
+
+    const result = evaluateModifiers(cube, [
+      mirror({ axes: { x: true, y: true, z: true }, merge: false }),
+    ]);
+
+    // Each copy sits in its own octant, so a face points outward when it points
+    // away from that copy's centre rather than away from the origin.
+    for (const face of result.faces.values()) {
+      const center = result.faceCenter(face);
+      const origin = {
+        x: Math.sign(center.x) * 2,
+        y: Math.sign(center.y) * 2,
+        z: Math.sign(center.z) * 2,
+      };
+      const outward =
+        (center.x - origin.x) * face.normal.x +
+        (center.y - origin.y) * face.normal.y +
+        (center.z - origin.z) * face.normal.z;
+      expect(outward).toBeGreaterThan(0);
+    }
+  });
+
+  it('snaps vertices within the threshold onto the plane when clipping is on', () => {
+    // The near edge sits 0.0005 past the plane, well inside the threshold.
+    const offPlane = () => {
+      const plane = createPlane(2);
+      for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 1.0005 };
+      return plane;
+    };
+
+    const clipped = evaluateModifiers(offPlane(), [
+      mirror({ clipping: true, merge: true, mergeThreshold: 0.01 }),
+    ]);
+    const loose = evaluateModifiers(offPlane(), [
+      mirror({ clipping: false, merge: true, mergeThreshold: 0.01 }),
+    ]);
+
+    // Merge welds the seam either way. Only clipping puts it on the plane.
+    expect(clipped.verts.size).toBe(6);
+    expect(loose.verts.size).toBe(6);
+    expect([...clipped.verts.values()].filter((vert) => vert.co.x === 0)).toHaveLength(2);
+    expect([...loose.verts.values()].filter((vert) => vert.co.x === 0)).toHaveLength(0);
+    expect(clipped.validate()).toEqual([]);
+  });
+
+  it('carries the material and the shading of each face onto its copy', () => {
+    const mesh = new BMesh();
+    const ring = [
+      mesh.addVert({ x: 1, y: 0, z: 0 }),
+      mesh.addVert({ x: 2, y: 1, z: 0 }),
+      mesh.addVert({ x: 2, y: 0, z: 1 }),
+    ];
+    mesh.addFace(ring, { materialIndex: 3, smooth: true });
+
+    const result = evaluateModifiers(mesh, [mirror({ merge: false })]);
+
+    expect(result.faces.size).toBe(2);
+    for (const face of result.faces.values()) {
+      expect(face.materialIndex).toBe(3);
+      expect(face.smooth).toBe(true);
+    }
+  });
+
+  it('follows the base mesh when its vertices move', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    const before = evaluateModifiers(plane, [mirror({ merge: false })]);
+    expect(before.boundingBox().max.x).toBeCloseTo(3);
+
+    // The stack never writes to the mesh it was handed, so a drag lands on the
+    // base geometry and the next evaluation is what carries the reflection.
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 3 };
+    expect(plane.verts.size).toBe(4);
+    expect(plane.faces.size).toBe(1);
+
+    const after = evaluateModifiers(plane, [mirror({ merge: false })]);
+
+    expect(after.verts.size).toBe(8);
+    expect(after.boundingBox().min.x).toBeCloseTo(-6);
+    expect(after.boundingBox().max.x).toBeCloseTo(6);
+  });
+
+  it('leaves nothing behind when bisect finds no positive half', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x - 3 };
+
+    const result = evaluateModifiers(plane, [mirror({ bisect: true })]);
+
+    expect(result.faces.size).toBe(0);
+    expect(result.edges.size).toBe(0);
+    expect(result.verts.size).toBe(0);
+  });
+
+  it('cuts a wire at the plane and mirrors the half it keeps', () => {
+    const mesh = new BMesh();
+    const a = mesh.addVert({ x: -1, y: 0, z: 0 });
+    const b = mesh.addVert({ x: 3, y: 0, z: 0 });
+    mesh.addEdge(a, b);
+
+    const result = evaluateModifiers(mesh, [mirror({ bisect: true, merge: true })]);
+
+    expect(result.verts.size).toBe(3);
+    expect(result.edges.size).toBe(2);
+    expect(result.boundingBox().min.x).toBeCloseTo(-3);
+    expect(result.boundingBox().max.x).toBeCloseTo(3);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('rebuilds a whole sphere from one octant with the seams closed', () => {
+    const sphere = createUVSphere(1, 16, 12);
+
+    const result = evaluateModifiers(sphere, [
+      mirror({ axes: { x: true, y: true, z: true }, bisect: true, merge: true }),
+    ]);
+    const box = result.boundingBox();
+
+    for (const axis of ['x', 'y', 'z'] as const) {
+      expect(box.min[axis]).toBeCloseTo(-1);
+      expect(box.max[axis]).toBeCloseTo(1);
+    }
+    // Every seam the three cuts opened is welded shut again, so no edge is left
+    // carrying a single face.
+    expect([...result.edges.values()].every((edge) => edge.loops.length === 2)).toBe(true);
+    for (const face of result.faces.values()) {
+      const center = result.faceCenter(face);
+      const outward =
+        center.x * face.normal.x + center.y * face.normal.y + center.z * face.normal.z;
+      expect(outward).toBeGreaterThan(0);
+    }
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('does not double a face that lies in the mirror plane', () => {
+    const mesh = new BMesh();
+    mesh.addFace([
+      mesh.addVert({ x: 0, y: 0, z: 0 }),
+      mesh.addVert({ x: 0, y: 1, z: 0 }),
+      mesh.addVert({ x: 0, y: 0, z: 1 }),
+    ]);
+
+    const result = evaluateModifiers(mesh, [mirror({ merge: true })]);
+
+    expect(result.verts.size).toBe(3);
+    expect(result.faces.size).toBe(1);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('bakes through Apply exactly what the live stack draws', () => {
+    const cube = createBox(1);
+    for (const vert of cube.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+    const modifier = mirror({ merge: false });
+
+    const display = evaluateModifiers(cube, [modifier]);
+    const baked = applyModifier(cloneMesh(cube), modifier);
+
+    expect(baked.verts.size).toBe(display.verts.size);
+    expect(baked.faces.size).toBe(display.faces.size);
+    expect(baked.boundingBox()).toEqual(display.boundingBox());
+    expect(baked.validate()).toEqual([]);
+  });
+});
+
+describe('array modifier', () => {
+  it('repeats the mesh along the relative offset', () => {
+    const cube = createBox(2);
+    const modifier = createModifier('array') as ArrayModifier;
+
+    const result = evaluateModifiers(cube, [{ ...modifier, count: 3 }]);
+
+    expect(result.faces.size).toBe(18);
+    expect(result.verts.size).toBe(24);
+    expect(result.boundingBox().max.x).toBeCloseTo(5);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('welds copies together when merge is on', () => {
+    const cube = createBox(2);
+    const modifier = createModifier('array') as ArrayModifier;
+
+    const result = evaluateModifiers(cube, [
+      { ...modifier, count: 2, merge: true, mergeThreshold: 0.01 },
+    ]);
+
+    expect(result.verts.size).toBe(12);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('is a no-op at a count of one', () => {
+    const cube = createBox(2);
+    const modifier = createModifier('array') as ArrayModifier;
+    expect(evaluateModifiers(cube, [{ ...modifier, count: 1 }]).faces.size).toBe(6);
+  });
+});
+
+describe('solidify modifier', () => {
+  it('turns an open plane into a closed slab', () => {
+    const plane = createPlane(2);
+    const modifier = createModifier('solidify') as SolidifyModifier;
+
+    const result = evaluateModifiers(plane, [{ ...modifier, thickness: 0.5 }]);
+
+    expect(result.faces.size).toBe(6);
+    expect(result.verts.size).toBe(8);
+    expect([...result.edges.values()].every((edge) => edge.loops.length === 2)).toBe(true);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('offsets by the requested thickness', () => {
+    const plane = createPlane(2);
+    const modifier = createModifier('solidify') as SolidifyModifier;
+
+    const result = evaluateModifiers(plane, [{ ...modifier, thickness: 0.4 }]);
+    const box = result.boundingBox();
+
+    expect(box.max.y - box.min.y).toBeCloseTo(0.4);
+  });
+
+  it('centres the shell with even offset', () => {
+    const plane = createPlane(2);
+    const modifier = createModifier('solidify') as SolidifyModifier;
+
+    const result = evaluateModifiers(plane, [{ ...modifier, thickness: 0.4, evenOffset: true }]);
+    const box = result.boundingBox();
+
+    expect(box.max.y).toBeCloseTo(0.2);
+    expect(box.min.y).toBeCloseTo(-0.2);
+  });
+});
+
+describe('bend modifier', () => {
+  function bend(angles: Partial<BendModifier['angles']>, overrides: Partial<BendModifier> = {}) {
+    const modifier = createModifier('bend') as BendModifier;
+    return { ...modifier, angles: { x: 0, y: 0, z: 0, ...angles }, ...overrides };
+  }
+
+  /** A straight wire along X, from `from` to `to`, in `pieces` equal edges. */
+  function segment(from = -1, to = 1, pieces = 1): BMesh {
+    const mesh = new BMesh();
+    let previous = mesh.addVert({ x: from, y: 0, z: 0 });
+    for (let i = 1; i <= pieces; i++) {
+      const vert = mesh.addVert({ x: from + ((to - from) * i) / pieces, y: 0, z: 0 });
+      mesh.addEdge(previous, vert);
+      previous = vert;
+    }
+    return mesh;
+  }
+
+  const coords = (mesh: BMesh) => [...mesh.verts.values()].map((vert) => vert.co);
+
+  it('closes a straight wire into a ring at 360 degrees', () => {
+    const result = evaluateModifiers(segment(-1, 1, 16), [bend({ z: 360 })]);
+
+    // The whole length of 2 goes once round the rim, centred on +Y.
+    const radius = 2 / (2 * Math.PI);
+    for (const co of coords(result)) {
+      expect(Math.hypot(co.x, co.y - radius)).toBeCloseTo(radius, 9);
+      expect(co.z).toBe(0);
+    }
+    const ends = coords(result);
+    expect(ends[0].x).toBeCloseTo(ends[16].x, 9);
+    expect(ends[0].y).toBeCloseTo(ends[16].y, 9);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('only moves the vertices there are, cutting nothing', () => {
+    const result = evaluateModifiers(createPlane(2), [bend({ z: 90 })]);
+
+    expect(result.verts.size).toBe(4);
+    expect(result.edges.size).toBe(4);
+    expect(result.faces.size).toBe(1);
+    // Each end tips by 45 degrees, onto the arc the bend runs along.
+    const radius = 2 / (Math.PI / 2);
+    for (const co of coords(result)) {
+      expect(Math.abs(co.x)).toBeCloseTo(radius * Math.SQRT1_2, 9);
+      expect(co.y).toBeCloseTo(radius * (1 - Math.SQRT1_2), 9);
+    }
+  });
+
+  it('curls a mesh along the loops it already has', () => {
+    const grid = createGrid(2, 8);
+
+    const result = evaluateModifiers(grid, [bend({ z: 90 })]);
+
+    expect(result.verts.size).toBe(81);
+    expect(result.edges.size).toBe(grid.edges.size);
+    expect(result.faces.size).toBe(64);
+    const radius = 2 / (Math.PI / 2);
+    const box = result.boundingBox();
+    expect(box.max.x).toBeCloseTo(radius * Math.SQRT1_2, 9);
+    expect(box.min.x).toBeCloseTo(-radius * Math.SQRT1_2, 9);
+    expect(box.max.y).toBeCloseTo(radius * (1 - Math.SQRT1_2), 9);
+    expect(box.min.y).toBeCloseTo(0, 9);
+    expect(box.min.z).toBeCloseTo(-1, 9);
+    expect(box.max.z).toBeCloseTo(1, 9);
+  });
+
+  it('curls toward the positive side for a positive angle and away for a negative one', () => {
+    const up = evaluateModifiers(createGrid(2, 8), [bend({ z: 90 })]).boundingBox();
+    const down = evaluateModifiers(createGrid(2, 8), [bend({ z: -90 })]).boundingBox();
+
+    expect(up.min.y).toBeCloseTo(0, 9);
+    expect(up.max.y).toBeGreaterThan(0.1);
+    expect(down.max.y).toBeCloseTo(0, 9);
+    expect(down.min.y).toBeLessThan(-0.1);
+  });
+
+  it('curls the longer of the two sides square to the axis', () => {
+    const plank = createGrid(2, 8);
+    for (const vert of plank.verts.values()) vert.co = { ...vert.co, z: vert.co.z * 3 };
+
+    // Around Y, the plank's length runs along Z and curls toward X, in the floor.
+    const flat = evaluateModifiers(plank, [bend({ y: 90 })]).boundingBox();
+    expect(flat.min.y).toBe(0);
+    expect(flat.max.y).toBe(0);
+    expect(flat.max.x - flat.min.x).toBeGreaterThan(0.5);
+
+    // Around X, the same length curls up off the floor instead.
+    const raised = evaluateModifiers(plank, [bend({ x: 90 })]).boundingBox();
+    expect(raised.max.y - raised.min.y).toBeGreaterThan(0.5);
+    expect(raised.min.x).toBeCloseTo(-1, 9);
+    expect(raised.max.x).toBeCloseTo(1, 9);
+  });
+
+  it('bends an object as it is drawn, scale and all', () => {
+    // Stored square, drawn three times as deep as it is wide.
+    const grid = createGrid(1, 8);
+    const scale = { x: 1, y: 1, z: 3 };
+
+    const result = evaluateModifiers(grid, [bend({ y: 90 })], { scale });
+
+    // As drawn, the depth is the longer side, so it is what curls, toward +X,
+    // and the line down the middle of it lands on a true quarter circle.
+    const radius = 3 / (Math.PI / 2);
+    const before = coords(grid);
+    const middle = coords(result).filter((_, i) => before[i].x === 0);
+    expect(middle).toHaveLength(9);
+    for (const co of middle) {
+      expect(Math.hypot(co.x * scale.x - radius, co.z * scale.z)).toBeCloseTo(radius, 9);
+    }
+  });
+
+  it('bends the same at any uniform scale', () => {
+    const plank = createBox(2);
+    for (const vert of plank.verts.values()) vert.co = { ...vert.co, x: vert.co.x * 3 };
+
+    const plain = coords(evaluateModifiers(plank, [bend({ x: 30, z: 120 })]));
+    const scaled = coords(
+      evaluateModifiers(plank, [bend({ x: 30, z: 120 })], { scale: { x: 2.5, y: 2.5, z: 2.5 } }),
+    );
+
+    scaled.forEach((co, i) => {
+      expect(co.x).toBeCloseTo(plain[i].x, 9);
+      expect(co.y).toBeCloseTo(plain[i].y, 9);
+      expect(co.z).toBeCloseTo(plain[i].z, 9);
+    });
+  });
+
+  it('bends around X, then Y, then Z, as separate bends stacked in that order would', () => {
+    const plank = createBox(2);
+    for (const vert of plank.verts.values()) vert.co = { ...vert.co, x: vert.co.x * 3 };
+
+    const together = evaluateModifiers(plank, [bend({ x: 30, y: -50, z: 120 })]);
+    const stacked = evaluateModifiers(plank, [bend({ x: 30 }), bend({ y: -50 }), bend({ z: 120 })]);
+    const zOnly = evaluateModifiers(plank, [bend({ z: 120 })]);
+
+    expect(coords(together)).toEqual(coords(stacked));
+    expect(together.boundingBox()).not.toEqual(zOnly.boundingBox());
+    expect(together.validate()).toEqual([]);
+  });
+
+  it('stops at a full turn', () => {
+    const full = evaluateModifiers(segment(), [bend({ z: 360 })]);
+    const past = evaluateModifiers(segment(), [bend({ z: 720 })]);
+
+    expect(coords(past)).toEqual(coords(full));
+  });
+
+  it('holds the mesh still at the 3D cursor when it is set as the origin', () => {
+    const modifier = bend({ z: 360 }, { origin: 'cursor' });
+    const result = evaluateModifiers(segment(), [modifier], { cursor: { x: -1, y: 0, z: 0 } });
+
+    // The end at the cursor stays put, and the far end comes all the way round to it.
+    const [start, end] = coords(result);
+    expect(start).toEqual({ x: -1, y: 0, z: 0 });
+    expect(end.x).toBeCloseTo(-1, 9);
+    expect(end.y).toBeCloseTo(0, 9);
+  });
+});
+
+describe('twist modifier', () => {
+  function twist(angles: Partial<TwistModifier['angles']>, overrides: Partial<TwistModifier> = {}) {
+    const modifier = createModifier('twist') as TwistModifier;
+    return { ...modifier, angles: { x: 0, y: 0, z: 0, ...angles }, ...overrides };
+  }
+
+  const coords = (mesh: BMesh) => [...mesh.verts.values()].map((vert) => vert.co);
+
+  /** The box's vertices run bottom then top, each anticlockwise from (-1, -1). */
+  function expectAt(mesh: BMesh, index: number, [x, y, z]: [number, number, number]) {
+    const co = coords(mesh)[index];
+    expect(co.x).toBeCloseTo(x, 9);
+    expect(co.y).toBeCloseTo(y, 9);
+    expect(co.z).toBeCloseTo(z, 9);
+  }
+
+  it('turns each end half the angle about the origin, anticlockwise seen from above', () => {
+    const box = createBox(2);
+
+    const result = evaluateModifiers(box, [twist({ y: 90 })]);
+
+    // The top corner on (1, 1) turns +45 degrees onto the X axis, and the bottom
+    // one below it turns -45 degrees onto the Z axis.
+    expectAt(result, 6, [Math.SQRT2, 1, 0]);
+    expectAt(result, 2, [0, -1, Math.SQRT2]);
+    expect(result.verts.size).toBe(8);
+    expect(result.faces.size).toBe(6);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('holds the mesh level with the 3D cursor still, and turns about a line through it', () => {
+    const modifier = twist({ y: 90 }, { origin: 'cursor' });
+
+    const result = evaluateModifiers(createBox(2), [modifier], { cursor: { x: 1, y: -1, z: 1 } });
+
+    // The bottom stays put, and so does the top corner on the line up from the
+    // cursor. The opposite top corner swings a quarter turn round that line.
+    expectAt(result, 2, [1, -1, 1]);
+    expectAt(result, 0, [-1, -1, -1]);
+    expectAt(result, 6, [1, 1, 1]);
+    expectAt(result, 4, [-1, 1, 3]);
+  });
+
+  it('twists an object as it is drawn, scale and all', () => {
+    const scale = { x: 3, y: 1, z: 1 };
+
+    const result = evaluateModifiers(createBox(2), [twist({ y: 180 })], { scale });
+
+    // Drawn at (3, 1, 1), the top corner turns a quarter turn to (1, 1, -3), which
+    // is stored a third as far out along X.
+    expectAt(result, 6, [1 / 3, 1, -3]);
+  });
+
+  it('twists about X, then Y, then Z, as separate twists stacked in that order would', () => {
+    const plank = createBox(2);
+    for (const vert of plank.verts.values()) vert.co = { ...vert.co, x: vert.co.x * 3 };
+
+    const together = evaluateModifiers(plank, [twist({ x: 30, y: -50, z: 120 })]);
+    const stacked = evaluateModifiers(plank, [
+      twist({ x: 30 }),
+      twist({ y: -50 }),
+      twist({ z: 120 }),
+    ]);
+    const zOnly = evaluateModifiers(plank, [twist({ z: 120 })]);
+
+    expect(coords(together)).toEqual(coords(stacked));
+    expect(together.boundingBox()).not.toEqual(zOnly.boundingBox());
+  });
+
+  it('stops at four full turns', () => {
+    const most = evaluateModifiers(createBox(2), [twist({ y: 1440 })]);
+    const past = evaluateModifiers(createBox(2), [twist({ y: 2000 })]);
+
+    expect(coords(past)).toEqual(coords(most));
+  });
+
+  it('leaves a mesh with no length along the axis where it is', () => {
+    const plane = createPlane(2);
+
+    const result = evaluateModifiers(plane, [twist({ y: 90 })]);
+
+    expect(coords(result)).toEqual(coords(plane));
+  });
+});
+
+describe('lattice modifier', () => {
+  function lattice(overrides: Partial<LatticeModifier> = {}): LatticeModifier {
+    return { ...(createModifier('lattice') as LatticeModifier), objectId: 'cage', ...overrides };
+  }
+
+  /**
+   * A cage fitted exactly round the 2 m box at the origin: its unit cube is
+   * the box at half the size, so the box's corners sit on the cage's corners.
+   */
+  function cageRoundBox(resolution: LatticeResolution, move: (point: Vec3) => Vec3 = (p) => p) {
+    const cage: LatticeCage = {
+      resolution,
+      points: latticeRestPoints(resolution).map(move),
+      toCage: composeMatrix({ ...createTransform(), scale: vec3(0.5, 0.5, 0.5) }),
+      fromCage: composeMatrix({ ...createTransform(), scale: vec3(2, 2, 2) }),
+    };
+    return { lattices: new Map([['cage', cage]]) };
+  }
+
+  const isCorner = (point: Vec3) => point.x > 0.49 && point.y > 0.49 && point.z > 0.49;
+  const pullCorner = (point: Vec3) => (isCorner(point) ? vec3(1, 1, 1) : point);
+
+  function vertAt(mesh: BMesh, x: number, y: number, z: number) {
+    return [...mesh.verts.values()].find(
+      (vert) =>
+        Math.abs(vert.co.x - x) < 1e-9 &&
+        Math.abs(vert.co.y - y) < 1e-9 &&
+        Math.abs(vert.co.z - z) < 1e-9,
+    );
+  }
+
+  function expectNear(actual: Vec3, [x, y, z]: [number, number, number]) {
+    expect(actual.x).toBeCloseTo(x, 9);
+    expect(actual.y).toBeCloseTo(y, 9);
+    expect(actual.z).toBeCloseTo(z, 9);
+  }
+
+  it('builds a cage as a grid of points joined along each axis', () => {
+    const mesh = createLatticeMesh({ x: 3, y: 3, z: 3 });
+
+    expect(mesh.verts.size).toBe(27);
+    expect(mesh.edges.size).toBe(54);
+    expect(mesh.faces.size).toBe(0);
+    expect(latticePoints(mesh, { x: 3, y: 3, z: 3 })?.[0]).toEqual(vec3(-0.5, -0.5, -0.5));
+    expect(latticePoints(mesh, { x: 2, y: 3, z: 3 })).toBeNull();
+  });
+
+  it('moves nothing while the cage is at rest, whatever its interpolation', () => {
+    for (const interpolation of ['smooth', 'linear'] as const) {
+      const box = createBox(2);
+      const before = [...box.verts.values()].map((vert) => ({ ...vert.co }));
+
+      const result = evaluateModifiers(
+        box,
+        [lattice({ interpolation })],
+        cageRoundBox({ x: 3, y: 3, z: 3 }),
+      );
+
+      expect([...result.verts.values()].map((vert) => vert.co)).toEqual(before);
+    }
+  });
+
+  it('carries the corner of the mesh with the corner of the cage, exactly', () => {
+    for (const interpolation of ['smooth', 'linear'] as const) {
+      const result = evaluateModifiers(
+        createBox(2),
+        [lattice({ interpolation })],
+        cageRoundBox({ x: 3, y: 3, z: 3 }, pullCorner),
+      );
+
+      // The cage corner went from 0.5 to 1 in its own space, which is from 1
+      // to 2 in the box's, and the far corner stays where it was.
+      expect(vertAt(result, 2, 2, 2)).toBeDefined();
+      expect(vertAt(result, -1, -1, -1)).toBeDefined();
+      expect(result.validate()).toEqual([]);
+    }
+  });
+
+  it('pulls the parts nearest a moved point the furthest', () => {
+    const grid = createBox(2);
+    subdivideFaces(grid, [...grid.faces.values()], { cuts: 3, smooth: 0 });
+    const near = [...grid.verts.values()].find(
+      (vert) => vert.co.x === 0.5 && vert.co.y === 1 && vert.co.z === 0.5,
+    );
+    const far = [...grid.verts.values()].find(
+      (vert) => vert.co.x === -0.5 && vert.co.y === 1 && vert.co.z === -0.5,
+    );
+    expect(near && far).toBeTruthy();
+    const [nearId, farId] = [near?.id ?? -1, far?.id ?? -1];
+
+    const result = evaluateModifiers(
+      grid,
+      [lattice()],
+      cageRoundBox({ x: 3, y: 3, z: 3 }, (point) =>
+        isCorner(point) ? { ...point, y: point.y + 0.5 } : point,
+      ),
+    );
+
+    const rise = (id: number) => (result.verts.get(id)?.co.y ?? 0) - 1;
+    expect(rise(nearId)).toBeGreaterThan(rise(farId));
+    expect(rise(farId)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('lets go of the mesh past the cage over one cell', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 6 };
+
+    const result = evaluateModifiers(
+      plane,
+      [lattice({ interpolation: 'linear' })],
+      cageRoundBox({ x: 2, y: 2, z: 2 }, pullCorner),
+    );
+
+    expect(vertAt(result, 5, 0, -1)).toBeDefined();
+    expect(vertAt(result, 7, 0, 1)).toBeDefined();
+  });
+
+  it('applies the share of the pull STRENGTH asks for', () => {
+    const result = evaluateModifiers(
+      createBox(2),
+      [lattice({ interpolation: 'linear', strength: 0.5 })],
+      cageRoundBox({ x: 2, y: 2, z: 2 }, pullCorner),
+    );
+
+    expect(vertAt(result, 1.5, 1.5, 1.5)).toBeDefined();
+  });
+
+  it('passes the mesh through when the cage it names is missing', () => {
+    const box = createBox(2);
+
+    const result = evaluateModifiers(
+      box,
+      [lattice({ objectId: 'gone' })],
+      cageRoundBox({ x: 2, y: 2, z: 2 }, pullCorner),
+    );
+
+    expect(vertAt(result, 1, 1, 1)).toBeDefined();
+  });
+
+  it('keeps the shape a cage gives when its grid is rebuilt finer', () => {
+    const coarse = { x: 2, y: 2, z: 2 };
+    const sheared = latticeRestPoints(coarse).map((point) =>
+      point.y > 0 ? { ...point, x: point.x + 1 } : point,
+    );
+
+    const fine = resampleLattice(coarse, sheared, { x: 3, y: 3, z: 3 });
+
+    // The middle of the new grid stands halfway up the shear.
+    expectNear(fine[13], [0.5, 0, 0]);
+    expectNear(fine[0], [-0.5, -0.5, -0.5]);
+    expectNear(fine[26], [1.5, 0.5, 0.5]);
+  });
+
+  it('bakes into the base mesh when applied', () => {
+    const box = createBox(2);
+
+    const result = applyModifier(
+      cloneMesh(box),
+      lattice({ interpolation: 'linear' }),
+      cageRoundBox({ x: 2, y: 2, z: 2 }, pullCorner),
+    );
+
+    expect(vertAt(result, 2, 2, 2)).toBeDefined();
+    expect(vertAt(box, 1, 1, 1)).toBeDefined();
+  });
+});
+
+describe('weld modifier', () => {
+  function weld(threshold: number): WeldModifier {
+    return { ...(createModifier('weld') as WeldModifier), threshold };
+  }
+
+  /** Two quads that meet along a line but do not share the vertices there. */
+  function splitSeam(): BMesh {
+    const mesh = new BMesh();
+    const left = [
+      mesh.addVert({ x: 0, y: 0, z: 0 }),
+      mesh.addVert({ x: 1, y: 0, z: 0 }),
+      mesh.addVert({ x: 1, y: 0, z: 1 }),
+      mesh.addVert({ x: 0, y: 0, z: 1 }),
+    ];
+    mesh.addFace(left);
+    const right = [
+      mesh.addVert({ x: 1.0002, y: 0, z: 0 }),
+      mesh.addVert({ x: 2, y: 0, z: 0 }),
+      mesh.addVert({ x: 2, y: 0, z: 1 }),
+      mesh.addVert({ x: 1.0002, y: 0, z: 1 }),
+    ];
+    mesh.addFace(right);
+    return mesh;
+  }
+
+  it('joins a split seam into one continuous surface', () => {
+    const mesh = splitSeam();
+    expect(mesh.verts.size).toBe(8);
+
+    const result = evaluateModifiers(mesh, [weld(0.001)]);
+
+    expect(result.verts.size).toBe(6);
+    expect(result.faces.size).toBe(2);
+    // The seam is only closed if the two quads now share one interior edge.
+    expect([...result.edges.values()].filter((edge) => edge.loops.length === 2)).toHaveLength(1);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('leaves a mesh with no duplicates untouched at the default distance', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [createModifier('weld')]);
+
+    expect(result.verts.size).toBe(8);
+    expect(result.faces.size).toBe(6);
+  });
+
+  it('does nothing at a distance of zero', () => {
+    const result = evaluateModifiers(splitSeam(), [weld(0)]);
+    expect(result.verts.size).toBe(8);
+  });
+
+  it('closes the joints an array leaves between touching copies', () => {
+    const cube = createBox(2);
+    const array = { ...(createModifier('array') as ArrayModifier), count: 3, merge: false };
+
+    const loose = evaluateModifiers(cube, [array]);
+    const welded = evaluateModifiers(cube, [array, weld(0.001)]);
+
+    expect(loose.verts.size).toBe(24);
+    expect(welded.verts.size).toBe(16);
+    expect(welded.validate()).toEqual([]);
+  });
+
+  it('does not chain: the vertex absorbed cannot go on to absorb the next', () => {
+    const mesh = new BMesh();
+    const row = [0, 0.6, 1.2, 1.8, 2.4].map((x) => mesh.addVert({ x, y: 0, z: 0 }));
+    for (let index = 0; index < row.length - 1; index++) mesh.addEdge(row[index], row[index + 1]);
+
+    // Every gap is inside the distance, so a transitive weld would collapse the
+    // whole row to one point. First occupant wins instead, keeping every other.
+    const result = evaluateModifiers(mesh, [weld(1)]);
+
+    expect([...result.verts.values()].map((vert) => vert.co.x)).toEqual([0, 1.2, 2.4]);
+  });
+});
+
+describe('modifier stack', () => {
+  it('leaves the base mesh untouched', () => {
+    const cube = createBox(2);
+    const before = cube.faces.size;
+
+    evaluateModifiers(cube, [createModifier('array'), createModifier('mirror')]);
+
+    expect(cube.faces.size).toBe(before);
+    expect(cube.verts.size).toBe(8);
+  });
+
+  it('applies modifiers in order', () => {
+    const cube = createBox(2);
+    const array = { ...(createModifier('array') as ArrayModifier), count: 2 };
+
+    const stacked = evaluateModifiers(cube, [array, mirror({ merge: false })]);
+
+    // Array doubles to 12 faces, mirror doubles again to 24.
+    expect(stacked.faces.size).toBe(24);
+  });
+
+  it('skips disabled modifiers', () => {
+    const cube = createBox(2);
+    const array = { ...(createModifier('array') as ArrayModifier), count: 4, enabled: false };
+    expect(evaluateModifiers(cube, [array]).faces.size).toBe(6);
+  });
+
+  it('runs a weld as part of the stack, after the geometry it cleans up', () => {
+    const plane = createPlane(2);
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: Math.max(0, vert.co.x) };
+
+    // Mirror with merge off leaves the seam split; the weld behind it closes up.
+    const result = evaluateModifiers(plane, [
+      mirror({ merge: false }),
+      { ...(createModifier('weld') as WeldModifier), threshold: 0.01 },
+    ]);
+
+    expect(result.verts.size).toBe(6);
+    expect(result.faces.size).toBe(2);
+    expect(result.validate()).toEqual([]);
+  });
+});
+
+describe('subdivide modifier', () => {
+  it('drops a level that would put the mesh past what a tab can hold', () => {
+    const dense = createBox(2);
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+    expect(dense.faces.size).toBe(93750);
+
+    // The stack is re-evaluated on every edit, so a level it cannot survive is
+    // one it must not take: 93,750 faces quadrupled is past the budget.
+    const result = evaluateModifiers(dense, [
+      { ...(createModifier('subdivide') as SubdivideModifier), levels: 3 },
+    ]);
+
+    expect(result.faces.size).toBe(93750);
+  });
+
+  it('takes the levels it can', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [
+      { ...(createModifier('subdivide') as SubdivideModifier), levels: 2 },
+    ]);
+
+    expect(result.faces.size).toBe(6 * 4 * 4);
+  });
+});
+
+describe('subdivision surface modifier', () => {
+  function subsurf(overrides: Partial<SubsurfModifier> = {}): SubsurfModifier {
+    return { ...(createModifier('subsurf') as SubsurfModifier), ...overrides };
+  }
+
+  it('defaults to one level of Catmull-Clark', () => {
+    const modifier = subsurf();
+    expect(modifier.levels).toBe(1);
+    expect(modifier.catmullClark).toBe(true);
+  });
+
+  it('moves the corners of a cube to the Catmull-Clark points', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [subsurf()]);
+
+    expect(result.faces.size).toBe(24);
+    expect(result.validate()).toEqual([]);
+    expect([...result.edges.values()].every((edge) => edge.loops.length === 2)).toBe(true);
+
+    // A corner of valence three: (F + 2R) / 3 with F at a third and R at two
+    // thirds of the way out, which is five ninths.
+    const box = result.boundingBox();
+    expect(box.max.x).toBeCloseTo(1);
+    const corners = [...result.verts.values()].filter((vert) => vert.edges.length === 3);
+    expect(corners).toHaveLength(8);
+    for (const corner of corners) {
+      expect(Math.abs(corner.co.x)).toBeCloseTo(5 / 9);
+      expect(Math.abs(corner.co.y)).toBeCloseTo(5 / 9);
+      expect(Math.abs(corner.co.z)).toBeCloseTo(5 / 9);
+    }
+  });
+
+  it('only splits the faces when Catmull-Clark is off', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [subsurf({ levels: 2, catmullClark: false })]);
+
+    expect(result.faces.size).toBe(96);
+    expect(result.boundingBox().min).toEqual({ x: -1, y: -1, z: -1 });
+    expect(result.boundingBox().max).toEqual({ x: 1, y: 1, z: 1 });
+    for (const vert of result.verts.values()) {
+      const onSurface = [vert.co.x, vert.co.y, vert.co.z].some((c) => Math.abs(c) === 1);
+      expect(onSurface).toBe(true);
+    }
+  });
+
+  it('shrinks toward a sphere as the levels rise', () => {
+    const cube = createBox(2);
+    const one = evaluateModifiers(cube, [subsurf({ levels: 1 })]);
+    const three = evaluateModifiers(cube, [subsurf({ levels: 3 })]);
+
+    const farthest = (mesh: BMesh) =>
+      Math.max(
+        ...[...mesh.verts.values()].map((vert) => Math.hypot(vert.co.x, vert.co.y, vert.co.z)),
+      );
+    expect(three.faces.size).toBe(6 * 4 ** 3);
+    expect(farthest(three)).toBeLessThan(farthest(one));
+    expect(three.validate()).toEqual([]);
+  });
+
+  it('keeps an open border attached and smooths along it', () => {
+    const plane = createPlane(2);
+    const result = evaluateModifiers(plane, [subsurf({ levels: 2 })]);
+
+    expect(result.faces.size).toBe(16);
+    expect(result.validate()).toEqual([]);
+    const border = [...result.edges.values()].filter((edge) => edge.loops.length === 1);
+    expect(border).toHaveLength(16);
+  });
+
+  it('carries sharp edges and leaves the base mesh alone', () => {
+    const cube = createBox(2);
+    const [edge] = cube.edges.values();
+    edge.sharp = true;
+    const before = cloneMesh(cube);
+
+    const result = evaluateModifiers(cube, [subsurf()]);
+
+    expect([...result.edges.values()].filter((candidate) => candidate.sharp)).toHaveLength(2);
+    expect(cube.faces.size).toBe(before.faces.size);
+    expect([...cube.verts.values()].map((vert) => vert.co)).toEqual(
+      [...before.verts.values()].map((vert) => vert.co),
+    );
+  });
+
+  it('drops a level that would put the mesh past what a tab can hold', () => {
+    const dense = createBox(2);
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+    subdivideFaces(dense, [...dense.faces.values()], { cuts: 4 });
+
+    const result = evaluateModifiers(dense, [subsurf({ levels: 2 })]);
+
+    expect(result.faces.size).toBe(93750);
+  });
+
+  it('bakes into the mesh on apply', () => {
+    const result = applyModifier(createBox(2), subsurf({ levels: 2 }));
+    expect(result.faces.size).toBe(96);
+  });
+});
+
+describe('quad reloop modifier', () => {
+  function reloop(overrides: Partial<ReloopModifier> = {}): ReloopModifier {
+    return { ...(createModifier('reloop') as ReloopModifier), ...overrides };
+  }
+
+  const offsetBy = (offset: Vec3) => (point: Vec3) => add(point, offset);
+
+  /** Turned about Y, then moved: a box sitting askew on another. */
+  const turnedBy = (offset: Vec3, angle: number) => (point: Vec3) =>
+    add(
+      vec3(
+        point.x * Math.cos(angle) - point.z * Math.sin(angle),
+        point.y,
+        point.x * Math.sin(angle) + point.z * Math.cos(angle),
+      ),
+      offset,
+    );
+
+  function allQuads(mesh: BMesh): boolean {
+    return [...mesh.faces.values()].every((face) => mesh.faceLoopCount(face) === 4);
+  }
+
+  function closed(mesh: BMesh): boolean {
+    return [...mesh.edges.values()].every((edge) => edge.loops.length === 2);
+  }
+
+  /** The sine of the flattest corner of any face: 1 when every corner is square. */
+  function flattestCorner(mesh: BMesh): number {
+    let flattest = 1;
+    for (const face of mesh.faces.values()) {
+      const points = mesh.facePoints(face);
+      points.forEach((at, i) => {
+        const before = sub(points[(i - 1 + points.length) % points.length], at);
+        const after = sub(points[(i + 1) % points.length], at);
+        flattest = Math.min(
+          flattest,
+          length(cross(before, after)) / (length(before) * length(after)),
+        );
+      });
+    }
+    return flattest;
+  }
+
+  /** Whether every vertex of `before` is still somewhere in `after`, exactly. */
+  function nothingMoved(before: BMesh, after: BMesh): boolean {
+    const positions = [...after.verts.values()].map((vert) => vert.co);
+    return [...before.verts.values()].every((vert) =>
+      positions.some((co) => equals(co, vert.co, 1e-12)),
+    );
+  }
+
+  it('starts out joining triangles folded up to 40°', () => {
+    const modifier = reloop();
+    expect(modifier.name).toBe('QUAD RELOOP');
+    expect(modifier.angle).toBe(40);
+  });
+
+  it('leaves a mesh that is already all quads as it was', () => {
+    const cube = createBox(2);
+    const result = evaluateModifiers(cube, [reloop()]);
+
+    expect(result.faces.size).toBe(6);
+    expect(result.verts.size).toBe(8);
+    expect(nothingMoved(cube, result)).toBe(true);
+  });
+
+  it('cuts the L-shaped faces of a stepped union into two quads each', () => {
+    const union = booleanMesh('union', createBox(2), createBox(2), offsetBy(vec3(1, 0.5, 0.5)));
+    const result = evaluateModifiers(union, [reloop()]);
+
+    // Six faces stand clear of the other box and stay as they were. Each of
+    // the six L shapes splits across its inward corner, and nothing is added.
+    expect(result.faces.size).toBe(18);
+    expect(result.verts.size).toBe(union.verts.size);
+    expect(allQuads(result)).toBe(true);
+    expect(closed(result)).toBe(true);
+    expect(result.validate()).toEqual([]);
+    expect(nothingMoved(union, result)).toBe(true);
+  });
+
+  it('runs a loop through the bent L a turned box leaves, not a quad bent flat', () => {
+    const union = booleanMesh(
+      'union',
+      createBox(2),
+      createBox(2),
+      turnedBy(vec3(0.7, 1.5, -0.4), 0.4),
+    );
+    const result = evaluateModifiers(union, [reloop()]);
+
+    // The only cut of that L keeps a corner two degrees off straight.
+    expect(allQuads(result)).toBe(true);
+    expect(closed(result)).toBe(true);
+    expect(result.validate()).toEqual([]);
+    expect(nothingMoved(union, result)).toBe(true);
+    expect(flattestCorner(result)).toBeGreaterThan(Math.sin(degToRad(5)));
+  });
+
+  it('runs rungs across the bent band a box turned the other way leaves', () => {
+    const union = booleanMesh(
+      'union',
+      createBox(2),
+      createBox(2),
+      turnedBy(vec3(0.7, 1.5, -0.4), -0.4),
+    );
+    const result = evaluateModifiers(union, [reloop()]);
+
+    // The lower box's top is a band bent round two inward corners. Split
+    // in the middle, its sides never cut; split where those corners look
+    // straight across at them, it comes back as a ladder of quads.
+    expect(result.faces.size).toBe(28);
+    expect(allQuads(result)).toBe(true);
+    expect(closed(result)).toBe(true);
+    expect(nothingMoved(union, result)).toBe(true);
+    expect(flattestCorner(result)).toBeGreaterThan(Math.sin(degToRad(5)));
+  });
+
+  it('puts a triangulated cube back as its six faces', () => {
+    const cube = createBox(2);
+    triangulateFaces(cube, [...cube.faces.values()]);
+
+    const result = evaluateModifiers(cube, [reloop()]);
+
+    expect(result.faces.size).toBe(6);
+    expect(result.edges.size).toBe(12);
+  });
+
+  it('joins the fans round the poles of a sphere as kites', () => {
+    const sphere = createUVSphere(1, 24, 12);
+    const result = evaluateModifiers(sphere, [reloop()]);
+
+    // 240 quads between the poles, and the 24 triangles round each pole
+    // paired off as 12 kites: every one of them, not most.
+    expect(result.faces.size).toBe(264);
+    expect(result.verts.size).toBe(sphere.verts.size);
+  });
+
+  it('cuts a triangle with no partner into three quads', () => {
+    const mesh = new BMesh();
+    mesh.addFace([vec3(0, 0, 0), vec3(1, 0, 0), vec3(0, 1, 0)].map((co) => mesh.addVert(co)));
+
+    const result = evaluateModifiers(mesh, [reloop()]);
+
+    expect(result.faces.size).toBe(3);
+    expect(allQuads(result)).toBe(true);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('evens out two odd faces with a loop run the long way round', () => {
+    const cube = createBox(2);
+    const [edge] = cube.edges.values();
+    subdivideEdges(cube, [edge]);
+
+    const result = evaluateModifiers(cube, [reloop()]);
+
+    // The faces either side of the split edge are squares with a point on
+    // one side. Splitting the edge between them would leave two straight
+    // corners in a row, so the loop goes round through the two faces
+    // opposite, and every face it crosses comes back as two rectangles.
+    expect(result.faces.size).toBe(10);
+    expect(allQuads(result)).toBe(true);
+    expect(closed(result)).toBe(true);
+    expect(flattestCorner(result)).toBeCloseTo(1);
+  });
+
+  it('cuts a face a boolean bit a curve out of into quads', () => {
+    const bitten = booleanMesh(
+      'difference',
+      createBox(2),
+      createUVSphere(1, 24, 12),
+      offsetBy(vec3(1, 1, 1)),
+    );
+    const result = evaluateModifiers(bitten, [reloop()]);
+
+    expect(allQuads(result)).toBe(true);
+    expect(closed(result)).toBe(true);
+    expect(result.validate()).toEqual([]);
+    expect(nothingMoved(bitten, result)).toBe(true);
+  });
+
+  it('joins two triangles only while their fold stays within JOIN ANGLE', () => {
+    // A square folded 60° along its diagonal.
+    const mesh = new BMesh();
+    const [a, b, c, d] = [
+      vec3(0, 0, 0),
+      vec3(1, 0, 0),
+      vec3(1, 0, 1),
+      vec3(0.25, -Math.sqrt(0.375), 0.75),
+    ].map((co) => mesh.addVert(co));
+    mesh.addFace([a, b, c]);
+    mesh.addFace([a, c, d]);
+
+    expect(evaluateModifiers(mesh, [reloop({ angle: 90 })]).faces.size).toBe(1);
+    expect(evaluateModifiers(mesh, [reloop({ angle: 40 })]).faces.size).toBe(6);
+  });
+
+  it('never joins two triangles across materials', () => {
+    const mesh = new BMesh();
+    const [a, b, c, d] = [vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 0, 1), vec3(0, 0, 1)].map((co) =>
+      mesh.addVert(co),
+    );
+    mesh.addFace([a, b, c], { materialIndex: 0 });
+    mesh.addFace([a, c, d], { materialIndex: 1 });
+
+    const result = evaluateModifiers(mesh, [reloop()]);
+    const slots = [...result.faces.values()].map((face) => face.materialIndex);
+
+    expect(allQuads(result)).toBe(true);
+    expect(slots.filter((slot) => slot === 0)).toHaveLength(3);
+    expect(slots.filter((slot) => slot === 1)).toHaveLength(3);
+  });
+
+  it('marks both halves of a sharp edge a loop splits', () => {
+    const cube = createBox(2);
+    for (const edge of cube.edges.values()) edge.sharp = true;
+    const [edge] = cube.edges.values();
+    subdivideEdges(cube, [edge]);
+
+    const result = evaluateModifiers(cube, [reloop()]);
+
+    // Thirteen sharp edges go in, and the loop splits three of them. The lines
+    // it draws across the faces are new, and smooth.
+    expect([...result.edges.values()].filter((candidate) => candidate.sharp)).toHaveLength(16);
+  });
+
+  it('gives the points it adds the UVs of where they sit', () => {
+    const mesh = new BMesh();
+    const face = mesh.addFace(
+      [vec3(0, 0, 0), vec3(1, 0, 0), vec3(0, 1, 0)].map((co) => mesh.addVert(co)),
+    );
+    for (const loop of mesh.faceLoops(face)) loop.uv = { u: loop.vert.co.x, v: loop.vert.co.y };
+
+    const result = evaluateModifiers(mesh, [reloop()]);
+
+    for (const quad of result.faces.values()) {
+      for (const loop of result.faceLoops(quad)) {
+        expect(loop.uv.u).toBeCloseTo(loop.vert.co.x);
+        expect(loop.uv.v).toBeCloseTo(loop.vert.co.y);
+      }
+    }
+  });
+});
+
+describe('remesh modifier', () => {
+  function remesh(overrides: Partial<RemeshModifier> = {}): RemeshModifier {
+    return { ...(createModifier('remesh') as RemeshModifier), ...overrides };
+  }
+
+  /** Every edge shared by exactly two faces. */
+  function isClosed(mesh: BMesh): boolean {
+    return [...mesh.edges.values()].every((edge) => edge.loops.length === 2);
+  }
+
+  /** Edges with a face on one side only: a hole, as opposed to a seam. */
+  function holes(mesh: BMesh): number {
+    return [...mesh.edges.values()].filter((edge) => edge.loops.length === 1).length;
+  }
+
+  it('contours a voxel shell at roughly the face count asked for', () => {
+    const result = evaluateModifiers(createUVSphere(1, 32, 16), [remesh({ targetFaces: 800 })]);
+
+    expect(result.faces.size).toBeGreaterThan(500);
+    expect(result.faces.size).toBeLessThan(1300);
+    expect(isClosed(result)).toBe(true);
+    // A quad shell, and one that still fills the sphere it was built from.
+    expect([...result.faces.values()].every((face) => result.faceLoops(face).length === 4)).toBe(
+      true,
+    );
+    expect(result.boundingBox().max.x).toBeGreaterThan(0.9);
+  });
+
+  it('puts every vertex on the lattice when the method is blocks', () => {
+    const modifier = remesh({ method: 'blocks', adaptive: false, voxelSize: 0.25 });
+    const result = evaluateModifiers(createUVSphere(1, 16, 8), [modifier]);
+
+    const first = [...result.verts.values()][0].co;
+    for (const vert of result.verts.values()) {
+      const steps = (vert.co.x - first.x) / 0.25;
+      expect(Math.abs(steps - Math.round(steps))).toBeLessThan(1e-4);
+    }
+  });
+
+  it('collapses rather than rebuilds when the method is reduce', () => {
+    const source = createUVSphere(1, 32, 16);
+    const before = source.stats().tris;
+    const result = evaluateModifiers(source, [
+      remesh({ method: 'decimate', adaptive: false, ratio: 0.3, topology: 'triangles' }),
+    ]);
+
+    expect(result.stats().tris).toBeLessThan(before * 0.45);
+    expect(result.stats().tris).toBeGreaterThan(0);
+  });
+
+  it('leaves the base mesh alone, like every other modifier', () => {
+    const source = createBox(2);
+    evaluateModifiers(source, [remesh({ targetFaces: 400 })]);
+
+    expect(source.faces.size).toBe(6);
+    expect(source.verts.size).toBe(8);
+  });
+
+  it('carries the shading the object already had across the rebuild', () => {
+    // Shading is a property of the object, set from the top bar, and the
+    // rebuild has no opinion of its own to offer about it, so it is read off
+    // the mesh going in rather than being a setting on the modifier.
+    const flat = createBox(2);
+    const smooth = createBox(2);
+    for (const face of smooth.faces.values()) face.smooth = true;
+
+    const rebuiltFlat = evaluateModifiers(flat, [remesh({ targetFaces: 400 })]);
+    const rebuiltSmooth = evaluateModifiers(smooth, [remesh({ targetFaces: 400 })]);
+
+    expect([...rebuiltFlat.faces.values()].some((face) => face.smooth)).toBe(false);
+    expect([...rebuiltSmooth.faces.values()].every((face) => face.smooth)).toBe(true);
+  });
+
+  it('passes the mesh straight through rather than throwing on an input it cannot rebuild', () => {
+    // A modifier runs while the viewport is drawing, so a throw here would be a
+    // blank screen instead of a message. An empty mesh has nothing to remesh
+    // and a reduce that keeps everything has nothing to collapse; both come
+    // back as they went in.
+    const empty = new BMesh();
+    expect(evaluateModifiers(empty, [remesh()]).faces.size).toBe(0);
+
+    const cube = createBox(2);
+    const untouched = evaluateModifiers(cube, [
+      remesh({ method: 'decimate', adaptive: false, ratio: 1 }),
+    ]);
+    expect(untouched.faces.size).toBe(6);
+  });
+
+  it('runs after the modifier that made the geometry it rebuilds', () => {
+    const plane = createPlane(2);
+    const result = evaluateModifiers(plane, [
+      { ...(createModifier('solidify') as SolidifyModifier), thickness: 0.4 },
+      remesh({ adaptive: false, voxelSize: 0.15 }),
+    ]);
+
+    // The solidified slab is closed, so the shell around it has no holes.
+    // Not every edge is manifold: naive surface nets puts one vertex in a cell
+    // however many sheets of the surface pass through it, and the slab's rim is
+    // thin against the voxel size: the same handful of junctions the voxel
+    // remesh has always left there.
+    expect(holes(result)).toBe(0);
+    expect(result.faces.size).toBeGreaterThan(50);
+  });
+});
+
+describe('sharp edges through the stack', () => {
+  const sharpCount = (mesh: BMesh) => [...mesh.edges.values()].filter((edge) => edge.sharp).length;
+
+  /** A plane with its four border edges marked sharp. */
+  function sharpPlane(): BMesh {
+    const plane = createPlane(2);
+    for (const edge of plane.edges.values()) edge.sharp = true;
+    return plane;
+  }
+
+  it('marks the mirrored copy of every sharp edge', () => {
+    const plane = sharpPlane();
+    for (const vert of plane.verts.values()) vert.co = { ...vert.co, x: vert.co.x + 2 };
+
+    const result = evaluateModifiers(plane, [mirror({ merge: false })]);
+
+    expect(sharpCount(result)).toBe(8);
+  });
+
+  it('keeps the copies that meet the seam sharp once it is welded', () => {
+    const plane = sharpPlane();
+    for (const vert of plane.verts.values()) {
+      vert.co = { ...vert.co, x: Math.max(0, vert.co.x) };
+    }
+
+    const result = evaluateModifiers(plane, [mirror({ merge: true, mergeThreshold: 0.01 })]);
+
+    // The two copies with an end on the seam come back as new edges once the
+    // seam is welded: every edge of the outline stays sharp.
+    expect(result.edges.size).toBe(7);
+    expect(sharpCount(result)).toBe(7);
+  });
+
+  it('keeps both halves of a sharp edge the bisect cuts, but not the cut', () => {
+    const result = evaluateModifiers(sharpPlane(), [
+      mirror({ bisect: true, merge: true, mergeThreshold: 0.001 }),
+    ]);
+
+    // The new edge along the plane is where the bisect cut, not a crease of the
+    // original; the six around it are halves of the original outline.
+    expect(result.edges.size).toBe(7);
+    expect(sharpCount(result)).toBe(6);
+    expect(result.validate()).toEqual([]);
+  });
+
+  it('marks every arrayed copy', () => {
+    const result = evaluateModifiers(sharpPlane(), [
+      { ...(createModifier('array') as ArrayModifier), count: 3, merge: false },
+    ]);
+
+    expect(sharpCount(result)).toBe(12);
+  });
+
+  it('marks the inner shell of a solidify and leaves the rim smooth', () => {
+    const result = evaluateModifiers(sharpPlane(), [
+      { ...(createModifier('solidify') as SolidifyModifier), thickness: 0.5 },
+    ]);
+
+    expect(sharpCount(result)).toBe(8);
+  });
+
+  it('carries a crease through every level of a subdivision', () => {
+    const cube = createBox(2);
+    for (const edge of cube.edges.values()) edge.sharp = true;
+
+    const result = evaluateModifiers(cube, [
+      { ...(createModifier('subdivide') as SubdivideModifier), levels: 2 },
+    ]);
+
+    // Each original edge is cut in two, and each half in two again.
+    expect(sharpCount(result)).toBe(12 * 4);
+  });
+});

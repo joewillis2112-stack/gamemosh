@@ -70,6 +70,7 @@ export class Gizmos {
   refresh() {
     for (const b of this.boxes) b.dispose();
     this.boxes = [];
+    if (this.hidden) { this.move.attachedNode = this.rotate.attachedNode = null; this.placeHandles(null); return; } // Edit Mode draws its own
     const sel = this.commands.selection.items;
     for (const s of sel) {
       if (isA(s.ClassName, 'BasePart')) this.boxes.push(this.box(s.props.CFrame, s.props.Size));

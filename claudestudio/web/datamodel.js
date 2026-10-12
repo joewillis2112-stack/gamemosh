@@ -301,7 +301,9 @@ defineClass('WedgePart', 'BasePart');
 // materials are kept (Roblox needs a SurfaceAppearance for that). Files are in
 // glTF's metres, converted at Roblox's 1 stud = 0.28 m.
 defineClass('TriangleMeshPart', 'BasePart', { creatable: false, props: { CollisionFidelity: ['Enum.CollisionFidelity', 'Default'], MeshSize: ['Vector3', [0, 0, 0]] } });
-defineClass('MeshPart', 'TriangleMeshPart', { props: { MeshId: ['string', ''], TextureID: ['string', ''], DoubleSided: ['bool', false], RenderFidelity: ['Enum.RenderFidelity', 'Automatic'] } });
+// MeshData is the studio's own (Roblox's nearest is EditableMesh): an editable
+// mesh from the modeling kernel (web/modeling/), drawn instead of MeshId's file.
+defineClass('MeshPart', 'TriangleMeshPart', { props: { MeshId: ['string', ''], TextureID: ['string', ''], DoubleSided: ['bool', false], RenderFidelity: ['Enum.RenderFidelity', 'Automatic'], MeshData: ['string', ''] } });
 defineClass('AssetService', 'Instance', {
   creatable: false, service: true,
   methods: {

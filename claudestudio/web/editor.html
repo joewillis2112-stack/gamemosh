@@ -7,6 +7,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 #ui button{flex:none;height:32px;min-width:44px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:#33363c;color:var(--text);font:inherit;cursor:pointer}
 #ui button.on{background:var(--sel);border-color:var(--sel)}#ui button:disabled{opacity:.4}
 #ui button.play{background:#2e8b57;border-color:#2e8b57}
+#ui select{flex:none;height:32px;background:#33363c;color:var(--text);border:1px solid var(--line);border-radius:6px}
+#editbar{display:none;position:fixed;top:44px;left:240px;right:280px;height:40px;gap:4px;align-items:center;padding:0 6px;background:#3a2a1a;border-bottom:1px solid #6b4a24;overflow-x:auto;z-index:2}
+body.editing #editbar{display:flex}
+#editbar button{flex:none;height:30px;padding:0 10px;border:1px solid #6b4a24;border-radius:6px;background:#4a3420;color:var(--text);font:inherit}#editbar button.on{background:#e07b1a;border-color:#e07b1a}#editbar .sep{flex:none;width:1px;height:22px;background:#6b4a24;margin:0 4px}
+#lastop{position:fixed;left:250px;bottom:12px;z-index:3;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;gap:10px;align-items:center}#lastop[hidden]{display:none}#lastop input{width:64px;background:#1f2125;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:2px 4px}#lastop .st{color:var(--dim)}
 #ui .sep{flex:none;width:1px;height:24px;background:var(--line);margin:0 4px}
 #c{position:fixed;top:44px;left:240px;right:280px;bottom:0;width:calc(100% - 520px);height:calc(100% - 44px);display:block;outline:none}
 .side{position:fixed;top:44px;bottom:0;background:var(--panel);overflow:auto;z-index:1}
@@ -20,6 +25,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 #ui [data-act=panels]{display:none}
 #hint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:6px 12px;border-radius:6px;background:rgba(0,0,0,.7);color:#fff;z-index:3;pointer-events:none}
 @media (max-width:760px){
+  #editbar{left:0;right:0}#lastop{left:8px;right:8px;bottom:8px;flex-wrap:wrap}
   #c{left:0;right:0;width:100%}
   .side{display:none;top:auto;height:42%;left:0;right:0;width:auto;border:0;border-top:1px solid var(--line)}
   body.panels #explorer{display:block;right:50%}body.panels #properties{display:block;left:50%}
@@ -29,13 +35,15 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 <div id="ui">
   <button data-tool="select" title="Select (Ctrl+1)">Select</button><button data-tool="move" title="Move (Ctrl+2)">Move</button><button data-tool="scale" title="Scale (Ctrl+3)">Scale</button><button data-tool="rotate" title="Rotate (Ctrl+4)">Rotate</button>
   <span class="sep"></span>
-  <button data-act="part" title="Insert a Part">Part</button><button data-act="duplicate" title="Duplicate (Ctrl+D)">Duplicate</button><button data-act="delete" title="Delete">Delete</button><button data-act="group" title="Group (Ctrl+G)">Group</button><button data-act="ungroup" title="Ungroup (Ctrl+U)">Ungroup</button>
+  <button data-act="part" title="Insert a Part">Part</button><select id="meshKind" title="Mesh to insert"><option>cube</option><option>uvSphere</option><option>icoSphere</option><option>cylinder</option><option>cone</option><option>torus</option><option>capsule</option><option>plane</option><option>grid</option><option>circle</option></select><button data-act="mesh" title="Insert an editable mesh">Mesh</button><button data-act="editmesh" title="Edit Mesh (Tab)">Edit Mesh</button><button data-act="duplicate" title="Duplicate (Ctrl+D)">Duplicate</button><button data-act="delete" title="Delete">Delete</button><button data-act="group" title="Group (Ctrl+G)">Group</button><button data-act="ungroup" title="Ungroup (Ctrl+U)">Ungroup</button>
   <span class="sep"></span>
   <button data-act="play" title="Play" class="play">Play</button><button data-act="save" title="Save the place file">Save</button><button data-act="open" title="Open a place file">Open</button>
   <span class="sep"></span>
   <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button><button data-act="redo" title="Redo (Ctrl+Y)">Redo</button><button data-act="focus" title="Focus (F)">Focus</button><button data-act="panels">Panels</button>
 </div>
 <div id="hint" hidden></div>
+<div id="editbar"><button data-mode="vertex" title="Vertex select (1)">Vertex</button><button data-mode="edge" title="Edge select (2)">Edge</button><button data-mode="face" title="Face select (3)">Face</button><span class="sep"></span><button data-op="extrude" title="Extrude (E)">Extrude</button><button data-op="inset" title="Inset (I)">Inset</button><button data-op="bevel" title="Bevel (Ctrl+B)">Bevel</button><button data-op="loopCut" title="Loop cut (Ctrl+R)">Loop Cut</button><button data-op="subdivide">Subdivide</button><button data-op="merge" title="Merge (M)">Merge</button><button data-op="fill" title="Fill (F)">Fill</button><button data-op="delete" title="Delete (X)">Delete</button><span class="sep"></span><button data-done title="Leave Edit Mode (Tab)">Done</button></div>
+<div id="lastop" hidden></div>
 <input type="file" id="openFile" accept=".json,application/json" hidden>
 <div id="explorer" class="side"></div><div id="properties" class="side"></div>
 <canvas id="c"></canvas><script type="module" src="../build/web/editor.js"></script>

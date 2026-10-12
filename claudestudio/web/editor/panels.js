@@ -6,7 +6,7 @@ import { ENUMS, V3, C3, propertiesOf } from '../datamodel.js';
 // Studio shows these services in the Explorer, in this order (others it hides).
 const SHOWN = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
 // Properties the panel doesn't offer (engine-written, or shown another way).
-const HIDDEN = new Set(['CFrame', 'AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'Focus']);
+const HIDDEN = new Set(['CFrame', 'AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'Focus', 'MeshData']); // MeshData: edited in Edit Mode, not as text
 
 export class Explorer {
   constructor(el, dm, commands) {

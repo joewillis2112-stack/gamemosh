@@ -24,6 +24,9 @@ import { EditorCamera } from './editor/camera.js';
 import { Gizmos } from './editor/gizmos.js';
 import { Explorer, Properties } from './editor/panels.js';
 import { ModalTransform } from './editor/modal.js';
+import { EditMode, MESH_OPS } from './editor/editmode.js';
+import { newMeshPart } from './modeling/editable.js';
+import { CF } from './cframe.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -65,7 +68,32 @@ async function main() {
   const gizmos = new Gizmos(scene, dm, commands, camera);
   const hint = document.getElementById('hint');
   const modal = new ModalTransform(dm, commands, camera, canvas, text => { hint.textContent = text; hint.hidden = !text; });
-  camera.busy = () => gizmos.dragging || modal.active;
+  // Edit Mode (Tab): the modeling kernel's mesh editing on a MeshPart.
+  const editBar = document.getElementById('editbar'), lastOp = document.getElementById('lastop');
+  const edit = new EditMode({ scene, dm, commands, camera, world, layer: gizmos.layer, canvas, onState: s => {
+    document.body.classList.toggle('editing', s.active);
+    gizmos.hidden = s.active; gizmos.refresh();
+    if (s.hint !== undefined) { hint.textContent = s.hint; hint.hidden = !s.hint; } else if (!s.active || !edit.modal) hint.hidden = true;
+    editBar.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === s.mode));
+    // The last operation's amounts, adjustable (Blender's "adjust last operation").
+    const L = s.active && edit.last;
+    lastOp.hidden = !L || !Object.keys(L.params).filter(k => typeof L.params[k] === 'number').length;
+    if (L) lastOp.innerHTML = `<b>${L.name}</b> ` + Object.entries(L.params).filter(([, v]) => typeof v === 'number').map(([k, v]) => `<label>${k} <input type="number" step="${k === 'segments' || k === 'cuts' ? 1 : 0.1}" data-p="${k}" value="${v}"></label>`).join(' ') + `<span class="st">${L.status}</span>`;
+  } });
+  modal.blocked = () => edit.active;
+  editBar.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) edit.setMode(b.dataset.mode); else if (b.dataset.op) edit.op(b.dataset.op); else if (b.dataset.done !== undefined) edit.exit();
+  });
+  lastOp.addEventListener('change', e => { const k = e.target.dataset.p, v = parseFloat(e.target.value); if (k && isFinite(v)) edit.adjust({ [k]: v }); });
+  commands.register('editMesh', function () { return edit.enter(); });
+  commands.register('insertMesh', function ({ kind = 'cube' } = {}) {
+    const f = camera.forward(), at = camera.pos.add(f.scale(12));
+    const mp = this.history.run('Insert ' + kind, tx => newMeshPart(tx, dm.workspace, kind, new CF([Math.round(at.x), Math.max(1, Math.round(at.y)), Math.round(at.z), 1, 0, 0, 0, 1, 0, 0, 0, 1]), { size: 4, radius: 2, height: 4, radius2: 0.6 }));
+    this.selection.set([mp]);
+    return mp;
+  });
+  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
   camera.pick = pickPoint;
@@ -85,7 +113,8 @@ async function main() {
   canvas.addEventListener('pointerdown', e => downs.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, n: downs.size + 1 }));
   canvas.addEventListener('pointerup', e => {
     const d = downs.get(e.pointerId); downs.delete(e.pointerId);
-    if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+    if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || edit.dragging || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+    if (edit.active) { const r = canvas.getBoundingClientRect(); if (!gizmos.layer.utilityLayerScene.pick(e.clientX - r.left, e.clientY - r.top, m => edit.arrows && m.isPickable, false, camera.cam)?.hit) edit.click(e.clientX - r.left, e.clientY - r.top, e.shiftKey); return; }
     const r = canvas.getBoundingClientRect(), inst = instanceAt(e.clientX - r.left, e.clientY - r.top, e.altKey);
     if (inst === undefined) return;
     if (e.shiftKey || e.ctrlKey || e.metaKey) { if (inst) commands.run('select', { items: [inst], add: true }); }
@@ -101,6 +130,7 @@ async function main() {
     group: () => commands.run('group'), ungroup: () => commands.run('ungroup'), undo: () => commands.run('undo'), redo: () => commands.run('redo'),
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
+    editmesh: () => edit.active ? edit.exit() : edit.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
@@ -131,7 +161,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, V3, C3, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, V3, C3, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

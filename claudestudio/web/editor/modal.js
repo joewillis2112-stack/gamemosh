@@ -28,6 +28,7 @@ export class ModalTransform {
 
   key(e) {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (this.blocked && this.blocked()) return; // e.g. Edit Mode has the keys
     if (!this.mode) {
       if (KEYS[e.code] && !this.camera.flying()) { if (this.start(KEYS[e.code])) { e.preventDefault(); e.stopImmediatePropagation(); } }
       return;

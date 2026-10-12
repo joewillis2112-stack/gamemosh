@@ -14,6 +14,7 @@ import { PHYSICAL } from './physprops.js';
 import { PhysicsMaterialCombineMode } from '@babylonjs/core/Physics/v2/physicsMaterial.js';
 import { isA, CF, V3 } from '../datamodel.js';
 import { loadGltfContainer } from './gltf.js';
+import { loadMesh, renderArrays, extent } from '../modeling/editable.js';
 
 const STUD = 0.28; // metres (Roblox's conversion); glTF files are in metres
 
@@ -64,12 +65,13 @@ export class World {
   // Each part owns its material, updated in place when Color or Material
   // changes (a colour-cycling part used to leak a material per colour).
   updateMaterial(inst, e) {
-    if (inst.ClassName === 'MeshPart') return this.meshLook(inst, e); // the file's own materials
+    if (inst.ClassName === 'MeshPart' && !(e.meshPart && e.meshPart.editable)) return this.meshLook(inst, e); // the file's own materials
+    const target = e.meshPart && e.meshPart.editable ? e.meshPart.render[0] : e.mesh; // an editable mesh wears the part's look
     const P = inst.props, r = MATERIALS[P.Material] || MATERIALS.Plastic, T = TEXTURED[P.Material];
     const m = e.mat || (e.mat = new PBRMaterial(inst.Name + '#' + inst.handle, this.scene));
     // Part colours are sRGB, like Color3.fromRGB in Roblox.
     const color = new Color3(P.Color.r, P.Color.g, P.Color.b).toLinearSpace();
-    if (T) {
+    if (T && target === e.mesh) {
       const tx = this.materialTextures(P.Material);
       m.albedoTexture = tx.albedo; m.bumpTexture = tx.normal; m.metallicTexture = tx.orm;
       m.albedoColor = color.scale(2); // the albedo map stores the part's colour at 0.5
@@ -84,7 +86,9 @@ export class World {
       m.metallic = r.metallic;
       m.emissiveColor = r.emissive ? color.scale(r.emissive) : Color3.Black();
     }
-    e.mesh.material = m;
+    // An editable mesh can have bent (non-planar) faces whose triangles face either way: draw both sides, lit as such.
+    if (target !== e.mesh) { m.backFaceCulling = false; m.twoSidedLighting = true; }
+    target.material = m;
   }
   // One set of textures per material, shared by every part that uses it.
   materialTextures(name) {
@@ -229,10 +233,37 @@ export class World {
     const e = { mesh: holder, mat: null, agg: null, shape: {}, meshPart: { token: {}, render: [], volume: 1 } };
     this.parts.set(inst, e);
     this.apply(inst, e);
+    if (inst.props.MeshData) return this.attachEditable(inst, e);
     const url = inst.props.MeshId, token = e.meshPart.token;
     if (!url) return;
     this.meshAsset(url).then(a => { if (this.parts.get(inst) === e && e.meshPart.token === token) this.attachMesh(inst, e, a); })
       .catch(err => console.warn(`MeshPart ${inst.Name}: can't load ${url}: ${err && err.message || err}`));
+  }
+  // An editable mesh (MeshData, the modeling kernel's): drawn from its own
+  // triangles with the part's Color and Material, like a Part. MeshSize is its
+  // extent; Size is the part's (saved), so a resized mesh stays resized.
+  attachEditable(inst, e) {
+    let mesh;
+    try { mesh = loadMesh(inst.props.MeshData); } catch (err) { console.warn(`MeshPart ${inst.Name}: bad MeshData: ${err.message}`); return; }
+    const a = renderArrays(mesh), ex = extent(mesh), s = ex.size, c = ex.centre;
+    const r = new Mesh(inst.Name + '/mesh', this.scene), vd = new VertexData();
+    vd.positions = a.positions; vd.normals = a.normals; vd.uvs = a.uvs; vd.indices = a.indices;
+    vd.applyToMesh(r);
+    const mp = e.meshPart;
+    mp.editable = true; mp.faceIds = a.faceIds; mp.centre = c;
+    mp.fit = new TransformNode(inst.Name + '/fit', this.scene);
+    mp.fit.parent = e.mesh;
+    mp.fit.scaling.set(1 / s[0], 1 / s[1], 1 / s[2]);
+    mp.fit.position.set(-c[0] / s[0], -c[1] / s[1], -c[2] / s[2]);
+    r.parent = mp.fit;
+    mp.inst = { dispose: () => r.dispose() };
+    mp.render = [r];
+    r.receiveShadows = true; this.shadows.addShadowCaster(r); r.metadata = { instance: inst };
+    this.colliderGeometry(e);
+    inst.props.MeshSize = new V3(s[0], s[1], s[2]);
+    this.updateMaterial(inst, e);
+    this.visibility(inst, e);
+    this.body(inst, e);
   }
   attachMesh(inst, e, a) {
     const mp = e.meshPart, s = a.size, c = a.center;
@@ -411,7 +442,7 @@ export class World {
           return;
         }
         return this.body(inst, e); // teleporting an unanchored part
-      case 'MeshId': return this.build(inst);
+      case 'MeshId': case 'MeshData': return this.build(inst);
       case 'DoubleSided': case 'TextureID': return this.meshLook(inst, e);
       case 'CollisionFidelity': return this.body(inst, e);
       case 'Size':

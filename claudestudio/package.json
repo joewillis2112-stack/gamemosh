@@ -17,6 +17,7 @@
     "esbuild": "^0.25.0",
     "gltf-validator": "^2.0.0-dev.3.10",
     "pixelmatch": "^7.1.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "vitest": "^2.1.4"
   }
 }
