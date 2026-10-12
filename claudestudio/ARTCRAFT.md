@@ -1,5 +1,7 @@
 # ArtCraft: what it is, and what Claude Studio takes from it (2026-10-11)
 
+Rule (user, 2026-10-12): ArtCraft is incorporated into Claude Studio, not a replacement for it. Its ideas become parts of the studio, built on the studio's own engine.
+
 ArtCraft ([github.com/storytold/artcraft](https://github.com/storytold/artcraft), "the IDE for
 artists") is an open-source desktop app for AI image and video work. You compose in 2D, stage a
 scene in 3D (characters, props, camera), then generate a picture or video that follows the
