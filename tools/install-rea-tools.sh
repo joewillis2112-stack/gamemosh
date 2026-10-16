@@ -30,7 +30,11 @@ for f in $(find "$GHIDRA" -path "*/os/linux_x86_64/*" -type f); do
 done
 
 # Register REA with Claude Code, with Ghidra's path in the server's environment.
-GHIDRA_INSTALL_DIR="$GHIDRA" npx -y rea-agents@latest setup --client claude_code --yes
-GHIDRA_INSTALL_DIR="$GHIDRA" npx -y rea-agents@latest doctor --client claude_code
+# Installed globally, not run through npx: npx fetches the package on the first
+# start of each session, past Claude Code's 30 s MCP connect timeout. Setup run
+# from the global binary registers that binary (starts in about 2 s).
+npm i -g rea-agents@6.5.0
+GHIDRA_INSTALL_DIR="$GHIDRA" rea-agents setup --client claude_code --yes
+GHIDRA_INSTALL_DIR="$GHIDRA" rea-agents doctor --client claude_code
 echo "JADX (standalone): $(ls "$ROOT"/x/jadx/*/libexec/bin/jadx)"
 echo "Restart Claude Code for the REA tools to appear."
