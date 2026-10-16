@@ -36,5 +36,14 @@ done
 npm i -g rea-agents@6.5.0
 GHIDRA_INSTALL_DIR="$GHIDRA" rea-agents setup --client claude_code --yes
 GHIDRA_INSTALL_DIR="$GHIDRA" rea-agents doctor --client claude_code
+# Il2CppDumper (Perfare, MIT) for Unity IL2CPP games: names out of global-metadata.dat,
+# into REA with tools/rea-il2cpp/. Pinned commit; built for .NET 8. RequireAnyKey off so
+# it runs headless.
+command -v dotnet >/dev/null || apt-get install -y -q dotnet-sdk-8.0
+[ -d /home/user/ext/Il2CppDumper ] || git clone -q https://github.com/Perfare/Il2CppDumper /home/user/ext/Il2CppDumper
+git -C /home/user/ext/Il2CppDumper checkout -q 4741d46b
+dotnet build /home/user/ext/Il2CppDumper/Il2CppDumper/Il2CppDumper.csproj -c Release -f net8.0 -o "$ROOT/il2cppdumper"
+sed -i 's/"RequireAnyKey": true/"RequireAnyKey": false/' "$ROOT/il2cppdumper/config.json"
+echo "Il2CppDumper: dotnet $ROOT/il2cppdumper/Il2CppDumper.dll libil2cpp.so global-metadata.dat out/"
 echo "JADX (standalone): $(ls "$ROOT"/x/jadx/*/libexec/bin/jadx)"
 echo "Restart Claude Code for the REA tools to appear."

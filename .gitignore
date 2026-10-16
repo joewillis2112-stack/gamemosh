@@ -6,3 +6,5 @@ tests/_qa_*
 # Local caches (model weights, venvs, clones) and scratch output
 /.cache/
 /build/
+
+.claude/settings.local.json
