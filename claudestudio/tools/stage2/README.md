@@ -122,8 +122,8 @@ checkpoint uses, and loading fails with missing keys.
 
 ## Known defects (realistic route, 2026-10-11)
 
-- The back of the shirt has darker blotches: hidden areas borrow from the
-  nearest seen point, and some of those sit in the photo's shadows near the arms.
+- Fixed by the multi-view run: the back of the shirt had darker blotches
+  (hidden areas borrowed from the nearest seen point).
 - Fixed: a flap of hip surface rode with each hand (the hand overlaps the thigh
   in the front view, so the box cut can't tell them apart). Now arm-column
   vertices below the crotch go to the nearer of arm and leg along the surface.
@@ -133,6 +133,6 @@ checkpoint uses, and loading fails with missing keys.
   arm's columns.)
 - A small skin-coloured patch on the hip where the photo's hand covered the
   thigh.
-- Multi-view is built (2026-10-11) but not yet run on real photos (no quota left that day): `mesh_hf.py --views back[,left,right]` has Kontext make each view from the front photo, Hunyuan3D-2mv takes them together, and `paint_cpu.py --back/--left/--right` paints each face from the photo that faces it most squarely (`test/paint_cpu.test.py`: a box and four two-colour photos, every face in its view's colour on the correct side, mutation-checked against a mirrored back and swapped sides). The old note: only one view went in (the front). A back view from Kontext ("the same person
+- **Multi-view run (2026-10-20): the back is fixed.** One Kontext call ("this exact same person from directly behind") gave the same man, same outfit, straight on; Hunyuan3D-2mv meshed front + back; 89% of faces now come straight from a photo (front 49%, back 40%; was 46% from the front alone). `examples/realistic-adventurer.glb` is this one. Left: a visible join down the sides where the two photos meet (a side view would fix it, one more Kontext call), and skin flecks at the hips where the hands were fused. Built: `mesh_hf.py --views back[,left,right]` has Kontext make each view from the front photo, Hunyuan3D-2mv takes them together, and `paint_cpu.py --back/--left/--right` paints each face from the photo that faces it most squarely (`test/paint_cpu.test.py`: a box and four two-colour photos, every face in its view's colour on the correct side, mutation-checked against a mirrored back and swapped sides). The old note: only one view went in (the front). A back view from Kontext ("the same person
   from behind") into Hunyuan's multi-view inputs would fix both, at the cost of
   quota.
