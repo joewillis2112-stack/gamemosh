@@ -27,6 +27,7 @@ import { ModalTransform } from './editor/modal.js';
 import { EditMode, MESH_OPS } from './editor/editmode.js';
 import { AnimateMode } from './editor/animate.js';
 import { TerrainTools } from './editor/terrain.js';
+import { PaintTools } from './editor/paint.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
@@ -127,7 +128,12 @@ async function main() {
     document.body.classList.toggle('terraining', s.active);
     document.querySelector('#ui [data-act=terrain]').classList.toggle('on', s.active);
   } });
-  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting;
+  // Paint: brushes on the model, into a MeshPart's texture or a Decal on a part's face (web/editor/paint.js).
+  const paintTools = new PaintTools({ scene, dm, world, commands, camera, canvas, bar: document.getElementById('paintbar'), onState: s => {
+    document.body.classList.toggle('painting', s.active);
+    document.querySelector('#ui [data-act=paint]').classList.toggle('on', s.active);
+  } });
+  camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting || paintTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
   camera.pick = pickPoint;
@@ -150,7 +156,7 @@ async function main() {
     const d = downs.get(e.pointerId); downs.delete(e.pointerId);
     if (!d || d.button !== 0 || d.n > 1 || gizmos.dragging || edit.dragging || anim.drag || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
     if (anim.active) { const r = canvas.getBoundingClientRect(); anim.click(e.clientX - r.left, e.clientY - r.top); return; }
-    if (terrainTools.active) return; // a click paints, it doesn't select
+    if (terrainTools.active || paintTools.active) return; // a click paints, it doesn't select
     if (edit.active) { const r = canvas.getBoundingClientRect(); if (!gizmos.layer.utilityLayerScene.pick(e.clientX - r.left, e.clientY - r.top, m => edit.arrows && m.isPickable, false, camera.cam)?.hit) edit.click(e.clientX - r.left, e.clientY - r.top, e.shiftKey); return; }
     const r = canvas.getBoundingClientRect(), inst = instanceAt(e.clientX - r.left, e.clientY - r.top, e.altKey);
     if (inst === undefined) return;
@@ -168,7 +174,7 @@ async function main() {
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
     editmesh: () => edit.active ? edit.exit() : edit.enter(),
-    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
+    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
@@ -199,7 +205,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

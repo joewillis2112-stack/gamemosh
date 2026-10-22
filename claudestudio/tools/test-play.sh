@@ -60,6 +60,8 @@ run --page editor --scenario test/scenarios/editor-animate.mjs
 run --page editor --phone --scenario test/scenarios/editor-animate.mjs
 run --page editor --scenario test/scenarios/editor-terrain.mjs
 run --page editor --phone --scenario test/scenarios/editor-terrain.mjs
+run --page editor --scenario test/scenarios/editor-paint.mjs
+run --page editor --phone --scenario test/scenarios/editor-paint.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
@@ -73,6 +75,7 @@ node test/animation.test.mjs | tail -1 | grep -q PASS && echo "animation test PA
 node test/terrain.test.mjs | tail -1 | grep -q PASS && echo "terrain test PASS" || { echo "FAILED: terrain test"; fail=1; }
 node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place file test PASS" || { echo "FAILED: place file test"; fail=1; }
 vt=$(npx vitest run web/modeling/kernel test/modeling.test.mjs 2>&1); echo "$vt" | grep -q "Tests .*passed" && ! echo "$vt" | grep -q "failed" && echo "modeling tests PASS ($(echo "$vt" | grep -o "Tests .*passed[^)]*"))" || { echo "FAILED: modeling tests"; fail=1; }
+node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
 node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
 node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }

@@ -16,6 +16,7 @@ import { isA, CF, V3 } from '../datamodel.js';
 import { loadGltfContainer } from './gltf.js';
 import { loadMesh, renderArrays, extent } from '../modeling/editable.js';
 import { TerrainView } from './terrain.js';
+import { cubeProjectUVs } from './cubeuv.js';
 
 const STUD = 0.28; // metres (Roblox's conversion); glTF files are in metres
 
@@ -90,6 +91,12 @@ export class World {
     }
     // An editable mesh can have bent (non-planar) faces whose triangles face either way: draw both sides, lit as such.
     if (target !== e.mesh) { m.backFaceCulling = false; m.twoSidedLighting = true; }
+    // An editable mesh with a TextureID (painted in the editor) shows the image as it is.
+    if (target !== e.mesh && P.TextureID) {
+      const mp = e.meshPart;
+      if (mp.textureFor !== P.TextureID) { mp.textures = [new Texture(this.resolveUrl(P.TextureID), this.scene, false, false)]; mp.textureFor = P.TextureID; }
+      m.albedoTexture = mp.textures[0]; m.albedoColor = Color3.White(); m.emissiveColor = Color3.Black();
+    }
     target.material = m;
   }
   // One set of textures per material, shared by every part that uses it.
@@ -144,7 +151,8 @@ export class World {
     if (e.meshPart) return; // faces of a box; a mesh has none (not yet supported on MeshParts)
     for (const c of inst.children) {
       if (c.ClassName !== 'Decal' && c.ClassName !== 'Texture') continue;
-      const D = c.props, url = this.builtinUrl(D.Texture);
+      // A built-in image, or an image by URL (a painted one is a PNG data URL); asset ids aren't loaded yet.
+      const D = c.props, url = this.builtinUrl(D.Texture) || (/^(data:image\/|blob:|https?:)/.test(D.Texture) || /\.(png|jpe?g|webp)$/i.test(D.Texture) ? this.resolveUrl(D.Texture) : null);
       if (!url || D.Transparency >= 1) continue;
       const wedgeFront = D.Face === 'Front' && (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge');
       const [pos, rot] = wedgeFront ? [[0, 0, 0], [Math.PI / 4, 0, 0]] : FACES[D.Face] || FACES.Front;
@@ -154,6 +162,7 @@ export class World {
       // A wedge's front face is its slope: in the unit box it runs corner to corner, sqrt(2) long.
       if (wedgeFront) plane.scaling.y = Math.SQRT2;
       plane.isPickable = false;
+      plane.metadata = { decal: c }; // which Decal this plane draws (the Paint tool paints into it)
       plane.receiveShadows = true;
       const m = new PBRMaterial(plane.name, this.scene);
       const t = new Texture(url, this.scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
@@ -249,7 +258,8 @@ export class World {
     try { mesh = loadMesh(inst.props.MeshData); } catch (err) { console.warn(`MeshPart ${inst.Name}: bad MeshData: ${err.message}`); return; }
     const a = renderArrays(mesh), ex = extent(mesh), s = ex.size, c = ex.centre;
     const r = new Mesh(inst.Name + '/mesh', this.scene), vd = new VertexData();
-    vd.positions = a.positions; vd.normals = a.normals; vd.uvs = a.uvs; vd.indices = a.indices;
+    vd.positions = a.positions; vd.normals = a.normals; vd.indices = a.indices;
+    vd.uvs = a.uvs.some(v => v !== 0) ? a.uvs : cubeProjectUVs(a.positions, a.normals); // no UVs: Cube Projection, so it can be painted
     vd.applyToMesh(r);
     const mp = e.meshPart;
     mp.editable = true; mp.faceIds = a.faceIds; mp.centre = c;
@@ -446,7 +456,7 @@ export class World {
         }
         return this.body(inst, e); // teleporting an unanchored part
       case 'MeshId': case 'MeshData': return this.build(inst);
-      case 'DoubleSided': case 'TextureID': return this.meshLook(inst, e);
+      case 'DoubleSided': case 'TextureID': return e.meshPart && e.meshPart.editable ? this.updateMaterial(inst, e) : this.meshLook(inst, e);
       case 'CollisionFidelity': return this.body(inst, e);
       case 'Size':
         if (e.meshPart) { this.transform(inst, e); return this.body(inst, e); }

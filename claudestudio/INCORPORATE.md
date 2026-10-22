@@ -15,7 +15,7 @@ search snippets. Clones live in `../.cache/ext/` (gitignored).
 | IK (limbs) | Babylon's `BoneIKController` (in our engine) | Apache-2.0 | Next (our rig's limbs are nodes, not skinned bones: a two-joint solver on nodes, or the controller on a skinned rig) |
 | Animation timeline, keyframes | ArtCraft `TimelineController` and `timeline/` (interpolation); [animation-timeline-control](https://github.com/ievgennaida/animation-timeline-control) (canvas keyframe UI, no dependencies) | MIT, MIT | **Incorporated** 2026-10-12: the control vendored (`web/vendor/animation-timeline/`); data is Roblox's own (KeyframeSequence, Keyframe, Pose), played by Animator/AnimationTrack (`web/animation.js`) |
 | Terrain (Roblox's smooth voxel terrain) | SculptGL's `SurfaceNets.js` (vendored unchanged, `web/vendor/sculptgl/`); terrain-editor-js read for the brush idea | MIT | **Incorporated** 2026-10-12: `web/terrain/` (voxels, mesher, brushes), `runtime/terrain.js`, the editor's Terrain tools. Not yet: textured materials, terrain in `workspace:Raycast`, swimming, Region3 API |
-| Texture painting (brushes on a texture, on the model through its UVs) | PhotoCraft's brush engine (`crates/paint`, Rust, MIT/Apache), ported to JS: tip, spacing, pressure, flow/opacity build-up; checked dab for dab against the Rust crate built here | MIT/Apache | **In progress** (session_01MdRyXD9qgjCVcd3FRura1g, 2026-10-22): `web/paint/`. Pull before touching |
+| Texture painting (brushes on a texture, on the model through its UVs) | PhotoCraft's brush engine (`crates/paint`, Rust, MIT/Apache), ported to JS: tip, spacing, pressure, flow/opacity build-up; bit-exact against the Rust crate built here | MIT/Apache | **Incorporated** 2026-10-22: `web/paint/brush.js`, the editor's Paint tool (`web/editor/paint.js`): Decals on part faces, MeshParts through their UVs. PLAN.md, "Paint" |
 | Water | Babylon `WaterMaterial` (`@babylonjs/materials`) | Apache-2.0 | Next |
 | LODs, mesh simplification | [meshoptimizer](https://github.com/zeux/meshoptimizer) JS simplifier (`js/meshopt_simplifier.js`); 3DOO's `remesh/simplify.ts` | MIT, MIT | Next |
 | UV unwrapping | [xatlas](https://github.com/jpcy/xatlas) (C++, MIT) | MIT | Needs a wasm build (we have emsdk); the npm wrappers' licences weren't verifiable |
@@ -26,12 +26,9 @@ search snippets. Clones live in `../.cache/ext/` (gitignored).
 
 ## Not found (as of 2026-10-12)
 
-- **Texture painting on a 3D model, with a licence.** The two browser projects
-  that do it ([chameleon.js](https://github.com/tomtung/chameleon.js),
-  [WebGL3DPainter](https://github.com/franjaviersans/WebGL3DPainter)) have no
-  licence file. Interim: SculptGL's vertex painting (MIT); later, PhotoCraft's
-  brush engine (MIT, Rust, other session's notes in ARTCRAFT.md) painting into a
-  texture through the mesh's UVs.
+- ~~Texture painting on a 3D model~~: found and done, 2026-10-22 (PhotoCraft's
+  brush engine, above). Editable meshes get Cube Projection UVs meanwhile
+  (`runtime/cubeuv.js`); a real unwrap is still xatlas (below).
 - **A JavaScript UV unwrapper with a verified licence.** xatlas itself is MIT;
   compiling it to wasm here is the route.
 - **Blender's whole UI or node systems (geometry nodes, shader nodes) as a

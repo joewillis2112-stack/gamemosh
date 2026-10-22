@@ -150,3 +150,7 @@ so a Rust crate comes in the way Luau did (compiled to wasm, behind a small bind
 - Their parity percentages are self-assessed estimates, not independent measurements.
 - For a phone-first studio, check wasm size and WebGL2 fallback before embedding anything
   (their web builds use WebGPU and fall back to WebGL2).
+
+### Ported so far (2026-10-22)
+
+- **PhotoCraft's brush engine** → the studio's Paint tool. Bit-exact against the Rust crate (built here as an oracle, `tools/paint-oracle/`). What was kept and dropped: PLAN.md, "Paint".
