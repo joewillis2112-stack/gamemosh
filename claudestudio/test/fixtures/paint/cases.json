@@ -1,0 +1,18 @@
+[
+  {"name": "hard line", "w": 48, "h": 24, "brush": {"size": 8, "pressureSize": false}, "points": [[4, 12], [44, 12]]},
+  {"name": "soft line", "w": 48, "h": 24, "brush": {"size": 12, "hardness": 0, "pressureSize": false}, "points": [[6, 12], [42, 12]]},
+  {"name": "small tip", "w": 32, "h": 16, "brush": {"size": 3, "hardness": 0.5, "pressureSize": false}, "points": [[3.3, 4.7], [28.6, 11.2]]},
+  {"name": "flow builds up to opacity", "w": 48, "h": 24, "brush": {"size": 10, "hardness": 0.3, "flow": 0.2, "opacity": 0.6, "pressureSize": false}, "points": [[6, 12], [40, 12], [8, 13]]},
+  {"name": "wide spacing", "w": 48, "h": 24, "brush": {"size": 10, "spacing": 1.25, "pressureSize": false}, "points": [[5, 12], [43, 12]]},
+  {"name": "pressure size and opacity", "w": 48, "h": 24, "brush": {"size": 14, "hardness": 0.8, "pressureSize": true, "pressureOpacity": true}, "points": [[5, 12, 0.1], [24, 10, 0.6], [43, 12, 1.0]]},
+  {"name": "oval angled tip", "w": 48, "h": 32, "brush": {"size": 14, "roundness": 0.3, "angle": 30, "spacing": 0.5, "pressureSize": false}, "points": [[8, 16], [40, 16]]},
+  {"name": "jitter (seeded)", "w": 48, "h": 32, "brush": {"size": 10, "spacing": 0.4, "pressureSize": false, "seed": 12345, "shapeDynamics": {"enabled": true, "size": {"jitter": 0.6, "minimum": 0.2}, "angle": {"jitter": 0.5}, "roundness": {"jitter": 0.5, "minimum": 0.3}}}, "points": [[6, 16], [42, 16]]},
+  {"name": "transfer jitter (seeded)", "w": 48, "h": 24, "brush": {"size": 8, "spacing": 0.5, "pressureSize": false, "seed": 777, "transfer": {"enabled": true, "opacity": {"jitter": 0.8}, "flow": {"jitter": 0.5}}}, "points": [[5, 12], [43, 12]]},
+  {"name": "pencil 1 px", "w": 24, "h": 24, "brush": {"size": 1, "aliased": true, "pressureSize": false}, "points": [[2.4, 3.1], [20.7, 17.6], [4.2, 20.9]]},
+  {"name": "pencil 3 px", "w": 32, "h": 24, "brush": {"size": 3, "aliased": true, "pressureSize": false}, "points": [[3, 4], [27, 19]]},
+  {"name": "pencil 4 px", "w": 32, "h": 24, "brush": {"size": 4, "aliased": true, "pressureSize": false}, "points": [[4.6, 5.2], [26.1, 17.8]]},
+  {"name": "colour over colour", "w": 48, "h": 24, "fill": [0.2, 0.4, 0.9, 0.5], "brush": {"size": 10, "hardness": 0.4, "opacity": 0.8, "color": [0.95, 0.3, 0.1, 1.0], "pressureSize": false}, "points": [[6, 12], [42, 12]]},
+  {"name": "eraser", "w": 48, "h": 24, "fill": [0.1, 0.8, 0.2, 1.0], "brush": {"size": 9, "hardness": 0.5, "flow": 0.5, "erase": true, "pressureSize": false}, "points": [[6, 12], [42, 12]]},
+  {"name": "curve", "w": 48, "h": 48, "brush": {"size": 6, "hardness": 0.7, "pressureSize": false, "color": [0.1, 0.6, 0.3, 1.0]}, "points": [[6, 40], [12, 20], [24, 8], [36, 14], [42, 34], [30, 42]]},
+  {"name": "single click", "w": 24, "h": 24, "brush": {"size": 11, "hardness": 0.6, "pressureSize": false}, "points": [[12.3, 11.6]]}
+]
