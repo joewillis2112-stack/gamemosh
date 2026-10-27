@@ -28,6 +28,7 @@ import { EditMode, MESH_OPS } from './editor/editmode.js';
 import { AnimateMode } from './editor/animate.js';
 import { TerrainTools } from './editor/terrain.js';
 import { PaintTools } from './editor/paint.js';
+import { ImageEditor } from './editor/imageeditor.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
@@ -133,6 +134,14 @@ async function main() {
     document.body.classList.toggle('painting', s.active);
     document.querySelector('#ui [data-act=paint]').classList.toggle('on', s.active);
   } });
+  // The Image Editor: a Decal's, ImageLabel's or MeshPart's image, painted flat in layers (web/editor/imageeditor.js).
+  const toastEl = document.getElementById('toast'); let toastT = 0;
+  const toast = t => { toastEl.textContent = t; toastEl.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 2500); };
+  const imageEditor = new ImageEditor({ dm, world, commands, settings: paintTools.settings, panel: document.getElementById('imageeditor'), onState: s => {
+    document.body.classList.toggle('imaging', s.active);
+    document.querySelector('#ui [data-act=image]').classList.toggle('on', s.active);
+    if (s.message) toast(s.message);
+  } });
   camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting || paintTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
@@ -174,7 +183,7 @@ async function main() {
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
     editmesh: () => edit.active ? edit.exit() : edit.enter(),
-    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
+    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), image: () => imageEditor.active ? imageEditor.close() : imageEditor.open(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
@@ -191,6 +200,7 @@ async function main() {
   addEventListener('keydown', e => {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
     const c = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (imageEditor.active) { if (c && k === 'z') { e.preventDefault(); imageEditor.undoLast(); } return; } // keys belong to the open image
     const map = c ? { '1': 'select', '2': 'move', '3': 'scale', '4': 'rotate', d: 'duplicate', g: 'group', u: 'ungroup', z: e.shiftKey ? 'redo' : 'undo', y: 'redo', r: 'turn', t: 'tilt' } : { delete: 'delete', backspace: 'delete' };
     if (map[k]) { e.preventDefault(); actions[map[k]](); }
   });
@@ -205,7 +215,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

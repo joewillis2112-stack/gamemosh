@@ -154,3 +154,4 @@ so a Rust crate comes in the way Luau did (compiled to wasm, behind a small bind
 ### Ported so far (2026-10-22)
 
 - **PhotoCraft's brush engine** → the studio's Paint tool. Bit-exact against the Rust crate (built here as an oracle, `tools/paint-oracle/`). What was kept and dropped: PLAN.md, "Paint".
+- **PhotoCraft's blend modes and a Layers panel** → the studio's Image Editor (2026-10-27). 17 of its 33 modes, checked against its `blend::composite`. PLAN.md, "Image Editor".

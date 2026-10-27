@@ -15,6 +15,15 @@ body.editing #editbar{display:flex}
 #paintbar{position:fixed;top:44px;left:240px;right:280px;height:40px;display:flex;gap:6px;align-items:center;padding:0 6px;background:#2a2238;border-bottom:1px solid #4a3a66;overflow-x:auto;z-index:2}#paintbar[hidden]{display:none}
 #paintbar button{flex:none;height:30px;padding:0 10px;border:1px solid #4a3a66;border-radius:6px;background:#352a48;color:var(--text);font:inherit}#paintbar button.on{background:#7a4fc9;border-color:#7a4fc9}#paintbar label{flex:none;display:flex;gap:4px;align-items:center;white-space:nowrap}#paintbar input[type=range]{width:80px}#paintbar input[type=color]{flex:none;width:36px;height:30px;padding:0;border:1px solid #4a3a66;border-radius:6px;background:none}#paintbar .sep{flex:none;width:1px;height:22px;background:#4a3a66;margin:0 4px}
 #editbar button{flex:none;height:30px;padding:0 10px;border:1px solid #6b4a24;border-radius:6px;background:#4a3420;color:var(--text);font:inherit}#editbar button.on{background:#e07b1a;border-color:#e07b1a}#editbar .sep{flex:none;width:1px;height:22px;background:#6b4a24;margin:0 4px}
+#imageeditor{position:fixed;inset:44px 0 0 0;z-index:5;background:#17181b;display:flex;flex-direction:column}#imageeditor[hidden]{display:none}
+#imageeditor button,#imageeditor select{height:32px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:#26282d;color:var(--text);font:inherit}#imageeditor button.on{background:#7a4fc9;border-color:#7a4fc9}#imageeditor button.primary{background:#2e7d4f;border-color:#2e7d4f}
+.ie-head{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line)}.ie-head .grow,.ie-row .grow{flex:1}
+.ie-body{flex:1;display:flex;min-height:0}.ie-view{flex:1;display:flex;align-items:center;justify-content:center;padding:12px;min-width:0;min-height:0}
+.ie-canvas{max-width:100%;max-height:100%;aspect-ratio:auto;image-rendering:pixelated;touch-action:none;background:repeating-conic-gradient(#555 0 25%,#777 0 50%) 0 0/16px 16px;box-shadow:0 0 0 1px #000}
+.ie-side{width:250px;flex:none;display:flex;flex-direction:column;gap:8px;padding:10px;border-left:1px solid var(--line);overflow-y:auto}.ie-side label{display:flex;gap:6px;align-items:center}.ie-side input[type=range]{flex:1}
+.ie-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.ie-row input[type=color]{width:40px;height:32px;padding:0;border:1px solid var(--line);border-radius:6px;background:none}
+.ie-layers{display:flex;flex-direction:column;gap:4px}.layer{display:flex;gap:8px;align-items:center;min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:6px;cursor:pointer}.layer.on{border-color:#7a4fc9;background:#2a2238}.layer input{width:20px;height:20px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px}#toast[hidden]{display:none}
 #lastop{position:fixed;left:250px;bottom:12px;z-index:3;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;gap:10px;align-items:center}#lastop[hidden]{display:none}#lastop input{width:64px;background:#1f2125;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:2px 4px}#lastop .st{color:var(--dim)}
 #animpanel{position:fixed;left:240px;right:280px;bottom:0;height:224px;display:flex;flex-direction:column;background:var(--panel);border-top:1px solid var(--line);z-index:2}#animpanel[hidden]{display:none}
 .abar{flex:none;height:38px;display:flex;gap:6px;align-items:center;padding:0 6px;overflow-x:auto;border-bottom:1px solid var(--line)}
@@ -36,7 +45,7 @@ body.animating #c{height:calc(100% - 44px - 224px)}
 #ui [data-act=panels]{display:none}
 #hint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:6px 12px;border-radius:6px;background:rgba(0,0,0,.7);color:#fff;z-index:3;pointer-events:none}
 @media (max-width:760px){
-  #editbar{left:0;right:0}#terrainbar{left:0;right:0}#paintbar{left:0;right:0}#animpanel{left:0;right:0;height:42%}body.animating #c{height:calc(58% - 44px)}#lastop{left:8px;right:8px;bottom:8px;flex-wrap:wrap}
+  #editbar{left:0;right:0}#terrainbar{left:0;right:0}#paintbar{left:0;right:0}.ie-body{flex-direction:column}#imageeditor button,#imageeditor select{height:44px;min-width:44px}.layer{min-height:44px}.ie-row input[type=color]{height:44px;width:48px}.ie-side{width:auto;border-left:0;border-top:1px solid var(--line);max-height:45%}#animpanel{left:0;right:0;height:42%}body.animating #c{height:calc(58% - 44px)}#lastop{left:8px;right:8px;bottom:8px;flex-wrap:wrap}
   #c{left:0;right:0;width:100%}
   .side{display:none;top:auto;height:42%;left:0;right:0;width:auto;border:0;border-top:1px solid var(--line)}
   body.panels #explorer{display:block;right:50%}body.panels #properties{display:block;left:50%}
@@ -46,7 +55,7 @@ body.animating #c{height:calc(100% - 44px - 224px)}
 <div id="ui">
   <button data-tool="select" title="Select (Ctrl+1)">Select</button><button data-tool="move" title="Move (Ctrl+2)">Move</button><button data-tool="scale" title="Scale (Ctrl+3)">Scale</button><button data-tool="rotate" title="Rotate (Ctrl+4)">Rotate</button>
   <span class="sep"></span>
-  <button data-act="part" title="Insert a Part">Part</button><select id="meshKind" title="Mesh to insert"><option>cube</option><option>uvSphere</option><option>icoSphere</option><option>cylinder</option><option>cone</option><option>torus</option><option>capsule</option><option>plane</option><option>grid</option><option>circle</option></select><button data-act="mesh" title="Insert an editable mesh">Mesh</button><button data-act="editmesh" title="Edit Mesh (Tab)">Edit Mesh</button><button data-act="terrain" title="Terrain Editor: Add, Subtract, Paint, Smooth, Flatten">Terrain</button><button data-act="paint" title="Paint on a MeshPart's texture, or on a part's face (as a Decal)">Paint</button><button data-act="rig" title="Insert a Rig (a character to animate)">Rig</button><button data-act="animate" title="Animate the selected rig">Animate</button><button data-act="duplicate" title="Duplicate (Ctrl+D)">Duplicate</button><button data-act="delete" title="Delete">Delete</button><button data-act="group" title="Group (Ctrl+G)">Group</button><button data-act="ungroup" title="Ungroup (Ctrl+U)">Ungroup</button>
+  <button data-act="part" title="Insert a Part">Part</button><select id="meshKind" title="Mesh to insert"><option>cube</option><option>uvSphere</option><option>icoSphere</option><option>cylinder</option><option>cone</option><option>torus</option><option>capsule</option><option>plane</option><option>grid</option><option>circle</option></select><button data-act="mesh" title="Insert an editable mesh">Mesh</button><button data-act="editmesh" title="Edit Mesh (Tab)">Edit Mesh</button><button data-act="terrain" title="Terrain Editor: Add, Subtract, Paint, Smooth, Flatten">Terrain</button><button data-act="paint" title="Paint on a MeshPart's texture, or on a part's face (as a Decal)">Paint</button><button data-act="image" title="Edit the selected Decal's, ImageLabel's or MeshPart's image in layers">Image</button><button data-act="rig" title="Insert a Rig (a character to animate)">Rig</button><button data-act="animate" title="Animate the selected rig">Animate</button><button data-act="duplicate" title="Duplicate (Ctrl+D)">Duplicate</button><button data-act="delete" title="Delete">Delete</button><button data-act="group" title="Group (Ctrl+G)">Group</button><button data-act="ungroup" title="Ungroup (Ctrl+U)">Ungroup</button>
   <span class="sep"></span>
   <button data-act="play" title="Play" class="play">Play</button><button data-act="save" title="Save the place file">Save</button><button data-act="open" title="Open a place file">Open</button>
   <span class="sep"></span>
@@ -58,6 +67,8 @@ body.animating #c{height:calc(100% - 44px - 224px)}
 <div id="animpanel" hidden></div>
 <div id="terrainbar" hidden></div>
 <div id="paintbar" hidden></div>
+<div id="imageeditor" hidden></div>
+<div id="toast" hidden></div>
 <input type="file" id="openFile" accept=".json,application/json" hidden>
 <div id="explorer" class="side"></div><div id="properties" class="side"></div>
 <canvas id="c"></canvas><script type="module" src="../build/web/editor.js"></script>

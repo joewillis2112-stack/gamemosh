@@ -186,7 +186,7 @@ function wrap(t, mode) {
 }
 function materialsOf(mesh) { const m = mesh.material; return !m ? [] : m.subMaterials ? m.subMaterials.filter(Boolean) : [m]; }
 function restoreMaterials(mesh) { for (const m of materialsOf(mesh)) if ('_paintOrig' in m) { if (m.albedoTexture && m.albedoTexture.getClassName && m.albedoTexture.getClassName() === 'RawTexture') m.albedoTexture = m._paintOrig; delete m._paintOrig; } }
-function toBytes(img) { const b = new Uint8Array(img.width * img.height * 4); for (let i = 0; i < b.length; i++) b[i] = Math.round(Math.min(Math.max(img.data[i], 0), 1) * 255); return b; }
+export function toBytes(img) { const b = new Uint8Array(img.width * img.height * 4); for (let i = 0; i < b.length; i++) b[i] = Math.round(Math.min(Math.max(img.data[i], 0), 1) * 255); return b; }
 function fromBytes(px, w, h) { const d = new Float32Array(w * h * 4); for (let i = 0; i < d.length; i++) d[i] = px[i] / 255; return { img: { width: w, height: h, data: d } }; }
 function upload(tex, img) { tex.update(toBytes(img)); }
 export function toPng(img) {
@@ -196,7 +196,7 @@ export function toPng(img) {
 }
 const blanks = new Map();
 function blankPng(n) { if (!blanks.has(n)) blanks.set(n, toPng(image(n, n))); return blanks.get(n); }
-function imageFromUrl(url) {
+export function imageFromUrl(url) {
   return new Promise((ok, bad) => {
     const im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = () => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d'); g.drawImage(im, 0, 0); ok(fromBytes(g.getImageData(0, 0, im.width, im.height).data, im.width, im.height)); };

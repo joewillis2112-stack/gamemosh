@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import { brush, dabs, image, paintStroke } from '../web/paint/brush.js';
 import { composite } from '../web/paint/blend.js';
+import { LayeredImage } from '../web/paint/layers.js';
 
 const cases = JSON.parse(fs.readFileSync('test/fixtures/paint/cases.json', 'utf8'));
 const oracle = JSON.parse(fs.readFileSync('test/fixtures/paint/oracle.json', 'utf8'));
@@ -43,5 +44,29 @@ for (const m of bc.modes) {
   check(worst <= 2e-6, `blend ${m}: ${n} composites match PhotoCraft's (worst ${worst.toExponential(1)})`);
 }
 check(k === bo.length, `every blend result compared (${k} of ${bo.length})`);
+// Layers: a stack flattened bottom to top (hand-worked values).
+{
+  const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 4)).map(v => +v.toFixed(4));
+  const eq = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-4);
+  const L = new LayeredImage(4, 2);
+  L.add('Background', image(4, 2, [0.8, 0.6, 0.4, 1]));
+  const top = L.add('Shade', image(4, 2, [0.5, 0.5, 0.5, 1]));
+  check(eq(px(L.flatten(), 1, 1), [0.5, 0.5, 0.5, 1]), `Normal: the opaque top layer covers (${px(L.flatten(), 1, 1)})`);
+  L.set(1, 'blend', 'Multiply');
+  check(eq(px(L.flatten(), 1, 1), [0.4, 0.3, 0.2, 1]), `Multiply 0.5 grey over (0.8, 0.6, 0.4) halves it (${px(L.flatten(), 1, 1)})`);
+  L.set(1, 'blend', 'Normal'); L.set(1, 'opacity', 0.5);
+  check(eq(px(L.flatten(), 0, 0), [0.65, 0.55, 0.45, 1]), `half opacity mixes halfway (${px(L.flatten(), 0, 0)})`);
+  L.set(1, 'visible', false);
+  check(eq(px(L.flatten(), 0, 0), [0.8, 0.6, 0.4, 1]), `a hidden layer is left out`);
+  L.set(1, 'visible', true); L.set(1, 'opacity', 1);
+  top.img.data.fill(0); top.img.data.set([0, 0, 1, 1], 0); // one blue pixel at (0,0), the rest clear
+  const f1 = L.flatten();
+  check(eq(px(f1, 0, 0), [0, 0, 1, 1]) && eq(px(f1, 3, 1), [0.8, 0.6, 0.4, 1]), `transparent pixels show the layer below`);
+  L.move(1, -1);
+  check(L.layers[0].name === 'Shade' && L.active === 0 && eq(px(L.flatten(), 0, 0), [0.8, 0.6, 0.4, 1]), `moving a layer down reorders the stack; the active layer follows it`);
+  check(L.remove(0) && !L.remove(0) && L.layers.length === 1, `a layer can be removed, but never the last`);
+  let threw = false; try { L.add('Wrong', image(2, 2)); } catch { threw = true; }
+  check(threw, `a layer of another size is refused`);
+}
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);
