@@ -1,0 +1,5 @@
+{
+  "modes": ["Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten", "ColorDodge", "ColorBurn", "LinearDodge", "LinearBurn", "SoftLight", "HardLight", "Difference", "Hue", "Saturation", "Color", "Luminosity"],
+  "colors": [[0, 0, 0, 1], [1, 1, 1, 1], [0.5, 0.5, 0.5, 1], [0.9, 0.2, 0.1, 1], [0.1, 0.6, 0.3, 0.8], [0.2, 0.3, 0.95, 0.5], [0.75, 0.75, 0.1, 1], [0.33, 0.01, 0.66, 0.25], [0.6, 0.4, 0.2, 0], [0.999, 0.5, 0.001, 1]],
+  "opacities": [1, 0.6, 0.15]
+}

@@ -4,6 +4,7 @@
 // flow, opacity ceiling, angle, roundness) and so must every pixel.
 import fs from 'node:fs';
 import { brush, dabs, image, paintStroke } from '../web/paint/brush.js';
+import { composite } from '../web/paint/blend.js';
 
 const cases = JSON.parse(fs.readFileSync('test/fixtures/paint/cases.json', 'utf8'));
 const oracle = JSON.parse(fs.readFileSync('test/fixtures/paint/oracle.json', 'utf8'));
@@ -28,5 +29,19 @@ for (const c of cases) {
   for (let i = 0; i < want.length; i++) { worst = Math.max(worst, Math.abs(img.data[i] - want[i])); if (i % 4 === 3 && want[i] !== (c.fill ? c.fill[3] : 0)) painted++; }
   check(worst <= PIXEL_TOL && painted > 0, `${c.name}: every pixel matches (worst ${worst.toExponential(1)} over ${c.w}x${c.h}; ${painted} pixels changed)`);
 }
+// Blend modes: every (mode, backdrop, source, opacity) of blend-cases.json against PhotoCraft's blend::composite.
+const bc = JSON.parse(fs.readFileSync('test/fixtures/paint/blend-cases.json', 'utf8'));
+const bo = hexF32(JSON.parse(fs.readFileSync('test/fixtures/paint/blend-oracle.json', 'utf8')).results);
+let k = 0;
+for (const m of bc.modes) {
+  let worst = 0, n = 0;
+  for (const b of bc.colors) for (const src of bc.colors) for (const o of bc.opacities) {
+    const got = composite(m, b, src, o);
+    for (let i = 0; i < 4; i++, k++) worst = Math.max(worst, Math.abs(got[i] - bo[k]));
+    n++;
+  }
+  check(worst <= 2e-6, `blend ${m}: ${n} composites match PhotoCraft's (worst ${worst.toExponential(1)})`);
+}
+check(k === bo.length, `every blend result compared (${k} of ${bo.length})`);
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);
