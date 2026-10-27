@@ -25,7 +25,7 @@ export class PaintTools {
     this.active = false;
     this.settings = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.1, color: [0.85, 0.15, 0.1, 1], erase: false, aliased: false };
     this.stroke = null;
-    this.images = new Map(); // "inst|prop|url" -> Promise of { img, flipV }
+    this.images = new WeakMap(); // instance -> Map of "prop|url" -> Promise of { img }
     this.buildBar();
     this.attachInput();
   }
@@ -66,8 +66,8 @@ export class PaintTools {
 
   // ---- the image being painted, loaded from the property (or a blank / the mesh's own texture)
   loadImage(target) {
-    const url = target.owner.props[target.prop] || '', key = target.owner.id + '|' + target.prop + '|' + url;
-    if (!this.images.has(key)) this.images.set(key, (async () => {
+    const url = target.owner.props[target.prop] || '', key = target.prop + '|' + url, cache = this.cacheOf(target.owner);
+    if (!cache.has(key)) cache.set(key, (async () => {
       if (url) return imageFromUrl(this.world.resolveUrl(url));
       // An editable mesh is drawn in its part's Color until it has a texture: start from that.
       const e = this.world.parts.get(target.owner);
@@ -76,7 +76,11 @@ export class PaintTools {
       if (base && base.readPixels) { const s = base.getSize(), px = await base.readPixels(); if (px) return fromBytes(px, s.width, s.height); }
       return { img: image(MESH_SIZE, MESH_SIZE, [1, 1, 1, 1]) };
     })());
-    return this.images.get(key);
+    return cache.get(key);
+  }
+  cacheOf(inst) {
+    if (!this.images.has(inst)) this.images.set(inst, new Map());
+    return this.images.get(inst);
   }
 
   // ---- a stroke
@@ -91,6 +95,9 @@ export class PaintTools {
     s.img = { width: img.width, height: img.height, data: img.data.slice() }; // painted on a copy: the cached original stays for undo
     s.preview = RawTexture.CreateRGBATexture(new Uint8Array(img.width * img.height * 4), img.width, img.height, this.scene, false, target.flipV);
     s.preview.hasAlpha = true;
+    const tex = materialsOf(target.mesh).map(m => m.albedoTexture).find(Boolean);
+    s.wrapU = tex ? tex.wrapU : 1; s.wrapV = tex ? tex.wrapV : 1; // Texture.WRAP_ADDRESSMODE = 1, CLAMP = 0, MIRROR = 2
+    s.preview.wrapU = s.wrapU; s.preview.wrapV = s.wrapV; // the preview tiles as the texture it stands in for
     for (const m of materialsOf(target.mesh)) { m._paintOrig = m._paintOrig ?? m.albedoTexture; m.albedoTexture = s.preview; }
     const q = s.pending; s.pending = null;
     for (const p of q) this.move(...p);
@@ -100,7 +107,8 @@ export class PaintTools {
     if (s.pending) { s.pending.push([x, y, pressure]); return; }
     const h = this.pick(x, y, { mesh: s.target.mesh });
     if (!h || !h.uv) return;
-    const W = s.img.width, H = s.img.height, u = h.uv.x, v = s.target.flipV ? 1 - h.uv.y : h.uv.y;
+    // UVs beyond 0..1 (a model tiling its texture, one tile per face) wrap as the texture does.
+    const W = s.img.width, H = s.img.height, u = wrap(h.uv.x, s.wrapU), v0 = wrap(h.uv.y, s.wrapV), v = s.target.flipV ? 1 - v0 : v0;
     // Across a UV seam: finish this piece and start a new one from the far side.
     if (!s.cur || (s.last && Math.hypot(u - s.last[0], v - s.last[1]) > SEAM)) { if (s.cur) s.cur.finish(); s.cur = new Stroke(s.img, { ...this.settings, pressureSize: pressure !== null, seed: s.segments.length + 1 }); s.segments.push(s.cur); }
     s.last = [u, v];
@@ -119,7 +127,7 @@ export class PaintTools {
       return;
     }
     const url = toPng(s.img);
-    this.images.set(t.owner.id + '|' + t.prop + '|' + url, Promise.resolve({ img: s.img }));
+    this.cacheOf(t.owner).set(t.prop + '|' + url, Promise.resolve({ img: s.img }));
     this.commands.history.run('Paint', tx => {
       if (t.added) { this.dm.set(t.owner, t.prop, ''); tx.ops.push({ op: 'parent', inst: t.owner, before: null, after: t.part }); }
       tx.set(t.owner, t.prop, url);
@@ -170,6 +178,12 @@ export class PaintTools {
 
 // ---- helpers
 
+// A texture coordinate into 0..1 by the texture's address mode (Babylon's: 0 clamp, 1 wrap, 2 mirror).
+function wrap(t, mode) {
+  if (mode === 0) return Math.min(Math.max(t, 0), 1);
+  const f = t - Math.floor(t);
+  return mode === 2 && Math.floor(t) % 2 !== 0 ? 1 - f : f;
+}
 function materialsOf(mesh) { const m = mesh.material; return !m ? [] : m.subMaterials ? m.subMaterials.filter(Boolean) : [m]; }
 function restoreMaterials(mesh) { for (const m of materialsOf(mesh)) if ('_paintOrig' in m) { if (m.albedoTexture && m.albedoTexture.getClassName && m.albedoTexture.getClassName() === 'RawTexture') m.albedoTexture = m._paintOrig; delete m._paintOrig; } }
 function toBytes(img) { const b = new Uint8Array(img.width * img.height * 4); for (let i = 0; i < b.length; i++) b[i] = Math.round(Math.min(Math.max(img.data[i], 0), 1) * 255); return b; }

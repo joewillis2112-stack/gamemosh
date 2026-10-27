@@ -84,6 +84,27 @@ export default async function (t) {
   const sm = await st(), mc = await colourAt(MI), mo = await colourAt([20, 6 - size * 0.25, MZ]);
   check(/^data:image\/png/.test(sm.mesh) && !red(mb) && red(mc) && !red(mo), `an editable mesh is painted into its TextureID, where it was dragged (${mb} -> ${mc}; the same place below the middle ${mo})`);
 
+  // A glTF MeshPart (Khronos's BoxTextured: real UVs and a texture of its own):
+  // painted through its UVs, starting from its own texture; undo puts it back.
+  await E(() => { const ed = window.editor, CF = ed.CF; ed.commands.run('insert', { className: 'MeshPart', props: { Name: 'Crate', MeshId: 'assets/models/BoxTextured.glb', CFrame: new CF([40, 6, -20, 1, 0, 0, 0, 1, 0, 0, 0, 1]) } }); ed.commands.run('select', { items: [] }); });
+  await t.page.waitForFunction(() => { const c = window.editor.dm.workspace.children.find(c => c.props.Name === 'Crate'), e = c && window.editor.world.parts.get(c); return e && e.meshPart && e.meshPart.render && e.meshPart.render.length > 0; }, null, { timeout: 60000 });
+  await t.page.waitForTimeout(500);
+  await look([40, 6, -34], [40, 6, -20]);
+  const cs = await E(() => { const S = window.editor.dm.workspace.children.find(c => c.props.Name === 'Crate').props.Size; return [S.x, S.y, S.z]; });
+  const CZ = -20 - cs[2] / 2 - 0.01, CI = [40, 6 + cs[1] * 0.25, CZ], CO = [40, 6 - cs[1] * 0.25, CZ], CS = [40 + cs[0] * 0.3, 6 - cs[1] * 0.3, CZ];
+  const steps0 = (await st()).steps, cb = await colourAt(CI), cso = await colourAt(CS);
+  await setBar('size', 120);
+  await drag(await screen([40 - cs[0] * 0.2, CI[1], CZ]), await screen([40 + cs[0] * 0.2, CI[1], CZ]));
+  const crate = await E(() => window.editor.dm.workspace.children.find(c => c.props.Name === 'Crate').props.TextureID);
+  const cc = await colourAt(CI), co = await colourAt(CO), cs2 = await colourAt(CS);
+  const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 12);
+  check(/^data:image\/png/.test(crate) && !red(cb) && red(cc) && !red(co) && same(cso, cs2) && (await st()).steps === steps0 + 1,
+    `a glTF MeshPart is painted through its UVs into TextureID where it was dragged (${cb} -> ${cc}; below the middle ${co}), and its own texture stays elsewhere (${cso} -> ${cs2})`);
+  if (phone) await btn('#ui [data-act=undo]'); else { await t.page.keyboard.press('Control+z'); await E(() => window.editor.frames(1)); }
+  await t.page.waitForTimeout(300);
+  const cuu = await colourAt(CI), tu = await E(() => window.editor.dm.workspace.children.find(c => c.props.Name === 'Crate').props.TextureID);
+  check(tu === '' && same(cuu, cb), `undo takes the paint off the MeshPart: its own texture again (${cuu}, was ${cb})`);
+
   await btn('#paintbar [data-done]');
   check(!(await st()).bar, `Done closes the Paint bar`);
 
