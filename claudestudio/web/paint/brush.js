@@ -48,7 +48,7 @@ export function brush(o = {}) {
 
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 const point = p => Array.isArray(p) ? { x: p[0], y: p[1], pressure: f(p[2] ?? 1), tiltX: 0, tiltY: 0, rotation: 0, wheel: 1 }
-  : { pressure: 1, tiltX: 0, tiltY: 0, rotation: 0, wheel: 1, ...p, pressure: f(p.pressure ?? 1) };
+  : { tiltX: 0, tiltY: 0, rotation: 0, wheel: 1, ...p, pressure: f(p.pressure ?? 1) };
 
 // ------------------------------------------------------------- seeded randomness (PhotoCraft's rng.rs)
 

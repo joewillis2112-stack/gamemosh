@@ -39,13 +39,14 @@ export default async function (t) {
     const V = ed.camera.pos.constructor; ed.camera.pos = new V(0, 6, -34); ed.camera.lookAt(new V(0, 6, -20)); ed.camera.apply(); ed.frames(1); });
   // A part has no image: the editor says so and stays closed.
   await E(() => { const ed = window.editor; ed.commands.run('select', { items: [ed.dm.workspace.children.find(c => c.props.Name === 'Sign')] }); });
-  await btn('#ui [data-act=image]');
+  await btn('#ui [data-act=paint]'); // the Image Editor opens from the Paint bar
+  await btn('#paintbar [data-image]');
   const p0 = await st();
   check(!p0.open && /Select a Decal/.test(p0.toast), `on a Part the Image button says what it needs ("${p0.toast}") and doesn't open`);
 
   await E(() => { const ed = window.editor, s = ed.dm.workspace.children.find(c => c.props.Name === 'Sign'); ed.commands.run('select', { items: [s.children.find(c => c.ClassName === 'Decal')] }); });
   const steps0 = (await st()).steps;
-  await btn('#ui [data-act=image]');
+  await btn('#paintbar [data-image]');
   await t.page.waitForFunction(() => window.editor.imageEditor.active);
   const s0 = await st();
   const size = await E(() => [document.querySelector('#imageeditor canvas').width, document.querySelector('#imageeditor canvas').height]);

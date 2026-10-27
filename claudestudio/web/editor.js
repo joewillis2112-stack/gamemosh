@@ -139,9 +139,9 @@ async function main() {
   const toast = t => { toastEl.textContent = t; toastEl.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 2500); };
   const imageEditor = new ImageEditor({ dm, world, commands, settings: paintTools.settings, panel: document.getElementById('imageeditor'), onState: s => {
     document.body.classList.toggle('imaging', s.active);
-    document.querySelector('#ui [data-act=image]').classList.toggle('on', s.active);
     if (s.message) toast(s.message);
   } });
+  paintTools.onImage = () => imageEditor.open(); // the Paint bar's Image… button
   camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting || paintTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
