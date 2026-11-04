@@ -29,6 +29,7 @@ import { AnimateMode } from './editor/animate.js';
 import { TerrainTools } from './editor/terrain.js';
 import { PaintTools } from './editor/paint.js';
 import { ImageEditor } from './editor/imageeditor.js';
+import { VectorEditor } from './editor/vectoreditor.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
@@ -142,6 +143,9 @@ async function main() {
     if (s.message) toast(s.message);
   } });
   paintTools.onImage = () => imageEditor.open(); // the Paint bar's Image… button
+  // The Vector Editor: shapes and pen paths into the same image properties, as SVG (web/editor/vectoreditor.js).
+  const vectorEditor = new VectorEditor({ dm, world, commands, panel: document.getElementById('vectoreditor'), onState: s => { if (s.message) toast(s.message); } });
+  paintTools.onVector = () => vectorEditor.open(); // the Paint bar's Vector… button
   camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting || paintTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
@@ -200,6 +204,7 @@ async function main() {
   addEventListener('keydown', e => {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
     const c = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (vectorEditor.active) { if (c && k === 'z') { e.preventDefault(); vectorEditor.undoLast(); } else if (vectorEditor.key(e)) e.preventDefault(); return; } // keys belong to the open drawing
     if (imageEditor.active) { if (c && k === 'z') { e.preventDefault(); imageEditor.undoLast(); } return; } // keys belong to the open image
     const map = c ? { '1': 'select', '2': 'move', '3': 'scale', '4': 'rotate', d: 'duplicate', g: 'group', u: 'ungroup', z: e.shiftKey ? 'redo' : 'undo', y: 'redo', r: 'turn', t: 'tilt' } : { delete: 'delete', backspace: 'delete' };
     if (map[k]) { e.preventDefault(); actions[map[k]](); }
@@ -215,7 +220,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());

@@ -159,11 +159,12 @@ export class PaintTools {
       `<input type="color" data-k="color" value="${hex(S.color)}" title="Colour">` +
       [['size', 'Size', 1, 128, 1], ['hardness', 'Hardness', 0, 1, 0.05], ['opacity', 'Opacity', 0.05, 1, 0.05], ['flow', 'Flow', 0.05, 1, 0.05]]
         .map(([k, l, a, b, st]) => `<label>${l} <input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${S[k]}"></label>`).join('') +
-      `<span class="sep"></span><button data-image title="Edit the selected Decal's, ImageLabel's or MeshPart's image flat, in layers">Image…</button><button data-done>Done</button>`;
+      `<span class="sep"></span><button data-image title="Edit the selected Decal's, ImageLabel's or MeshPart's image flat, in layers">Image…</button><button data-vector title="Draw shapes and paths on the selected Decal's, ImageLabel's or MeshPart's image, kept sharp as SVG">Vector…</button><button data-done>Done</button>`;
     B.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.done !== undefined) return this.toggle(false);
       if (b.dataset.image !== undefined) return this.onImage && this.onImage();
+      if (b.dataset.vector !== undefined) return this.onVector && this.onVector();
       const p = b.dataset.p; if (!p) return;
       S.erase = p === 'erase'; S.aliased = p === 'pencil';
       if (p === 'pencil') { S.size = Math.min(S.size, 4); B.querySelector('[data-k=size]').value = S.size; }
