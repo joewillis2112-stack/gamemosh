@@ -63,7 +63,7 @@ export default async function (t) {
     check(row('alice')[2] === '1.23M' && row('Zed')[2] === '999,999' && row('Bob').slice(1).join() === '-,-,-', 'a 7-digit number abbreviates, 6 digits don\'t, a missing stat is "-"');
   }
   await t.frames(2);
-  await t.shot('leaderstats'); await t.golden('leaderstats');
+  await t.shot('leaderstats'); await t.golden('leaderstats', { text: true });
 
   // Hiding: Tab on a keyboard, and StarterGui:SetCoreGuiEnabled from a script.
   const shown = () => t.eval(() => window.studio.gui.playerList.el.style.display !== 'none');

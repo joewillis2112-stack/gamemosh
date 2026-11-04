@@ -23,7 +23,7 @@ Done this session: the token works (HF user Jwilly21, read); the realistic route
 3. Try the other four fixtures (female-person, robot, zombie, soldier) through the route; the robot will test whether "a real person" is the right prompt for non-humans (likely not: let the prompt depend on the subject).
 4. The maker page: offer the realistic route from the phone (it needs the token server-side; or keep it as a CLI and load the `.glb`).
 5. LODs.
-7. The `gui` (desktop, phone) and `leaderstats` goldens fail in a fresh container on the commit before this session too (0.66% and 0.21% of pixels; text rendering, I think). Not caused by stage 2; not re-saved. Look at the diffs before deciding.
+7. ~~The `gui` and `leaderstats` goldens fail in a fresh container.~~ Fixed 2026-11-04: they use `t.golden(name, { text: true })` (tools/golden.mjs): pixels next to an edge don't count, the limit is 0.01%. Passing on desktop and phone.
 6. `tools/turntable.mjs --zoom` seemed to have no effect on this mesh (frames it whole regardless); not looked into.
 
 ## Tools: checked 2026-10-11 (fourth session)
@@ -42,7 +42,7 @@ All verified working in this container:
 | rbx-dom | ok: `raw.githubusercontent.com/rojo-rbx/rbx-dom/master/rbx_reflection_database/database.msgpack` |
 | Khronos fidelity (`tools/fetch-fidelity.sh`) | ok: 84 models, goldens |
 | Blender source (`tools/blender-build.sh fetch`) | ok: v4.2.0 in `claudestudio/.cache/blender-src`. The `dna`/`native` steps are still blocked on the permission rule below. |
-| Harness | `tools/play.mjs`, goldens, `tools/test-play.sh`: ok. `gui` and `leaderstats` goldens fail on a fresh container (item 7 below). |
+| Harness | `tools/play.mjs`, goldens, `tools/test-play.sh`: ok. `gui` and `leaderstats` goldens use a text tolerance (item 7 below). |
 | WebSearch, WebFetch, Google Drive | ok |
 | ZeroGPU quota | spent for today; resets about 07:50 UTC on 2026-10-12 |
 

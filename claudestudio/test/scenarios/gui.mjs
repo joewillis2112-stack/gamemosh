@@ -64,6 +64,6 @@ export default async function (t) {
   const label = await t.eval(() => { const pg = window.studio.players.player.children.find(c => c.ClassName === 'PlayerGui'); return pg.children.find(g => g.props.Name === 'Hud').children.find(c => c.props.Name === 'Stage').children.find(c => c.props.Name === 'Label').props.Text; });
   check(logs.includes('hud built') && logs.filter(l => l === 'activated 1').length === 1 && label === 'Boosts: 1', `${phone ? 'a tap' : 'a click'} on the button fires Activated once, and the HUD updates (${label})`);
   await t.frames(2);
-  await t.shot('gui'); await t.golden('gui');
+  await t.shot('gui'); await t.golden('gui', { text: true });
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }

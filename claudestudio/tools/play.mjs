@@ -44,10 +44,11 @@ const api = {
   async sim(n, input = null) { await page.evaluate(([n, input]) => window.studio.sim(n, input), [n, input]); },
   async shot(name) { if (noShots) return null; const f = path.join(outDir, name + '.png'); await page.screenshot({ path: f, timeout: 300000 }); console.log('shot', f); return f; },
   // Screenshot compared with goldens/play/<name>.png (saved if missing or with --update).
-  async golden(name) {
+  // { text: true } for GUI shots: text antialiasing at edges doesn't count (golden.mjs).
+  async golden(name, opts = {}) {
     if (noShots) return;
     const buf = await page.screenshot({ timeout: 300000 });
-    const r = checkGolden(path.join('goldens/play', name + (phone ? '-phone' : '') + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name) });
+    const r = checkGolden(path.join('goldens/play', name + (phone ? '-phone' : '') + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name), text: !!opts.text });
     if (r.saved) console.log('golden saved', name);
     else { console.log(`golden ${name}: ${(r.frac * 100).toFixed(3)}% pixels differ, mean ${r.mean.toFixed(3)}/255`); if (!r.ok) mismatches.push(name); }
   },
