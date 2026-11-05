@@ -89,6 +89,7 @@ Reference for the editor (Phase 2), posing and motion (Phase 5): ArtCraft, an op
    Each tool gets the same treatment as the player: a reference for how the real tool behaves, measured behaviour, and goldens of what it produces. One tool at a time, finished before the next starts.
 4. **Prompt to game.**
 5. **Multiplayer.**
+6. **Publishing original games** (from the user, 2026-11-05; later, once there are games): an `Ads` service in the Studio API that a game's script calls to show an ad and get the reward back, backed by an ad network's official kit, used as its documentation says (for web: Google's H5 Games Ads / Ad Placement API, or a portal's own kit such as Poki or CrazyGames; for an Android build: AdMob). For original games only.
 
 ## Status
 
