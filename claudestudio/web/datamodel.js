@@ -899,6 +899,8 @@ export function propertiesOf(cls) {
 }
 /** A class's method (for engine-side tests and tools): fn(self, ...args) -> [returns]. */
 export function methodOf(cls, name) { return lookup(cls, 'methods', name); }
+/** Classes a creator can insert (Studio's Insert Object list): creatable, not services, by name. */
+export function creatableClasses() { return Object.values(CLASSES).filter(c => c.creatable && !c.service).map(c => c.name).sort(); }
 export function classInfo(cls) { const c = CLASSES[cls]; return c ? { creatable: c.creatable, service: c.service, base: c.base } : null; }
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 

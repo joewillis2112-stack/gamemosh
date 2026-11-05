@@ -56,6 +56,8 @@ export async function startLuau(createLuau, dm, log = console.log, { runScripts 
   const release = () => { if (!queue.length) while (pendingRelease.length) Module._cs_unref(pendingRelease.pop()); };
   const withString = (s, f) => { const p = Module.stringToNewUTF8(s); try { return f(p); } finally { Module._free(p); } };
   return {
+    /** Syntax check without running: null, or { line, message } from Luau's compiler. */
+    check(source) { const m = /^:?(\d+): ?([\s\S]*)$/.exec(withString(source, s => Module.UTF8ToString(Module._cs_check(s)))); return m ? { line: +m[1], message: m[2] } : null; },
     run(name, source, script = null) { const r = withString(name, n => withString(source, s => Module._cs_run(n, s, script ? script.handle : 0))); flush(); return r; },
     step(t) { flush(); Module._cs_step(t); flush(); release(); },
     flush,

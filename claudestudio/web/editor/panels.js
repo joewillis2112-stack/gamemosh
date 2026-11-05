@@ -1,6 +1,8 @@
 // The Explorer (the instance tree) and Properties (the selection's properties,
 // editable), as in Roblox Studio. Plain DOM, rebuilt from the DataModel when it
 // changes (at most once a frame). Every edit is a command, so it can be undone.
+// Each Explorer row has Studio's + (Insert Object, under that row: onAdd); double-clicking a row
+// opens it (a script in the script editor: onOpen); a script's Properties offer Edit Script.
 import { ENUMS, V3, C3, propertiesOf } from '../datamodel.js';
 
 // Studio shows these services in the Explorer, in this order (others it hides).
@@ -15,9 +17,12 @@ export class Explorer {
     this.dirty = true;
     dm.watch((inst, key) => { if (key === 'Parent' || key === 'Name') this.dirty = true; });
     commands.selection.onChange(items => { for (const i of items) for (let a = i.parent; a; a = a.parent) this.open.add(a); this.dirty = true; });
+    this.onAdd = null; this.onOpen = null;
+    el.addEventListener('dblclick', e => { const row = e.target.closest('[data-h]'); if (row && !e.target.closest('.add') && this.onOpen) this.onOpen(this.dm.byHandle[+row.dataset.h]); });
     el.addEventListener('click', e => {
       const row = e.target.closest('[data-h]'); if (!row) return;
       const inst = this.dm.byHandle[+row.dataset.h];
+      if (e.target.closest('.add')) { if (this.onAdd) this.onAdd(inst, e.target.closest('.add')); return; }
       if (e.target.classList.contains('tw')) { this.open.has(inst) ? this.open.delete(inst) : this.open.add(inst); this.dirty = true; return; }
       this.commands.run('select', { items: [inst], add: e.shiftKey || e.ctrlKey || e.metaKey });
     });
@@ -29,7 +34,7 @@ export class Explorer {
       const kids = inst.children;
       const open = this.open.has(inst);
       rows.push(`<div class="row${sel.has(inst) ? ' sel' : ''}" data-h="${inst.handle}" style="padding-left:${depth * 14 + 4}px">` +
-        `<span class="tw">${kids.length ? (open ? '▾' : '▸') : ''}</span><span class="cls">${esc(inst.ClassName)}</span> ${esc(inst.props.Name)}</div>`);
+        `<span class="tw">${kids.length ? (open ? '▾' : '▸') : ''}</span><span class="cls">${esc(inst.ClassName)}</span> ${esc(inst.props.Name)}<button class="add" title="Insert Object">+</button></div>`);
       if (open) for (const c of kids) row(c, depth + 1);
     };
     for (const name of SHOWN) { const s = this.dm.services[name]; if (s) row(s, 0); }
@@ -42,7 +47,9 @@ export class Properties {
     this.el = el; this.dm = dm; this.commands = commands; this.dirty = true;
     dm.watch(inst => { if (this.commands.selection.has(inst)) this.dirty = true; });
     commands.selection.onChange(() => { this.dirty = true; });
+    this.onEdit = null;
     el.addEventListener('change', e => this.edit(e.target));
+    el.addEventListener('click', e => { if (e.target.closest('[data-edit]') && this.onEdit) this.onEdit(this.commands.selection.items[0]); });
     el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.target.blur(); });
   }
   update() {
@@ -55,6 +62,7 @@ export class Properties {
     const groups = new Map();
     for (const p of props) { if (HIDDEN.has(p.name) || !(p.name in first.props)) continue; if (!groups.has(p.owner)) groups.set(p.owner, []); groups.get(p.owner).push(p); }
     const html = [`<div class="head">${esc(cls || 'Instances')} (${items.length})</div>`];
+    if (items.length === 1 && ['Script', 'LocalScript', 'ModuleScript'].includes(cls)) html.push(`<button class="editscript" data-edit>Edit Script</button>`);
     for (const [owner, list] of [...groups].reverse()) {
       html.push(`<div class="grp">${esc(owner)}</div>`);
       for (const p of list) html.push(`<label class="prop"><span>${esc(p.name)}</span>${this.input(p, first.props[p.name], items.every(i => same(i.props[p.name], first.props[p.name])))}</label>`);

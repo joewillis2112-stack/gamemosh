@@ -1119,6 +1119,22 @@ EMSCRIPTEN_KEEPALIVE int cs_run(const char* chunkname, const char* source, int s
     return 0;
 }
 
+// Compile `source` without running it: "" if it compiles, else the compiler's message
+// (":<line>: <text>"), for the editor's script editor. Same options as cs_run.
+EMSCRIPTEN_KEEPALIVE const char* cs_check(const char* source) {
+    static std::string err;
+    size_t blen;
+    static const char* mutableGlobals[] = { "typeof", nullptr };
+    lua_CompileOptions opts = {};
+    opts.optimizationLevel = 1;
+    opts.debugLevel = 1;
+    opts.mutableGlobals = mutableGlobals;
+    char* bc = luau_compile(source, strlen(source), &opts, &blen);
+    err = (blen > 0 && bc[0] == 0) ? std::string(bc + 1, blen - 1) : std::string();
+    free(bc);
+    return err.c_str();
+}
+
 // Advance the scheduler to time t (seconds): resume every due task.wait.
 EMSCRIPTEN_KEEPALIVE void cs_step(double t) {
     now_s = t;

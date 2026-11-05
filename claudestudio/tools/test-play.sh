@@ -68,6 +68,8 @@ run --page editor --scenario test/scenarios/editor-vector.mjs
 run --page editor --phone --scenario test/scenarios/editor-vector.mjs
 run --page editor --scenario test/scenarios/editor-adjust.mjs
 run --page editor --phone --scenario test/scenarios/editor-adjust.mjs
+run --page editor --scenario test/scenarios/editor-script.mjs
+run --page editor --phone --scenario test/scenarios/editor-script.mjs
 if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }

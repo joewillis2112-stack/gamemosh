@@ -30,6 +30,8 @@ import { TerrainTools } from './editor/terrain.js';
 import { PaintTools } from './editor/paint.js';
 import { ImageEditor } from './editor/imageeditor.js';
 import { VectorEditor } from './editor/vectoreditor.js';
+import { ScriptEditor } from './editor/scripteditor.js';
+import { creatableClasses } from './datamodel.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
@@ -189,7 +191,7 @@ async function main() {
     editmesh: () => edit.active ? edit.exit() : edit.enter(),
     rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), image: () => imageEditor.active ? imageEditor.close() : imageEditor.open(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
-    play: () => { sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
+    play: () => { scriptEditor.close(); sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
     open: () => document.getElementById('openFile').click(),
   };
@@ -204,6 +206,8 @@ async function main() {
   addEventListener('keydown', e => {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
     const c = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (scriptEditor.active) return; // keys belong to the code (CodeMirror has its own undo)
+    if (!insertMenu.hidden) return;
     if (vectorEditor.active) { if (c && k === 'z') { e.preventDefault(); vectorEditor.undoLast(); } else if (vectorEditor.key(e)) e.preventDefault(); return; } // keys belong to the open drawing
     if (imageEditor.active) { if (c && k === 'z') { e.preventDefault(); imageEditor.undoLast(); } return; } // keys belong to the open image
     const map = c ? { '1': 'select', '2': 'move', '3': 'scale', '4': 'rotate', d: 'duplicate', g: 'group', u: 'ungroup', z: e.shiftKey ? 'redo' : 'undo', y: 'redo', r: 'turn', t: 'tilt' } : { delete: 'delete', backspace: 'delete' };
@@ -214,13 +218,36 @@ async function main() {
 
   const explorer = new Explorer(document.getElementById('explorer'), dm, commands);
   const properties = new Properties(document.getElementById('properties'), dm, commands);
+  // Scripts: Studio's Insert Object (the Explorer's +) and the script editor (double-click, or Edit Script).
+  const scriptEditor = new ScriptEditor({ dm, commands, vm, panel: document.getElementById('scripteditor') });
+  const insertMenu = document.getElementById('insertmenu'), classes = creatableClasses();
+  let insertUnder = null;
+  const listClasses = f => { insertMenu.querySelector('.im-list').innerHTML = classes.filter(c => c.toLowerCase().includes(f.toLowerCase())).map(c => `<button data-class="${c}">${c}</button>`).join(''); };
+  const closeInsert = () => { insertMenu.hidden = true; insertUnder = null; };
+  explorer.onAdd = (inst, btn) => {
+    insertUnder = inst; insertMenu.hidden = false;
+    const f = insertMenu.querySelector('input'); f.value = ''; listClasses(''); // fill it first: its height decides where it fits
+    const r = btn.getBoundingClientRect(), m = insertMenu.getBoundingClientRect();
+    insertMenu.style.left = Math.max(4, Math.min(r.right + 4, innerWidth - m.width - 4)) + 'px'; insertMenu.style.top = Math.max(48, Math.min(r.top, innerHeight - m.height - 4)) + 'px';
+    if (!matchMedia('(pointer:coarse)').matches) f.focus();
+  };
+  insertMenu.querySelector('input').addEventListener('input', e => listClasses(e.target.value));
+  insertMenu.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsert(); if (e.key === 'Enter') { const b = insertMenu.querySelector('[data-class]'); if (b) b.click(); } });
+  insertMenu.addEventListener('click', e => {
+    const b = e.target.closest('[data-class]'); if (!b) { if (e.target.closest('[data-im-close]')) closeInsert(); return; }
+    const parent = insertUnder, cls = b.dataset.class; closeInsert();
+    const inst = commands.run('insert', { className: cls, parent, props: ScriptEditor.isScript({ ClassName: cls }) ? { Source: ScriptEditor.newSource } : {} });
+    if (ScriptEditor.isScript(inst)) scriptEditor.open(inst); // Studio opens a new script
+  });
+  explorer.onOpen = inst => { if (ScriptEditor.isScript(inst)) scriptEditor.open(inst); };
+  properties.onEdit = inst => scriptEditor.open(inst);
   const fixed = !!q.get('test');
   const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); explorer.update(); properties.update(); };
   scene.onBeforeRenderObservable.add(() => step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)));
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   if (!fixed) engine.runRenderLoop(() => scene.render());
