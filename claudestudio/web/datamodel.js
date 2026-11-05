@@ -901,6 +901,18 @@ export function propertiesOf(cls) {
 export function methodOf(cls, name) { return lookup(cls, 'methods', name); }
 /** Classes a creator can insert (Studio's Insert Object list): creatable, not services, by name. */
 export function creatableClasses() { return Object.values(CLASSES).filter(c => c.creatable && !c.service).map(c => c.name).sort(); }
+/** A class's members for autocomplete: properties, methods and events, its own first, inherited after. */
+export function membersOf(cls) {
+  const out = { props: [], methods: [], events: [] }, seen = new Set();
+  for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
+    for (const [k, [ty]] of Object.entries(c.props)) if (!seen.has(k)) { seen.add(k); out.props.push({ name: k, type: ty }); }
+    for (const k of Object.keys(c.methods)) if (!seen.has(k)) { seen.add(k); out.methods.push({ name: k }); }
+    for (const k of c.events) if (!seen.has(k)) { seen.add(k); out.events.push({ name: k }); }
+  }
+  return out;
+}
+/** Service classes (game:GetService's names), by name. */
+export function serviceClasses() { return Object.values(CLASSES).filter(c => c.service).map(c => c.name).sort(); }
 export function classInfo(cls) { const c = CLASSES[cls]; return c ? { creatable: c.creatable, service: c.service, base: c.base } : null; }
 function readOnly(cls, key) { for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (READ_ONLY.has(c.name + '.' + key)) return true; return false; }
 

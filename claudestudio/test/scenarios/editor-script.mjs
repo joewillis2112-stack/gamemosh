@@ -46,6 +46,21 @@ export default async function (t) {
   check((await st()).status === 'No errors', 'fixed, it says no errors');
   await t.golden('editor-script');
 
+  // Autocomplete from the engine and the place: "workspace.Base" offers the real Baseplate; picking it inserts it.
+  await E(() => { const v = window.editor.scriptEditor.view; v.dispatch({ selection: { anchor: v.state.doc.length } }); v.focus(); });
+  await t.page.keyboard.type('workspace.Base');
+  await t.page.waitForSelector('#scripteditor .cm-tooltip-autocomplete', { timeout: 5000 }).catch(() => {});
+  const offered = await E(() => [...document.querySelectorAll('#scripteditor .cm-tooltip-autocomplete li')].map(li => li.textContent));
+  check(offered.some(o => o.startsWith('Baseplate')), `typing "workspace.Base" offers the place's Baseplate (${offered.slice(0, 4)})`);
+  const li = '#scripteditor .cm-tooltip-autocomplete li:first-child';
+  if (phone) await t.page.tap(li); else await t.page.click(li);
+  check((await E(() => window.editor.scriptEditor.text)).endsWith('workspace.Baseplate'), 'picking it completes the line to workspace.Baseplate');
+  await t.page.keyboard.type(':Fin');
+  await t.page.waitForTimeout(300);
+  const methods = await E(() => [...document.querySelectorAll('#scripteditor .cm-tooltip-autocomplete li')].map(li => li.textContent));
+  check(methods.some(o => o.startsWith('FindFirstChild')) && !methods.some(o => o.startsWith('Anchored')), `after a colon it offers the Part's methods (${methods.slice(0, 3)})`);
+  await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE); // back to the working script
+
   // Close writes the Source: one step, which Undo and Redo move.
   await btn('#scripteditor [data-se=close]');
   const s3 = await st();

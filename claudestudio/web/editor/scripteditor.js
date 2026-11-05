@@ -4,12 +4,16 @@
 // compiler that runs the game (vm.check), marked on their line and shown under the editor.
 // Closing writes the Source back as one undo step in the editor (nothing if unchanged); so does
 // Ctrl+S, without closing. Play reads the Source, so the editor writes it before a Play.
+// Autocomplete (completions.js) offers what the engine really has: the VM's libraries, the class
+// table's members, services, classes and enums, and the open place's own instances.
 import { EditorView, basicSetup } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { linter, lintGutter } from '@codemirror/lint';
+import { autocompletion } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 import { luau } from './luaumode.js';
+import { complete } from './completions.js';
 
 export const SCRIPT_CLASSES = ['Script', 'LocalScript', 'ModuleScript'];
 const NEW_SOURCE = 'print("Hello world!")\n'; // what Studio puts in a new script
@@ -28,8 +32,8 @@ const theme = EditorView.theme({
 }, { dark: true });
 
 export class ScriptEditor {
-  constructor({ dm, commands, vm, panel, onState = () => {} }) {
-    Object.assign(this, { dm, commands, vm, panel, onState });
+  constructor({ dm, commands, vm, panel, libs = {}, onState = () => {} }) {
+    Object.assign(this, { dm, commands, vm, panel, libs, onState });
     this.inst = null; this.view = null; this.error = null;
     panel.innerHTML = `<div class="ie-head"><b class="se-title"></b><span class="grow"></span><button data-se="save" title="Write the Source (Ctrl+S)">Save</button><button data-se="close" class="primary">Close</button></div>` +
       `<div class="se-body"></div><div class="se-status"></div>`;
@@ -54,7 +58,8 @@ export class ScriptEditor {
     };
     this.view = new EditorView({
       parent: this.body, doc: inst.props.Source,
-      extensions: [basicSetup, StreamLanguage.define(luau), syntaxHighlighting(style), theme, lintGutter(), linter(check, { delay: 300 }),
+      extensions: [basicSetup, StreamLanguage.define(luau),
+        autocompletion({ override: [cx => complete(cx.state.doc.toString(), cx.pos, { libs: this.libs, dm: this.dm, script: this.inst })] }), syntaxHighlighting(style), theme, lintGutter(), linter(check, { delay: 300 }),
         keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => { this.save(); return true; } }])],
     });
     this.error = this.vm.check(inst.props.Source); this.showStatus();

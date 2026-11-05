@@ -31,6 +31,7 @@ import { PaintTools } from './editor/paint.js';
 import { ImageEditor } from './editor/imageeditor.js';
 import { VectorEditor } from './editor/vectoreditor.js';
 import { ScriptEditor } from './editor/scripteditor.js';
+import { LIBRARY_PROBE, parseLibraries } from './editor/completions.js';
 import { creatableClasses } from './datamodel.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
@@ -48,7 +49,9 @@ async function main() {
   scene.physicsEnabled = false; // edit mode: nothing falls until Play
 
   const dm = new DataModel();
-  const vm = await startLuau(createLuau, dm, (s, lvl) => (lvl === 2 ? console.error : console.log)('[luau] ' + s), { runScripts: false }); // edit mode: Scripts don't run
+  let capture = null; // while set, the VM's prints go here instead (asking it for its libraries)
+  const vm = await startLuau(createLuau, dm, (s, lvl) => capture ? capture.push(s) : (lvl === 2 ? console.error : console.log)('[luau] ' + s), { runScripts: false }); // edit mode: Scripts don't run
+  capture = []; vm.run('libraries', LIBRARY_PROBE); const libs = parseLibraries(capture); capture = null;
   const world = new World(scene, dm, R.shadows);
   // The place: a Luau script that builds it (run once, as its starting content), or a
   // place file (.json, or 'session': the one handed over by Open or by Play's Stop).
@@ -219,7 +222,7 @@ async function main() {
   const explorer = new Explorer(document.getElementById('explorer'), dm, commands);
   const properties = new Properties(document.getElementById('properties'), dm, commands);
   // Scripts: Studio's Insert Object (the Explorer's +) and the script editor (double-click, or Edit Script).
-  const scriptEditor = new ScriptEditor({ dm, commands, vm, panel: document.getElementById('scripteditor') });
+  const scriptEditor = new ScriptEditor({ dm, commands, vm, libs, panel: document.getElementById('scripteditor') });
   const insertMenu = document.getElementById('insertmenu'), classes = creatableClasses();
   let insertUnder = null;
   const listClasses = f => { insertMenu.querySelector('.im-list').innerHTML = classes.filter(c => c.toLowerCase().includes(f.toLowerCase())).map(c => `<button data-class="${c}">${c}</button>`).join(''); };

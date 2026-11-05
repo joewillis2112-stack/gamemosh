@@ -86,6 +86,7 @@ vt=$(npx vitest run web/modeling/kernel test/modeling.test.mjs 2>&1); echo "$vt"
 node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
 node test/vector.test.mjs | tail -1 | grep -q PASS && echo "vector geometry test PASS" || { echo "FAILED: vector geometry test"; fail=1; }
 node test/develop.test.mjs | tail -1 | grep -q PASS && echo "develop test PASS" || { echo "FAILED: develop test"; fail=1; }
+node test/completions.test.mjs | tail -1 | grep -q PASS && echo "completions test PASS" || { echo "FAILED: completions test"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
 node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
 node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }
