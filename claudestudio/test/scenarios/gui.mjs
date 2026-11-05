@@ -65,5 +65,18 @@ export default async function (t) {
   check(logs.includes('hud built') && logs.filter(l => l === 'activated 1').length === 1 && label === 'Boosts: 1', `${phone ? 'a tap' : 'a click'} on the button fires Activated once, and the HUD updates (${label})`);
   await t.frames(2);
   await t.shot('gui'); await t.golden('gui', { text: true });
+
+  // An ImageLabel shows an SVG data URL, as the editor's Vector Editor writes one (after the golden).
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><path d="M0 0L32 0L32 64L0 64Z" fill="#ff0000"/></svg>';
+  const box = await t.eval(svg => { const S = window.studio, pg = S.players.player.children.find(c => c.ClassName === 'PlayerGui'), hud = pg.children.find(g => g.props.Name === 'Hud');
+    const il = new pg.constructor(S.dm, 'ImageLabel'), U = il.props.Size.constructor;
+    S.dm.set(il, 'Size', new U(0, 128, 0, 128)); S.dm.set(il, 'Position', new U(0, 40, 0, 300)); S.dm.set(il, 'BackgroundTransparency', 1);
+    S.dm.set(il, 'Image', 'data:image/svg+xml;base64,' + btoa(svg)); S.dm.setParent(il, hud); return true; }, svg);
+  await t.sim(1); await t.frames(2); await t.page.waitForTimeout(200);
+  const A2 = await t.eval(() => { const pg = window.studio.players.player.children.find(c => c.ClassName === 'PlayerGui'), il = pg.children.find(g => g.props.Name === 'Hud').children.find(c => c.ClassName === 'ImageLabel'); return [il.props.AbsolutePosition.x, il.props.AbsolutePosition.y + 58]; }); // AbsolutePosition is under the 58 px inset
+  const { PNG } = await import('pngjs');
+  const px = async (x, y) => { const png = PNG.sync.read(await t.page.screenshot({ clip: { x, y, width: 1, height: 1 } })); return [...png.data.slice(0, 3)]; };
+  const left = await px(A2[0] + 32, A2[1] + 64), right = await px(A2[0] + 96, A2[1] + 64);
+  check(box && left[0] > 230 && left[1] < 30 && !(right[0] > 230 && right[1] < 30), `an ImageLabel draws an SVG image: its left half red (${left}), its right half clear (${right})`);
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }
