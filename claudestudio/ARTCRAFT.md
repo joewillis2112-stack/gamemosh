@@ -155,4 +155,5 @@ so a Rust crate comes in the way Luau did (compiled to wasm, behind a small bind
 
 - **PhotoCraft's brush engine** → the studio's Paint tool. Bit-exact against the Rust crate (built here as an oracle, `tools/paint-oracle/`). What was kept and dropped: PLAN.md, "Paint".
 - **PhotoCraft's blend modes and a Layers panel** → the studio's Image Editor (2026-10-27). 17 of its 33 modes, checked against its `blend::composite`. PLAN.md, "Image Editor".
+- **LightCraft's develop pipeline** (per-pixel path: white balance, exposure, tone, colour, B&W, grading, curves) → the Image Editor's Adjust section (2026-11-05), checked against its `render`. Spatial tools, lens, raw left out. PLAN.md, "Adjust".
 - **VectorCraft's geometry kernel** (`crates/geom`: path model, shapes, Live Corners) → the studio's Vector Editor (2026-11-04), checked against the Rust. Its renderer, path booleans, text and print features were left out. PLAN.md, "Vector Editor".

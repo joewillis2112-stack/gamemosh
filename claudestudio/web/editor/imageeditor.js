@@ -7,13 +7,26 @@
 // one undo step in the editor; Cancel changes nothing. Inside the editor, Undo
 // takes back the last stroke or layer change. Layers aren't kept after Apply
 // (the property holds one image).
+// Adjust (LightCraft's develop tools, web/paint/develop.js, checked against its Rust): exposure,
+// tone, white balance, colour, B&W, tone-curve regions and the colour mixer, shown live on the
+// active layer while the sliders move; one undo step; baked in by the next stroke, layer change
+// or Apply; Reset takes it off.
 import { Stroke, image } from '../paint/brush.js';
 import { BLEND_MODES } from '../paint/blend.js';
 import { LayeredImage } from '../paint/layers.js';
 import { imageFromUrl, toPng, toBytes } from './paint.js';
+import { developImage, isNeutral } from '../paint/develop.js';
 
 const NEW_SIZE = 512, UNDO_DEPTH = 20;
 export const IMAGE_PROP = { Decal: 'Texture', Texture: 'Texture', ImageLabel: 'Image', ImageButton: 'Image', MeshPart: 'TextureID' };
+const MIXER_BANDS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'];
+// Adjust sliders: [settings path, label, min, max, step, default]. Temperature is LightCraft's
+// relative scale for a rendered image (6500 K = as shot).
+const ADJUST = [['light.exposure', 'Exposure', -4, 4, 0.05, 0], ['light.contrast', 'Contrast', -100, 100, 1, 0], ['light.whites', 'Whites', -100, 100, 1, 0], ['light.blacks', 'Blacks', -100, 100, 1, 0],
+  ['wb.temp', 'Temp', 2000, 15000, 50, 6500], ['wb.tint', 'Tint', -100, 100, 1, 0], ['color.vibrance', 'Vibrance', -100, 100, 1, 0], ['color.saturation', 'Saturation', -100, 100, 1, 0],
+  ['curve.highlights', 'Highlights', -100, 100, 1, 0], ['curve.lights', 'Lights', -100, 100, 1, 0], ['curve.darks', 'Darks', -100, 100, 1, 0], ['curve.shadows', 'Shadows', -100, 100, 1, 0]];
+const getPath = (o, p) => p.split('.').reduce((v, k) => v && v[k], o);
+const setPath = (o, p, v) => { const k = p.split('.'), last = k.pop(); let t = o; for (const x of k) t = t[x] = t[x] || {}; t[last] = v; };
 const BLEND_LABEL = m => m.replace(/([a-z])([A-Z])/g, '$1 $2');
 const hex = c => '#' + c.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
 const unhex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
@@ -21,7 +34,7 @@ const unhex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
 export class ImageEditor {
   constructor({ dm, world, commands, settings, panel, onState = () => {} }) {
     Object.assign(this, { dm, world, commands, settings, panel, onState });
-    this.doc = null; this.target = null; this.undo = []; this.stroke = null;
+    this.doc = null; this.target = null; this.undo = []; this.stroke = null; this.adj = null; this.band = 'red';
     this.build();
   }
   get active() { return !!this.doc; }
@@ -42,10 +55,11 @@ export class ImageEditor {
     this.redraw(); this.refreshLayers(); this.onState({ active: true });
     return true;
   }
-  close() { this.doc = null; this.target = null; this.undo = []; this.stroke = null; this.panel.hidden = true; this.onState({ active: false }); }
+  close() { this.bake(); this.doc = null; this.target = null; this.undo = []; this.stroke = null; this.panel.hidden = true; this.onState({ active: false }); }
   /** Write the flattened image into the property (one undo step) and close. */
   apply() {
     if (!this.doc) return null;
+    this.bake();
     const png = toPng(this.doc.flatten()), { inst, prop } = this.target;
     this.commands.history.run('Edit Image', tx => tx.set(inst, prop, png));
     this.close();
@@ -68,11 +82,13 @@ export class ImageEditor {
   }
   undoLast() {
     const u = this.undo.pop(); if (!u) return false;
+    this.adj = null; this.refreshAdjust();
     this.doc.layers = u.layers; this.doc.active = u.active;
     this.redraw(); this.refreshLayers(); return true;
   }
   begin(e) {
     const l = this.doc.layers[this.doc.active]; if (!l) return;
+    this.bake();
     this.snapshot('Stroke');
     this.stroke = new Stroke(l.img, { ...this.settings, pressureSize: e.pointerType === 'pen' });
     this.moveTo(e);
@@ -89,8 +105,33 @@ export class ImageEditor {
     if (r) this.redraw(r); else this.undo.pop(); // nothing painted: nothing to undo
   }
 
+  // ---- adjust
+  /** Set one develop setting (a path such as 'light.exposure') on the active layer, live. */
+  adjust(path, value) {
+    const l = this.doc.layers[this.doc.active]; if (!l) return;
+    if (!this.adj || this.adj.layer !== l) { this.bake(); this.snapshot('Adjust'); this.adj = { layer: l, base: l.img.data.slice(), s: {} }; }
+    setPath(this.adj.s, path, value);
+    if (path.startsWith('wb.')) this.adj.s.wb.mode = 'custom';
+    l.img.data.set(this.adj.base);
+    if (!isNeutral(this.adj.s)) developImage(l.img, this.adj.s);
+    this.redraw();
+  }
+  /** Keep the adjusted pixels (the sliders start again from zero). */
+  bake() { if (!this.adj) return; this.adj = null; this.refreshAdjust(); }
+  /** Take the adjustment off. */
+  resetAdjust() {
+    if (!this.adj) return;
+    this.adj.layer.img.data.set(this.adj.base); this.adj = null; this.undo.pop();
+    this.redraw(); this.refreshAdjust();
+  }
+  refreshAdjust() {
+    const s = (this.adj && this.adj.s) || {};
+    this.panel.querySelectorAll('[data-adj]').forEach(i => { const p = i.dataset.adj.replace('mixer.band', 'mixer.' + this.band), v = getPath(s, p); if (i.type === 'checkbox') i.checked = v === 'bw'; else i.value = v ?? (+i.dataset.def || 0); });
+  }
+
   // ---- layers
   layerOp(op, i = this.doc.active, value) {
+    this.bake();
     const d = this.doc;
     const before = () => this.snapshot(op);
     if (op === 'add') { before(); d.add(); }
@@ -119,7 +160,13 @@ export class ImageEditor {
       `<label>Opacity <input type="range" data-k="opacity" min="0.05" max="1" step="0.05" value="${S.opacity}"></label>` +
       `<div class="ie-row"><b>Layers</b><span class="grow"></span><button data-ie="add" title="New layer">+</button><button data-ie="remove" title="Delete layer">−</button><button data-ie="up" title="Move up">▲</button><button data-ie="down" title="Move down">▼</button></div>` +
       `<div class="ie-row"><select data-ie="blend">${BLEND_MODES.map(m => `<option value="${m}">${BLEND_LABEL(m)}</option>`).join('')}</select>` +
-      `<input type="range" data-ie="opacity" min="0" max="1" step="0.05" title="Layer opacity"></div><div class="ie-layers"></div></div></div>`;
+      `<input type="range" data-ie="opacity" min="0" max="1" step="0.05" title="Layer opacity"></div><div class="ie-layers"></div>` +
+      `<details class="ie-adjust"><summary><b>Adjust</b> <span class="ie-note">the active layer</span></summary>` +
+      ADJUST.map(([p, l, a, b, st, d]) => `<label>${l} <input type="range" data-adj="${p}" data-def="${d}" min="${a}" max="${b}" step="${st}" value="${d}"></label>`).join('') +
+      `<label><input type="checkbox" data-adj="treatment"> Black &amp; white</label>` +
+      `<div class="ie-row"><b>Mixer</b><select data-ie="band">${MIXER_BANDS.map(b => `<option value="${b}">${b[0].toUpperCase() + b.slice(1)}</option>`).join('')}</select></div>` +
+      ['hue', 'sat', 'lum'].map(k => `<label>${{ hue: 'Hue', sat: 'Sat', lum: 'Lum' }[k]} <input type="range" data-adj="mixer.band.${k}" data-def="0" min="-100" max="100" step="1" value="0"></label>`).join('') +
+      `<div class="ie-row"><button data-ie="reset" title="Take the adjustment off">Reset</button></div></details></div></div>`;
     this.title = P.querySelector('.ie-title');
     this.canvas = P.querySelector('.ie-canvas'); this.g = this.canvas.getContext('2d');
     this.list = P.querySelector('.ie-layers'); this.blendSel = P.querySelector('[data-ie=blend]'); this.opacityIn = P.querySelector('[data-ie=opacity]');
@@ -130,7 +177,7 @@ export class ImageEditor {
       if (row && !e.target.dataset.op) return this.layerOp('select', +row.dataset.i);
       if (!b) return;
       const a = b.dataset.ie, p = b.dataset.p;
-      if (a === 'apply') this.apply(); else if (a === 'cancel') this.close(); else if (a === 'undo') this.undoLast();
+      if (a === 'apply') this.apply(); else if (a === 'cancel') this.close(); else if (a === 'undo') this.undoLast(); else if (a === 'reset') this.resetAdjust();
       else if (a === 'add' || a === 'remove' || a === 'up' || a === 'down') this.layerOp(a);
       else if (p) { S.erase = p === 'erase'; S.aliased = p === 'pencil'; tools(); }
     });
@@ -139,10 +186,13 @@ export class ImageEditor {
       if (t.dataset.k === 'color') S.color = [...unhex(t.value), 1];
       else if (t.dataset.k) S[t.dataset.k] = +t.value;
       else if (t.dataset.ie === 'opacity') this.layerOp('opacity', this.doc.active, +t.value);
+      else if (t.dataset.adj && t.type === 'range') this.adjust(t.dataset.adj.replace('mixer.band', 'mixer.' + this.band), +t.value);
     });
     P.addEventListener('change', e => {
       const t = e.target;
       if (t.dataset.ie === 'blend') this.layerOp('blend', this.doc.active, t.value);
+      else if (t.dataset.ie === 'band') { this.band = t.value; this.refreshAdjust(); }
+      else if (t.dataset.adj === 'treatment') this.adjust('treatment', t.checked ? 'bw' : 'color');
       else if (t.dataset.op === 'visible') this.layerOp('visible', +t.closest('.layer').dataset.i, t.checked);
     });
     const c = this.canvas;
