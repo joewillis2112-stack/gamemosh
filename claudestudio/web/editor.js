@@ -253,6 +253,13 @@ async function main() {
     dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
+  // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.
+  if (q.get('open')) {
+    const [svc, ...path] = q.get('open').split('.');
+    let inst = dm.services[svc] || null;
+    for (const n of path) inst = inst && inst.children.find(c => c.props.Name === n);
+    if (inst && scriptEditor.open(inst)) scriptEditor.goToLine(+q.get('line') || 1);
+  }
   if (!fixed) engine.runRenderLoop(() => scene.render());
   addEventListener('resize', () => engine.resize());
 }

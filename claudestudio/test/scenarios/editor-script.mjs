@@ -4,7 +4,8 @@
 // error shows Luau's own message and marks the line; fixed, it says no errors; Close writes the
 // Source as one undo step, which Undo takes back and Redo restores; double-click (desktop) or
 // Edit Script (any) opens it again; Play, with an edit still open, runs the script as edited, and
-// the player's Output window shows its print, a warning and a run-time error.
+// the player's Output window shows its print, a warning and a run-time error; clicking an error
+// goes back to the editor with that script open at its line.
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -95,13 +96,20 @@ export default async function (t) {
   check(made && t.logs.some(l => l.includes('made Played')), 'Play, with the editor still open, runs the script as edited: its part is in the workspace and its print in the output');
   // Studio's Output window: the print, the warning (orange) and the error with its script and line (red).
   const out = await E(() => { const o = document.getElementById('output'); return o && { closed: o.classList.contains('closed'), lines: [...o.querySelectorAll('.out-line')].map(l => [l.className, l.textContent]) }; });
-  const has = (re, cls) => out && out.lines.some(([c, t]) => re.test(t) && c === cls);
+  const has = (re, cls) => out && out.lines.some(([c, t]) => re.test(t) && c.split(' ').filter(k => k !== 'link').join(' ') === cls);
   check(out && has(/^\d\d:\d\d:\d\d\.\d{3}  made Played$/, 'out-line') && has(/careful/, 'out-line warn') && has(/^\d\d:\d\d:\d\d\.\d{3}  ServerScriptService\.Broken:3: attempt to index nil with 'field'/, 'out-line err'),
     `Play from the editor shows the Output window: the print timestamped, the warning orange, the error red with its script and line (${out && out.lines.length} lines)`);
   check(out && out.closed === phone, `it starts ${phone ? 'hidden on a phone' : 'open on desktop'}`);
   if (phone) await t.page.tap('#output [data-out=toggle]'); else await t.page.click('#output [data-out=toggle]');
   check(await E(p => document.getElementById('output').classList.contains('closed') === !p, phone), 'Hide/Show toggles it');
-  if (phone) await t.page.tap('#output [data-out=toggle]'); else await t.page.click('#output [data-out=toggle]'); // shown again
+  if (await E(() => document.getElementById('output').classList.contains('closed'))) { if (phone) await t.page.tap('#output [data-out=toggle]'); else await t.page.click('#output [data-out=toggle]'); } // shown again
   if (!phone) { await t.page.click('#output [data-out=clear]'); check(await E(() => document.querySelectorAll('#output .out-line').length === 0), 'Clear empties it'); }
+  // An error line is a link: it goes back to the editor with that script open at that line (Studio's Output).
+  await E(() => { window.studio.vm.run('=ServerScriptService.Broken', 'local a = 1\nerror("again")'); });
+  const link = '#output .out-line.link:last-child';
+  if (phone) await t.page.tap(link); else await t.page.click(link);
+  await t.page.waitForFunction(() => window.editor && (window.editor.ready || window.editor.error), null, { timeout: 120000 });
+  const back = await E(() => { const se = window.editor.scriptEditor, v = se.view; return { open: se.active, name: se.inst && se.inst.props.Name, line: v && v.state.doc.lineAt(v.state.selection.main.head).number }; });
+  check(back.open && back.name === 'Broken' && back.line === 2, `clicking an error in the Output returns to the editor with that script open at its line (${back.name}, line ${back.line})`);
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }

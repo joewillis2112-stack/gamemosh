@@ -67,6 +67,11 @@ export class ScriptEditor {
     this.onState({ active: true });
     return true;
   }
+  /** Put the cursor at the start of line n and scroll it into view. */
+  goToLine(n) {
+    const d = this.view.state.doc, line = d.line(Math.min(Math.max(n, 1), d.lines));
+    this.view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true }); this.view.focus();
+  }
   showStatus() { this.status.textContent = this.error ? `Line ${this.error.line}: ${this.error.message}` : 'No errors'; this.status.classList.toggle('bad', !!this.error); }
   get text() { return this.view ? this.view.state.doc.toString() : null; }
   /** Write the Source if it changed: one undo step. */

@@ -151,7 +151,10 @@ async function main() {
     const stop = document.createElement('button');
     stop.textContent = 'Stop'; stop.id = 'stop';
     stop.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:10;height:36px;padding:0 18px;border:0;border-radius:8px;background:#d9363e;color:#fff;font:600 14px system-ui,sans-serif';
-    stop.addEventListener('click', () => { const p = new URLSearchParams(q); p.set('place', 'session'); p.delete('from'); location.href = 'editor.html?' + p; });
+    // Stop: back to the editor (open, line: which script to open there and where, from an Output link).
+    const back = (open, line) => { const p = new URLSearchParams(q); p.set('place', 'session'); p.delete('from'); p.delete('open'); p.delete('line'); if (open) { p.set('open', open); p.set('line', line); } location.href = 'editor.html?' + p; };
+    stop.addEventListener('click', () => back());
+    output.onOpen = back;
     document.body.appendChild(stop);
     output.mount();
   }
