@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build /home/user/ext/Il2CppDumper/*)",
+      "Bash(dotnet /opt/rea-tools/il2cppdumper/Il2CppDumper.dll *)"
+    ]
+  }
+}
