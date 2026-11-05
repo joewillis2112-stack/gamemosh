@@ -35,7 +35,9 @@ export async function startLuau(createLuau, dm, log = console.log, { runScripts 
     while (starting.length) {
       const sc = starting.shift();
       if (sc.destroyed || !sc.props.Enabled || !runsHere(sc)) { sc.started = false; continue; }
-      withString(sc.props.Name, n => withString(sc.props.Source, src => Module._cs_run(n, src, sc.handle)));
+      // Chunk name '=' + the script's full name: errors read "ServerScriptService.Broken:3: ...", as in Roblox.
+      const full = []; for (let i = sc; i && i.parent; i = i.parent) full.unshift(i.props.Name);
+      withString('=' + full.join('.'), n => withString(sc.props.Source, src => Module._cs_run(n, src, sc.handle)));
     }
   };
   const flush = () => {

@@ -9,6 +9,7 @@ import { createRenderer, createSkybox } from './render.js';
 import { DataModel, baseplateLighting } from './datamodel.js';
 import { loadPlace } from './placefile.js';
 import { startLuau } from './luau.js';
+import { Output } from './runtime/output.js';
 import createLuau from './luau.mjs';
 import { World } from './runtime/world.js';
 import { LocalLights } from './runtime/locallights.js';
@@ -36,7 +37,9 @@ async function main() {
   scene.enablePhysics(new Vector3(0, -GRAVITY, 0), new HavokPlugin(true, havok));
 
   const dm = new DataModel();
-  const log = (s, lvl) => (lvl === 2 ? console.error : console.log)('[luau] ' + s);
+  // Played from the editor: Studio's Output window shows every print, warn and error.
+  const output = q.get('from') === 'editor' ? new Output() : null;
+  const log = (s, lvl) => { (lvl === 2 ? console.error : console.log)('[luau] ' + s); if (output) output.add(s, lvl); };
   const vm = await startLuau(createLuau, dm, log);
   const world = new World(scene, dm, R.shadows);
   // The place: a Luau script that builds it, or a place file (.json, or 'session':
@@ -150,9 +153,10 @@ async function main() {
     stop.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:10;height:36px;padding:0 18px;border:0;border-radius:8px;background:#d9363e;color:#fff;font:600 14px system-ui,sans-serif';
     stop.addEventListener('click', () => { const p = new URLSearchParams(q); p.set('place', 'session'); p.delete('from'); location.href = 'editor.html?' + p; });
     document.body.appendChild(stop);
+    output.mount();
   }
   window.studio = {
-    dm, vm, world, scene, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
+    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.
