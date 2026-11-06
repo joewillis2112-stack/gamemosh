@@ -53,5 +53,9 @@ git -C /home/user/ext/Il2CppDumper checkout -q 4741d46b
 dotnet build /home/user/ext/Il2CppDumper/Il2CppDumper/Il2CppDumper.csproj -c Release -f net8.0 -o "$ROOT/il2cppdumper"
 sed -i 's/"RequireAnyKey": true/"RequireAnyKey": false/' "$ROOT/il2cppdumper/config.json"
 echo "Il2CppDumper: dotnet $ROOT/il2cppdumper/Il2CppDumper.dll libil2cpp.so global-metadata.dat out/"
+# ILSpy's command line (MIT) for Unity Mono builds and other .NET code. 9.1 is the
+# newest that installs on the .NET 8 SDK.
+[ -x "$ROOT/ilspy/ilspycmd" ] || dotnet tool install --tool-path "$ROOT/ilspy" ilspycmd --version 9.1.0.7988
+echo "ILSpy: $ROOT/ilspy/ilspycmd -p -o out/ Assembly-CSharp.dll"
 echo "JADX (standalone): $(ls "$ROOT"/x/jadx/*/libexec/bin/jadx)"
 echo "Restart Claude Code for the REA tools to appear."

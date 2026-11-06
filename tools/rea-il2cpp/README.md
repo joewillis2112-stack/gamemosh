@@ -1,4 +1,11 @@
-# IL2CPP names into REA
+# Unity games: IL2CPP names into REA, and Mono builds
+
+First check which kind of build an APK is: `unzip -l game.apk`. `lib/*/libil2cpp.so`
+plus `assets/bin/Data/Managed/Metadata/global-metadata.dat` is IL2CPP (below);
+`assets/bin/Data/Managed/Assembly-CSharp.dll` plus `libmonobdwgc-2.0.so` is Mono
+(last section).
+
+## IL2CPP
 
 Unity IL2CPP games ship their C# compiled to `libil2cpp.so` with no symbols; the
 names live in `global-metadata.dat`. Il2CppDumper reads both and writes
@@ -33,4 +40,22 @@ APK, source on GitHub): the dump has all 48 classes and methods of its scripts
 (the 49th is commented out in the source), and the decompile of
 `gameManager$$SonucuKontrolEt` matches the C# line for line (field offsets
 from the dump, +20 points, calls by name). About 2 minutes end to end.
+
+## Mono builds
+
+A Mono build ships the game's code as ordinary .NET assemblies, so ILSpy reads it
+straight back to C# with the real names; no IL2CPP step, no Ghidra.
+
+    unzip game.apk 'assets/bin/Data/Managed/*' -d x
+    /opt/rea-tools/ilspy/ilspycmd -p -o decomp/ x/assets/bin/Data/Managed/Assembly-CSharp.dll
+
+Checked 2026-11-05 on Kailius 1.0 (open-source Unity platformer, Mono Android
+release): `check_mono_decomp.py` found all 182 types and methods of its source
+in ILSpy's output (it reports the 3 missing when a decompiled file is removed),
+and method bodies read back as written, minus comments.
+
+## Checking against source
+
+When a game's source is published, `check_il2cpp_dump.py` and
+`check_mono_decomp.py` compare the recovered names with it.
 
