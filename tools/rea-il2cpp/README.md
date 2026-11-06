@@ -49,7 +49,7 @@ straight back to C# with the real names; no IL2CPP step, no Ghidra.
     unzip game.apk 'assets/bin/Data/Managed/*' -d x
     /opt/rea-tools/ilspy/ilspycmd -p -o decomp/ x/assets/bin/Data/Managed/Assembly-CSharp.dll
 
-Checked 2026-11-05 on Kailius 1.0 (open-source Unity platformer, Mono Android
+Checked 2026-11-06 on Kailius 1.0 (open-source Unity platformer, Mono Android
 release): `check_mono_decomp.py` found all 182 types and methods of its source
 in ILSpy's output (it reports the 3 missing when a decompiled file is removed),
 and method bodies read back as written, minus comments.
