@@ -905,11 +905,16 @@ export function creatableClasses() { return Object.values(CLASSES).filter(c => c
 export function membersOf(cls) {
   const out = { props: [], methods: [], events: [] }, seen = new Set();
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-    for (const [k, [ty]] of Object.entries(c.props)) if (!seen.has(k)) { seen.add(k); out.props.push({ name: k, type: ty }); }
-    for (const k of Object.keys(c.methods)) if (!seen.has(k)) { seen.add(k); out.methods.push({ name: k }); }
-    for (const k of c.events) if (!seen.has(k)) { seen.add(k); out.events.push({ name: k }); }
+    for (const [k, [ty]] of Object.entries(c.props)) if (!seen.has(k)) { seen.add(k); out.props.push({ name: k, type: ty, owner: c.name, readOnly: READ_ONLY.has(c.name + '.' + k) }); }
+    for (const [k, fn] of Object.entries(c.methods)) if (!seen.has(k)) { seen.add(k); out.methods.push({ name: k, owner: c.name, params: paramsOf(fn) }); }
+    for (const k of c.events) if (!seen.has(k)) { seen.add(k); out.events.push({ name: k, owner: c.name }); }
   }
   return out;
+}
+// A method's parameter names, from its own definition (`fn(self, a, b)` -> ['a', 'b']).
+function paramsOf(fn) {
+  const m = /^[^(]*\(([^)]*)\)/.exec(String(fn));
+  return m ? m[1].split(',').map(x => x.trim().replace(/\s*=.*$/, '')).filter(x => x && x !== 'self' && !x.startsWith('...')) : [];
 }
 /** Service classes (game:GetService's names), by name. */
 export function serviceClasses() { return Object.values(CLASSES).filter(c => c.service).map(c => c.name).sort(); }

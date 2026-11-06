@@ -104,3 +104,45 @@ export function complete(text, pos, ctx = {}) {
   KEYWORDS.forEach(k => add(k, 'keyword', 'keyword'));
   return { from: pos - m[1].length, options };
 }
+
+// Hover: what the word at `pos` is, from the same sources as completion. Returns
+// { from, to, title, lines } or null. title: "Part.Anchored: bool"; lines: facts (owner class,
+// read-only, the instance's path).
+export function describe(text, pos, ctx = {}) {
+  let a = pos, b = pos;
+  while (a > 0 && /\w/.test(text[a - 1])) a--;
+  while (b < text.length && /\w/.test(text[b])) b++;
+  if (a === b) return null;
+  const word = text.slice(a, b), lineStart = text.lastIndexOf('\n', a - 1) + 1, before = text.slice(lineStart, a);
+  if (/--/.test(before) || /["'`][^"'`]*$/.test(before.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, ''))) return null; // a comment or a string
+  const out = (title, ...lines) => ({ from: a, to: b, title, lines: lines.filter(Boolean) });
+  const sep = /([.:])\s*$/.exec(before);
+  if (sep) {
+    const exprM = /((?:\w+|:GetService\([^)]*\)|:(?:WaitForChild|FindFirstChild)\([^)]*\))(?:\s*[.:]\s*(?:\w+|GetService\([^)]*\)|(?:WaitForChild|FindFirstChild)\([^)]*\)))*)\s*[.:]\s*$/.exec(before);
+    const r = exprM && resolve(exprM[1], text, ctx);
+    if (!r) return null;
+    if (r.lib) return ctx.libs[r.lib].includes(word) ? out(`${r.lib}.${word}`, `in Luau's ${r.lib} library`) : null;
+    if (r.enum) return ENUMS[word] ? out(`Enum.${word}`, `${Object.keys(ENUMS[word]).length} items`) : null;
+    if (r.enumType) return word in ENUMS[r.enumType] ? out(`Enum.${r.enumType}.${word}`, 'enum item') : null;
+    const mem = membersOf(r.cls), kid = r.inst && r.inst.children.find(c => c.props.Name === word);
+    if (kid) return out(`${word}: ${kid.ClassName}`, `${fullName(kid)} in this place`);
+    const m = mem.methods.find(x => x.name === word), p = mem.props.find(x => x.name === word), e = mem.events.find(x => x.name === word);
+    if (m) return out(`${r.cls}:${word}(${m.params.join(', ')})`, `method of ${m.owner}`);
+    if (p) return out(`${r.cls}.${word}: ${p.type}`, `property of ${p.owner}`, p.readOnly && 'read-only to scripts');
+    if (e) return out(`${r.cls}.${word}: RBXScriptSignal`, `event of ${e.owner}`);
+    if (word === 'Parent') return out(`${r.cls}.Parent: Instance`, 'property of Instance');
+    if (word === 'ClassName') return out(`${r.cls}.ClassName: string`, 'property of Instance', 'read-only to scripts');
+    return null;
+  }
+  if (word === 'game') return out('game: DataModel', 'the place; its children are the services');
+  if (word === 'workspace') return out('workspace: Workspace', 'the 3D world (game.Workspace)');
+  if (word === 'script') return out(`script: ${ctx.script ? ctx.script.ClassName : 'Script'}`, ctx.script && `${fullName(ctx.script)}, the script this code runs as`);
+  if (word === 'Enum') return out('Enum', `${Object.keys(ENUMS).length} enum types`);
+  if (ctx.libs && ctx.libs[word]) return out(word, `Luau library: ${ctx.libs[word].length} members`);
+  if (KEYWORDS.includes(word)) return out(word, 'keyword');
+  const decl = new RegExp(`local\\s+${word}\\s*=\\s*([^\\n]+)`).exec(text);
+  if (decl) { const r = resolve(word, text, ctx); return out(`local ${word}${r && r.cls ? ': ' + r.cls : ''}`, `= ${decl[1].trim().slice(0, 60)}`); }
+  if (GLOBALS.includes(word)) return out(word, 'global');
+  return null;
+}
+const fullName = i => { const n = []; for (let x = i; x && x.parent; x = x.parent) n.unshift(x.props.Name); return n.join('.'); };

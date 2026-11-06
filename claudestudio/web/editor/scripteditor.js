@@ -7,16 +7,17 @@
 // hides the editor, keeping its tabs; Ctrl+S writes the open one. Play reads the Source, so the
 // editor writes it before a Play.
 // Autocomplete (completions.js) offers what the engine really has: the VM's libraries, the class
-// table's members, services, classes and enums, and the open place's own instances.
+// table's members, services, classes and enums, and the open place's own instances; hovering a
+// word says what it is (type, owning class, read-only, a method's parameters, an instance's path).
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
-import { keymap } from '@codemirror/view';
+import { keymap, hoverTooltip } from '@codemirror/view';
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { linter, lintGutter } from '@codemirror/lint';
 import { autocompletion } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 import { luau } from './luaumode.js';
-import { complete } from './completions.js';
+import { complete, describe } from './completions.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export const SCRIPT_CLASSES = ['Script', 'LocalScript', 'ModuleScript'];
@@ -66,6 +67,10 @@ export class ScriptEditor {
       doc: inst.props.Source,
       extensions: [basicSetup, StreamLanguage.define(luau),
         autocompletion({ override: [cx => complete(cx.state.doc.toString(), cx.pos, { libs: this.libs, dm: this.dm, script: this.inst })] }), syntaxHighlighting(style), theme, lintGutter(), linter(check, { delay: 300 }),
+        hoverTooltip((view, pos) => {
+          const d = describe(view.state.doc.toString(), pos, { libs: this.libs, dm: this.dm, script: this.inst }); if (!d) return null;
+          return { pos: d.from, end: d.to, above: true, create: () => { const dom = document.createElement('div'); dom.className = 'se-hover'; dom.innerHTML = `<b>${esc(d.title)}</b>` + d.lines.map(l => `<div>${esc(l)}</div>`).join(''); return { dom }; } };
+        }, { hoverTime: 350 }),
         keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => { this.save(); return true; } }]),
         EditorView.updateListener.of(u => { if (u.docChanged) this.renderTabs(); })],
     });
