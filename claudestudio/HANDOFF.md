@@ -17,7 +17,7 @@ For a new session picking up Claude Studio. Read CLAUDE.md and RESEARCH.md first
   - Adjust: grading wheels and point curves are in the engine, not yet in the panel; spatial tools (local Highlights/Shadows, Clarity, Dehaze) not ported.
   - Next tool candidates: EffectCraft (motion, particles), FilmCraft (cutscenes). PrintCraft and DesignCraft: no use found.
   - **Editor toolbar: keep it within 1280 px on desktop** (an overflowing toolbar made the first frame ~10 s in headless software rendering and broke editor-play's Play click; RESEARCH.md). It's exactly full: a new tool goes in an existing bar (Image… and Vector… sit in the Paint bar) or replaces a button.
-- **Scripts in the editor (2026-11-05):** Insert Object (the Explorer's +) and a script editor with Luau errors as you type. PLAN.md, "Scripts in the editor". Output window in Play from the editor and autocomplete from the engine's own tables (2026-11-05). [Studio] Output errors link back to their script and line. Open: hover docs, type checking, several scripts at once.
+- **Scripts in the editor (2026-11-05):** Insert Object (the Explorer's +) and a script editor with Luau errors as you type. PLAN.md, "Scripts in the editor". Output window in Play from the editor and autocomplete from the engine's own tables (2026-11-05). [Studio] Output errors link back to their script and line. [Studio] Script tabs (2026-11-06). Open: hover docs, type checking.
 - **Mesh editing (task 57):** done another way, 2026-10-12: 3DOO's open rebuild of Blender's BMesh kernel incorporated (`web/modeling/`), with the editor's Edit Mode. No permission rule needed. PLAN.md, "Mesh editing, done another way".
 
 ## Stage 2: what's next

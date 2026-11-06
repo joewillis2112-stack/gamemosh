@@ -68,6 +68,10 @@ export default async function (t) {
   check(!s3.open && s3.src === CODE && s3.steps === s1.steps + 1, 'Close writes the Source as one undo step');
   if (phone) await btn('#ui [data-act=undo]'); else { await t.page.keyboard.press('Control+z'); await E(() => window.editor.frames(1)); }
   check((await st()).src === 'print("Hello world!")\n', 'Undo takes the edit back');
+  await E(() => { const ed = window.editor; ed.commands.run('select', { items: [ed.dm.service('ServerScriptService').children[0]] }); ed.properties.update(); });
+  await btn('#properties [data-edit]');
+  check((await E(() => window.editor.scriptEditor.text)) === 'print("Hello world!")\n' && !(await E(() => document.querySelector('#scripteditor .se-tab.on').textContent.includes('•'))), 'its tab, kept while the editor was closed, follows the Undo (no stale text to write back)');
+  await btn('#scripteditor [data-se=close]');
   if (phone) await btn('#ui [data-act=redo]'); else { await t.page.keyboard.press('Control+y'); await E(() => window.editor.frames(1)); }
   check((await st()).src === CODE, 'Redo puts it back');
 
@@ -83,9 +87,24 @@ export default async function (t) {
   check(s4.open && s4.steps === s3.steps, 'Edit Script opens it; closing unchanged adds no step');
   // A second script that warns and then fails at run time, for the Output window.
   await E(() => { const ed = window.editor; ed.commands.run('insert', { className: 'Script', parent: ed.dm.service('ServerScriptService'), props: { Name: 'Broken', Source: 'warn("careful")\nlocal t = nil\nprint(t.field)\n' } }); });
+  // Tabs: Broken opens beside the Script (desktop: double-click it in the Explorer, which stays beside
+  // the editor; phone: close, select it, Edit Script; the Script's tab is still there).
+  const brokenH = await E(() => window.editor.dm.service('ServerScriptService').children.find(c => c.props.Name === 'Broken').handle);
+  if (!phone) { await E(() => window.editor.explorer.update()); await t.page.dblclick(`#explorer [data-h="${brokenH}"] .cls`); }
+  else { await btn('#scripteditor [data-se=close]'); await E(h => { const ed = window.editor; ed.commands.run('select', { items: [ed.dm.byHandle[h]] }); ed.properties.update(); }, brokenH); await btn('#properties [data-edit]'); }
+  const tabs = () => E(() => [...document.querySelectorAll('#scripteditor .se-tab')].map(t => [t.firstChild.textContent.replace(' •', '') + (t.textContent.includes('•') ? '•' : ''), t.classList.contains('on')]));
+  let tb = await tabs();
+  check(tb.length === 2 && tb[0][0] === 'Script' && tb[1][0] === 'Broken' && tb[1][1] && (await E(() => window.editor.scriptEditor.text)).startsWith('warn("careful")'), `a second script opens in its own tab beside the first (${JSON.stringify(tb)})`);
+  await btn('#scripteditor .se-tab[data-tab="0"]');
+  check((await E(() => window.editor.scriptEditor.text)) === CODE && (await tabs())[0][1], 'clicking a tab shows that script');
   await E(() => window.editor.scriptEditor.view.focus());
   // Edited and left open: Play writes it first, so the game runs what's on screen.
   await E(() => { const v = window.editor.scriptEditor.view, d = v.state.doc.toString(), i = d.indexOf('FromScript'); v.dispatch({ changes: { from: i, to: i + 'FromScript'.length, insert: 'Played' } }); });
+  tb = await tabs();
+  check(tb[0][0] === 'Script•' && tb[1][0] === 'Broken', `an unsaved edit marks its tab (${tb.map(x => x[0])})`);
+  await btn('#scripteditor [data-tab-close="1"]');
+  tb = await tabs();
+  check(tb.length === 1 && tb[0][0] === 'Script•' && (await E(() => window.editor.scriptEditor.text)).includes('Played'), 'its × closes Broken\'s tab; the edited Script stays open, still unsaved');
 
   // Play runs it.
   if (phone) await btn('#ui [data-act=panels]');
