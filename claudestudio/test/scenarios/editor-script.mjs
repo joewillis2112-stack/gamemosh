@@ -61,6 +61,14 @@ export default async function (t) {
   const methods = await E(() => [...document.querySelectorAll('#scripteditor .cm-tooltip-autocomplete li')].map(li => li.textContent));
   check(methods.some(o => o.startsWith('FindFirstChild')) && !methods.some(o => o.startsWith('Anchored')), `after a colon it offers the Part's methods (${methods.slice(0, 3)})`);
   await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE); // back to the working script
+  if (!phone) { // Hover (a mouse has it, a phone doesn't): what the word under the pointer is.
+    await t.page.mouse.click(5, 700); // move the pointer off the text first
+    const at = await E(() => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf('Anchored') + 3, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; });
+    await t.page.mouse.move(...at, { steps: 4 });
+    await t.page.waitForSelector('#scripteditor .se-hover', { timeout: 3000 }).catch(() => {});
+    const tip = await E(() => { const h = document.querySelector('#scripteditor .se-hover'); return h ? h.innerText.replace(/\n/g, ' | ') : null; });
+    check(tip === 'Part.Anchored: bool | property of BasePart', `hovering "Anchored" says what it is (${tip})`);
+  }
 
   // Close writes the Source: one step, which Undo and Redo move.
   await btn('#scripteditor [data-se=close]');

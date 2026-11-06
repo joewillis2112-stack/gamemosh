@@ -28,6 +28,9 @@ export default async function (t) {
   // The rendered colour at a world point (0..255 RGB), from a screenshot.
   const colourAt = async p => { await E(() => window.editor.frames(2)); const [x, y] = await screen(p); const png = PNG.sync.read(await t.page.screenshot({ clip: { x: Math.round(x) - 1, y: Math.round(y) - 1, width: 3, height: 3 } })); const i = (1 * png.width + 1) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
   const red = c => c[0] > 120 && c[0] > c[1] * 2 && c[0] > c[2] * 2;
+  // A Decal's image decodes asynchronously (a data URL still loads like any image): after a change that
+  // (re)creates one, wait up to 3 s for the colour to settle to `want` before reading it.
+  const settled = async (p, want) => { let c; for (let i = 0; i < 30; i++) { c = await colourAt(p); if (want(c)) return c; await t.page.waitForTimeout(100); } return c; };
   const look = (pos, at) => E(([p, a]) => { const ed = window.editor, V = ed.camera.pos.constructor; ed.camera.pos = new V(...p); ed.camera.lookAt(new V(...a)); ed.camera.apply(); ed.frames(1); }, [pos, at]);
   const st = () => E(() => { const ed = window.editor, P = ed.dm.workspace.children.find(c => c.props.Name === 'Board'), decals = P ? P.children.filter(c => c.ClassName === 'Decal') : [], M = ed.dm.workspace.children.find(c => c.props.Name === 'Ball');
     return { decals: decals.length, face: decals[0] && decals[0].props.Face, tex: decals[0] ? decals[0].props.Texture : '', mesh: M ? M.props.TextureID : '', steps: ed.commands.history.past.length, sel: ed.commands.selection.items.length, bar: !document.getElementById('paintbar').hidden }; });
@@ -47,7 +50,7 @@ export default async function (t) {
   await drag(await screen(A), await screen(B));
   const s1 = await st();
   check(s1.decals === 1 && s1.face === 'Front' && /^data:image\/png/.test(s1.tex) && s1.steps === s0.steps + 1, `the stroke adds a Decal on the Front face with the painted PNG (${s1.decals} decal, ${s1.face}), one undo step`);
-  const c1 = await colourAt(IN), o1 = await colourAt(OUT);
+  const c1 = await settled(IN, red), o1 = await colourAt(OUT);
   check(!red(before) && red(c1) && !red(o1), `the paint shows where it was dragged: red at the stroke (${c1}), the board's grey beside it (${o1}); was ${before}`);
   check(s1.sel === 0, `painting selects nothing (${s1.sel} selected)`);
 
@@ -55,7 +58,7 @@ export default async function (t) {
   if (phone) await btn('#ui [data-act=undo]'); else { await t.page.keyboard.press('Control+z'); await E(() => window.editor.frames(1)); }
   const u = await st(), cu = await colourAt(IN);
   if (phone) await btn('#ui [data-act=redo]'); else { await t.page.keyboard.press('Control+y'); await E(() => window.editor.frames(1)); }
-  const r = await st(), cr = await colourAt(IN);
+  const r = await st(), cr = await settled(IN, red);
   check(u.decals === 0 && !red(cu) && r.decals === 1 && r.tex === s1.tex && red(cr), `undo takes the stroke and its Decal away (${u.decals} decals, ${cu}); redo brings back the same image (${cr})`);
 
   // A second stroke, down the other half: same Decal, one more step.
