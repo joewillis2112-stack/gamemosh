@@ -1,0 +1,896 @@
+{
+ "cyberpunk-2077": {
+  "name": "Cyberpunk 2077",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 1091500,
+  "images": [
+   {
+    "file": "aaa/cyberpunk-2077-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1091500/ss_2f649b68d579bf87011487d29bc4ccbfdd97d34f.1920x1080.jpg?t=1792682505",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/cyberpunk-2077-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1091500/ss_4eb068b1cf52c91b57157b84bed18a186ed7714b.1920x1080.jpg?t=1792682505",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/cyberpunk-2077-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1091500/ss_ae4465fa8a44dd330dbeb7992ba196c2f32cabb1.1920x1080.jpg?t=1792682505",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Night city: emissive signs and neon carrying the lighting, wet ground reflecting them (ray-traced reflections), smoke and debris particles, motion blur in the chase, dense detail everywhere."
+ },
+ "red-dead-redemption-2": {
+  "name": "Red Dead Redemption 2",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 1174180,
+  "images": [
+   {
+    "file": "aaa/red-dead-redemption-2-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1174180/ss_66b553f4c209476d3e4ce25fa4714002cc914c4f.1920x1080.jpg?t=1759502961",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/red-dead-redemption-2-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1174180/ss_bac60bacbf5da8945103648c08d27d5e202444ca.1920x1080.jpg?t=1759502961",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/red-dead-redemption-2-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1174180/ss_668dafe477743f8b50b818d5bbfcec669e9ba93e.1920x1080.jpg?t=1759502961",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Moonlit fog lying on water with lantern light glowing in it (volumetric fog lit by local lights); muzzle flash and smoke; overcast snow with soft light. Cloth, skin and weather sell it as much as geometry."
+ },
+ "doom-the-dark-ages": {
+  "name": "DOOM: The Dark Ages",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 3017860,
+  "images": [
+   {
+    "file": "aaa/doom-the-dark-ages-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3017860/ss_ba66d42e3d1ea78e5b085682484210b390eb9ccc.1920x1080.jpg?t=1793834110",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/doom-the-dark-ages-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3017860/ss_c61b08d39d4af0b19241f85b7f1962674e5b570f.1920x1080.jpg?t=1793834110",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/doom-the-dark-ages-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3017860/ss_95930b9074962300c643468587ad4c7a1a64abe0.1920x1080.jpg?t=1793834110",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Hell-orange key light, heavy spark and ember particles, emissive weapons and demons, strong contrast; shot 2 uses cinematic depth of field."
+ },
+ "assassin-s-creed-shadows": {
+  "name": "Assassin\u2019s Creed Shadows",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 3159330,
+  "images": [
+   {
+    "file": "aaa/assassin-s-creed-shadows-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3159330/7257f31bb96b01f5b596ae5e0fa714319e43d64a/ss_7257f31bb96b01f5b596ae5e0fa714319e43d64a.1920x1080.jpg?t=1792778493",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/assassin-s-creed-shadows-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3159330/e53dc9ec73e3de9b8e680472898de775f0dc1cae/ss_e53dc9ec73e3de9b8e680472898de775f0dc1cae.1920x1080.jpg?t=1792778493",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Interior lit by sun bouncing through foliage (global illumination, dappled shadows); a sunset castle silhouette in red haze: atmosphere and grading doing the work."
+ },
+ "black-myth-wukong": {
+  "name": "Black Myth: Wukong",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 2358720,
+  "images": [
+   {
+    "file": "aaa/black-myth-wukong-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/ss_86c4b7462bba219a0d0b89931a35812b9f188976.1920x1080.jpg?t=1760601605",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/black-myth-wukong-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/ss_524a39da392ee83dde091033562bc719d46b5838.1920x1080.jpg?t=1760601605",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/black-myth-wukong-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2358720/ss_415397426d4c939ebb8a93ac66831f28ee7199be.1920x1080.jpg?t=1760601605",
+    "kind": "in-game"
+   }
+  ],
+  "note": "God rays through a forest canopy (volumetric light), dense autumn foliage, fog, fire. Photogrammetry-detailed ground."
+ },
+ "senua-s-saga-hellblade-ii": {
+  "name": "Hellblade II: Senua\u2019s Saga",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 2461850,
+  "images": [
+   {
+    "file": "aaa/senua-s-saga-hellblade-ii-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2461850/ss_10c82e3cc0f38c433975168679e93a91310ef466.1920x1080.jpg?t=1780854772",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/senua-s-saga-hellblade-ii-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2461850/ss_fcb80f5cb3eec049b95cdfde2988f919289f9c31.1920x1080.jpg?t=1780854772",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/senua-s-saga-hellblade-ii-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2461850/ss_b794c2a9bcef64ff626ae726c19ceed94d15a234.1920x1080.jpg?t=1780854772",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Letterboxed and graded like film; very dark, fog, firelight, wet stone; a sunset with real sky scattering. Mood from darkness and a few light sources."
+ },
+ "forza-horizon-5": {
+  "name": "Forza Horizon 5",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 1551360,
+  "images": [
+   {
+    "file": "aaa/forza-horizon-5-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1551360/ss_cf56e25a0290556ba83229eb0ab370d10be0407c.1920x1080.jpg?t=1788546569",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/forza-horizon-5-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1551360/ss_0bc32360d32b21abdf889422385cd753862dd73e.1920x1080.jpg?t=1788546569",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/forza-horizon-5-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1551360/ss_49297af1ddef7779e644c2deb1df611a5f5cd344.1920x1080.jpg?t=1788546569",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Clear-coat car paint; light shafts through a dusty garage; rain, lightning and wet surfaces; motion blur. Weather is a whole system."
+ },
+ "hi-fi-rush": {
+  "name": "Hi-Fi RUSH",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 1817230,
+  "images": [
+   {
+    "file": "stylized/hi-fi-rush-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1817230/ss_382e9d5abb00498eee6a86b0366a2db7826268b7.1920x1080.jpg?t=1764916407",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/hi-fi-rush-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1817230/ss_8a13650ffe930da77593dae80f0118588c46a5ca.1920x1080.jpg?t=1764916407",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Cel shading with ink outlines and flat colour, comic-book VFX and on-screen lettering: proof stylised beats realistic for readability."
+ },
+ "sable": {
+  "name": "Sable",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 757310,
+  "images": [
+   {
+    "file": "stylized/sable-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/757310/ss_f7cf5d40340dfcfc534daff63be314fdbb9e6817.1920x1080.jpg?t=1792068075",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/sable-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/757310/ss_bb39016e03201f087cf07f6d15cb364577952f00.1920x1080.jpg?t=1792068075",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/sable-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/757310/ss_efb5438e53ed5463bc89076cc99a3290dc55db85.1920x1080.jpg?t=1792068075",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Moebius-style: flat colour, thin outlines on everything, almost no shading, pastel palette. Very cheap to render, very distinctive."
+ },
+ "okami-hd": {
+  "name": "Okami HD",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 587620,
+  "images": [
+   {
+    "file": "stylized/okami-hd-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/587620/ss_3da8f9bf08227a90ecf03819f391a49ba18d521a.1920x1080.jpg?t=1733787035",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/okami-hd-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/587620/ss_21797469f5b8a59e5013944931b111b39af37401.1920x1080.jpg?t=1733787035",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/okami-hd-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/587620/ss_71f6af1f989df2aa6bc4e07a9ae407609c264b2e.1920x1080.jpg?t=1733787035",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Sumi-e ink: brush-stroke outlines, a paper texture over the whole frame, painted colour."
+ },
+ "guilty-gear-strive": {
+  "name": "GUILTY GEAR -STRIVE-",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 1384160,
+  "images": [
+   {
+    "file": "stylized/guilty-gear-strive-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1384160/ss_0f29aebacb81b972782382dbf4c0079f0d37b330.1920x1080.jpg?t=1788400087",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/guilty-gear-strive-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1384160/ss_d1320ccbaf6e6c62a2c929fcff7406c909f8439b.1920x1080.jpg?t=1788400087",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/guilty-gear-strive-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1384160/ss_044db69a024ce7432dc1897066f172fef52ac10e.1920x1080.jpg?t=1788400087",
+    "kind": "in-game"
+   }
+  ],
+  "note": "3D made to look hand-drawn anime: cel shading with hand-authored normals, stepped (limited) animation, huge hit effects."
+ },
+ "borderlands-3": {
+  "name": "Borderlands 3",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 397540,
+  "images": [
+   {
+    "file": "stylized/borderlands-3-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/397540/ss_9868ee40f39749a4c8222502cf86525ee32c1bef.1920x1080.jpg?t=1793288452",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/borderlands-3-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/397540/ss_6f1836277ffe8733503a9446d51b8c7eb3d20d5f.1920x1080.jpg?t=1793288452",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Thick black outlines and hand-painted, hatched textures on top of otherwise normal lighting."
+ },
+ "it-takes-two": {
+  "name": "It Takes Two",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 1426210,
+  "images": [
+   {
+    "file": "stylized/it-takes-two-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1426210/ss_3e59753eefaba9a7704a18e902b48e8d38e95e0b.1920x1080.jpg?t=1777395376",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/it-takes-two-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1426210/ss_fdac523e3ea4d2f32a44449bb8c224857563bd7d.1920x1080.jpg?t=1777395376",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/it-takes-two-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1426210/ss_a15164ddd357ab3c0b2aff575a6b215b2d91b406.1920x1080.jpg?t=1777395376",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Pixar-like stylised PBR: saturated warm grading, strong depth of field for a miniature feel, bloom."
+ },
+ "ori-and-the-will-of-the-wisps": {
+  "name": "Ori and the Will of the Wisps",
+  "group": "stylized",
+  "platform": "steam",
+  "id": 1057090,
+  "images": [
+   {
+    "file": "stylized/ori-and-the-will-of-the-wisps-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1057090/ss_0cf0ec6681ae5771173790dbc99ddb3bf3b886ad.1920x1080.jpg?t=1759530749",
+    "kind": "in-game"
+   },
+   {
+    "file": "stylized/ori-and-the-will-of-the-wisps-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1057090/ss_ef58cebbef92a08648c77d451afd1d57922523a5.1920x1080.jpg?t=1759530749",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Painterly 2.5D: backlit foliage, layered depth fog, glow everywhere, drifting particles."
+ },
+ "valheim": {
+  "name": "Valheim",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 892970,
+  "images": [
+   {
+    "file": "steam-mid/valheim-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/892970/5a31353178f635b67f0c8720ebb8a1a95b637276/ss_5a31353178f635b67f0c8720ebb8a1a95b637276.1920x1080.jpg?t=1791544831",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/valheim-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/892970/f84c97e07548b1c2a0c38944d80c6967c0928625/ss_f84c97e07548b1c2a0c38944d80c6967c0928625.1920x1080.jpg?t=1791544831",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/valheim-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/892970/ss_9b4abc60696de192c40064364a1395ad5074e5c3.1920x1080.jpg?t=1791544831",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Low-poly, low-resolution textures under modern lighting: auroras, fog, firelight, strong grading. Atmosphere over asset fidelity."
+ },
+ "lethal-company": {
+  "name": "Lethal Company",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 1966720,
+  "images": [
+   {
+    "file": "steam-mid/lethal-company-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1966720/ss_78075e9a94675823024f12fce9d69b243cca94f8.1920x1080.jpg?t=1775380053",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/lethal-company-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1966720/ss_568d97dfa9d8d3128157d84c9437030ccc1011b0.1920x1080.jpg?t=1775380053",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/lethal-company-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1966720/ss_d0bb214b1bf73ddc8315b96da6f32917043b13bc.1920x1080.jpg?t=1775380053",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Deliberately low resolution and dark: a flashlight-only world, fog, a helmet HUD. Cheap, and scarier for it."
+ },
+ "deep-rock-galactic": {
+  "name": "Deep Rock Galactic",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 548430,
+  "images": [
+   {
+    "file": "steam-mid/deep-rock-galactic-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/548430/49a57d16c55b74a6f835c590421d299d417af4f8/ss_49a57d16c55b74a6f835c590421d299d417af4f8.1920x1080.jpg?t=1792497307",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/deep-rock-galactic-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/548430/ss_32dee8467e457e1c347dae117ac497170e5bf803.1920x1080.jpg?t=1792497307",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/deep-rock-galactic-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/548430/ss_9ece49e998dd661e61eaf621e94c03e5b85b57f8.1920x1080.jpg?t=1792497307",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Faceted low-poly rock lit by emissive crystals and lava and coloured local lights in darkness, with glow."
+ },
+ "subnautica": {
+  "name": "Subnautica",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 264710,
+  "images": [
+   {
+    "file": "steam-mid/subnautica-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/264710/ss_e182b6b20bb797500f9f63c561586d920d44e37c.1920x1080.jpg?t=1777456112",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/subnautica-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/264710/ss_cebc378d2f7bc78978c21db4e3c5e12ccd067349.1920x1080.jpg?t=1777456112",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/subnautica-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/264710/ss_b28404f3d108cc15aebbb2c3d7cb17e587225662.1920x1080.jpg?t=1777456112",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Underwater: distance fog that absorbs colour, bioluminescent emissives, light shafts, a mask overlay."
+ },
+ "a-short-hike": {
+  "name": "A Short Hike",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 1055540,
+  "images": [
+   {
+    "file": "steam-mid/a-short-hike-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1055540/ss_f2123fea859e299736a3e99d130238c784d53e75.1920x1080.jpg?t=1777758958",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/a-short-hike-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1055540/ss_a22817e259c4220cad0c25db315f417b6d3641b8.1920x1080.jpg?t=1777758958",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/a-short-hike-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1055540/ss_4c7c9650606ac7b451f8d2e5b71b503649e43edc.1920x1080.jpg?t=1777758958",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Rendered at low resolution and scaled up (pixelated), simple lighting, warm palette, tilted overhead camera."
+ },
+ "firewatch": {
+  "name": "Firewatch",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 383870,
+  "images": [
+   {
+    "file": "steam-mid/firewatch-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/383870/ss_80432f2d4f4192017115c23e7dff090df95b204a.1920x1080.jpg?t=1755789801",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/firewatch-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/383870/ss_570bc87288b5ab4e235ba270e1d2ae30312d5b82.1920x1080.jpg?t=1755789801",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/firewatch-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/383870/ss_4b9d67ae2af0da570d03731d93b095d0203b973d.1920x1080.jpg?t=1755789801",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Flat-colour stylisation: colour-banded atmospheric fog, minimal texture, painted skies. Mostly fog and gradients."
+ },
+ "slime-rancher-2": {
+  "name": "Slime Rancher 2",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 1657630,
+  "images": [
+   {
+    "file": "steam-mid/slime-rancher-2-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1657630/6300ad3b599cd5d0cffb8788be8d95d7a019f666/ss_6300ad3b599cd5d0cffb8788be8d95d7a019f666.1920x1080.jpg?t=1790096620",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/slime-rancher-2-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1657630/e0924a9add342de5066e9d0a01bb990add06e278/ss_e0924a9add342de5066e9d0a01bb990add06e278.1920x1080.jpg?t=1790096620",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/slime-rancher-2-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1657630/ss_822fac38a830a3b585fa8bdd0f2450507cb13b06.1920x1080.jpg?t=1790096620",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Bright, soft, saturated toon-ish PBR with big bloom: friendly and readable."
+ },
+ "r-e-p-o": {
+  "name": "R.E.P.O.",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 3241660,
+  "images": [
+   {
+    "file": "steam-mid/r-e-p-o-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3241660/ss_e6babaab52581f81df91e50768cee6a9334ef6ec.1920x1080.jpg?t=1793278962",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/r-e-p-o-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3241660/ss_af7d8d6302d543d89019bad49ea853a970bb82de.1920x1080.jpg?t=1793278962",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/r-e-p-o-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3241660/ss_a66715d57329c456d91aeb11fbd406e7d8c5dbc7.1920x1080.jpg?t=1793278962",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Dark interiors, flashlight, emissive eyes, bloom, red/orange grading on simple physics props."
+ },
+ "peak": {
+  "name": "PEAK",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 3527290,
+  "images": [
+   {
+    "file": "steam-mid/peak-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3527290/aa39b41b105aac51f2312a92979a3b9cb9909a46/ss_aa39b41b105aac51f2312a92979a3b9cb9909a46.1920x1080.jpg?t=1792684718",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/peak-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3527290/55365bfa09745df86bed72720a842f64d8724b9d/ss_55365bfa09745df86bed72720a842f64d8724b9d.1920x1080.jpg?t=1792684718",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/peak-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3527290/471f445657aaf8b8c1d039389e5dcc6a8bcc32c5/ss_471f445657aaf8b8c1d039389e5dcc6a8bcc32c5.1920x1080.jpg?t=1792684718",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Stylised low poly with heavy fog and aerial perspective, purple grading, lush jungle."
+ },
+ "raft": {
+  "name": "Raft",
+  "group": "steam-mid",
+  "platform": "steam",
+  "id": 648800,
+  "images": [
+   {
+    "file": "steam-mid/raft-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/648800/ss_c22b2ff5ba5609f74e61b5feaa5b7a1d7fd1dbd3.1920x1080.jpg?t=1727184011",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/raft-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/648800/ss_0e062ec493bba26edaf0f7e6a6e815e713e694b5.1920x1080.jpg?t=1727184011",
+    "kind": "in-game"
+   },
+   {
+    "file": "steam-mid/raft-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/648800/ss_9784377e0e3bcfd2be609721326ab336a39c34b8.1920x1080.jpg?t=1727184011",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Bright stylised ocean (waves, foam), clear sky, simple shading. Water carries the game's look."
+ },
+ "frontlines": {
+  "name": "FRONTLINES",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 5938036553,
+  "images": [
+   {
+    "file": "roblox/frontlines-1.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-91cae505f7bbdc2782ea0927c9b1502b/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/frontlines-3.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-8dbce6d7eaeb915c5eb707d2cbfec07f/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/frontlines-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-68b5d4cf6b8eb51dba3a766e2358c568/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Near-AAA on Roblox: PBR, dark interiors cut by spot lights, dust in the air, detailed weapon models."
+ },
+ "phantom-forces": {
+  "name": "Phantom Forces",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 292439477,
+  "images": [
+   {
+    "file": "roblox/phantom-forces-3.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-ea036c4703129f23d89ebd3721aebe3f/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo render (not in-game): blocky avatars with realistic weapons, a common Roblox mix of styles."
+ },
+ "driving-empire": {
+  "name": "Driving Empire [\ud83c\udfc1NASCAR Championship Weekend\ud83c\udfc1]",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 3351674303,
+  "images": [
+   {
+    "file": "roblox/driving-empire-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-89a1aafd7f921f62bf914c9297401578/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/driving-empire-6.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-4098e04a40efd5c414d61fd7d7ae7825/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/driving-empire-8.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-a771d8b45b7be9c10dbec6d3c759c561/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Bright realistic cars with glossy paint reflecting the sky, Roblox's Future lighting."
+ },
+ "the-wild-west": {
+  "name": "The Wild West \ud83c\udf83",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 2317712696,
+  "images": [
+   {
+    "file": "roblox/the-wild-west-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-00343306e0d6b6b9390edf3aea21cb95/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo art (not in-game): stylised western; the game itself is a mid-detail open world."
+ },
+ "livetopia": {
+  "name": "Livetopia \ud83c\udfe1 RP",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 6737970321,
+  "images": [
+   {
+    "file": "roblox/livetopia-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-1c530ada5834b8141e8b95208bac6f80/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/livetopia-6.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-880e25dbba64b563dc449cd2dc18c50b/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/livetopia-7.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-886f8a31e13d41f7b11352976028a9bd/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Clean, bright, stylised city: soft shadows, simple materials, lots of colour. Typical modern Roblox roleplay."
+ },
+ "world-zero": {
+  "name": "World // Zero \u2694\ufe0f Anime RPG ",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 2727067538,
+  "images": [
+   {
+    "file": "roblox/world-zero-2.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-9e60ec5333303445f56b4f6aaec5f99f/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo art (not in-game): stylised anime RPG."
+ },
+ "adopt-me": {
+  "name": "[\u26a1] Adopt Me!",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 920587237,
+  "images": [
+   {
+    "file": "roblox/adopt-me-2.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-e2356d2a6e3f4f54ebe357a482be2ee8/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo art (not in-game): illustrated; the game is soft, bright and cute."
+ },
+ "natural-disaster-survival": {
+  "name": "Natural Disaster Survival",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 189707,
+  "images": [
+   {
+    "file": "roblox/natural-disaster-survival-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-d45d4ce23c707cda0d712141c14c0771/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/natural-disaster-survival-8.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-e3fd43a2bc1eee021257a92cc44e656a/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/natural-disaster-survival-10.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-059ff31f6dadb7934eda848ff71d0f43/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Classic Roblox: plastic parts, flat lighting, low detail. The baseline every Roblox player knows."
+ },
+ "tower-of-hell": {
+  "name": "Tower of Hell",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 1962086868,
+  "images": [
+   {
+    "file": "roblox/tower-of-hell-3.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-250fab4ac316fd630e19204651aa2ee5/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Flat colours, simple geometry, plain lighting: gameplay first."
+ },
+ "brookhaven-rp": {
+  "name": "Brookhaven \ud83c\udfe1RP",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 4924922222,
+  "images": [
+   {
+    "file": "roblox/brookhaven-rp-3.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-340c29cd00647d07c4d0c25b78bd135c/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/brookhaven-rp-6.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-a44a8861b90ec7f0c1566a2b8496bf6b/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Simple bright city, classic avatars, smooth plastic (store shots are framed)."
+ },
+ "doors": {
+  "name": "DOORS \ud83d\udc41\ufe0f",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 6516141723,
+  "images": [
+   {
+    "file": "roblox/doors-1.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-e822a794752ce011565eca23a280f4dc/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/doors-4.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-09f0d9b97f35839568ec129016b18485/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/doors-7.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-d84b0178009922e5e679bf1fef07e840/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/doors-8.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-ee22e20e38a2496ec796168071deb670/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Horror on Roblox from lighting alone: dark rooms, warm lamps, shadows, fog, red flashes on simple geometry."
+ },
+ "blox-fruits": {
+  "name": "[\ud83c\udf83] Blox Fruits",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 2753915549,
+  "images": [
+   {
+    "file": "roblox/blox-fruits-4.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-65f8caa6b19f89964141f27c1e3b7fa0/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo art (not in-game): anime illustration; in-game it is a bright, low-detail anime world with big effects."
+ },
+ "jailbreak": {
+  "name": "Jailbreak \ud83c\udf41\ud83c\udf41",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 606849621,
+  "images": [
+   {
+    "file": "roblox/jailbreak-3.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-aa1dbe82b3d900fb3e137cbd52ac55bf/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/jailbreak-4.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-28ca833539259465a4c43142c91be36f/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/jailbreak-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-7befe084ba1a30d14d7925b24c84b912/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/jailbreak-6.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-6a7fc515821d3241f2b674386bc07192/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Mid-tier Roblox city: explosions and particles, neon, night lighting, vehicles."
+ },
+ "grow-a-garden": {
+  "name": "[\ud83d\udc2a] Grow a Garden \ud83c\udf36\ufe0f",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 126884695634066,
+  "images": [
+   {
+    "file": "roblox/grow-a-garden-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-92e199fae4d99fd1dd08a9fe5d80201d/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Very simple, flat, bright and blocky: the lowest-detail style that still reads well."
+ },
+ "dress-to-impress": {
+  "name": "[\ud83c\udf83] Dress To Impress",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 15101393044,
+  "images": [
+   {
+    "file": "roblox/dress-to-impress-4.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-b344597e58e40fc366ce69d9bfd771e9/768/432/Image/Png/noFilter",
+    "kind": "promo art"
+   }
+  ],
+  "note": "Promo render (not in-game): stylised avatar beauty shots; the game is about avatars and outfits."
+ },
+ "cronos-the-new-dawn": {
+  "name": "Cronos: The New Dawn",
+  "group": "aaa",
+  "platform": "steam",
+  "id": 2101960,
+  "images": [
+   {
+    "file": "aaa/cronos-the-new-dawn-1.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2101960/6b36b91797835c5dd2fc7906d278241a4252aef5/ss_6b36b91797835c5dd2fc7906d278241a4252aef5.1920x1080.jpg?t=1793113713",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/cronos-the-new-dawn-2.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2101960/ab324cb34d97f9f10317c464248149fa4b92e9b4/ss_ab324cb34d97f9f10317c464248149fa4b92e9b4.1920x1080.jpg?t=1793113713",
+    "kind": "in-game"
+   },
+   {
+    "file": "aaa/cronos-the-new-dawn-3.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2101960/15d86c91402494da0cfda13dd85173485312c6c9/ss_15d86c91402494da0cfda13dd85173485312c6c9.1920x1080.jpg?t=1793113713",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Sci-fi horror: rim lights, warm local lights in darkness, worn metal, heat glow from fire, filmic grading."
+ },
+ "greenville-rp": {
+  "name": "Greenville RP",
+  "group": "roblox",
+  "platform": "roblox",
+  "id": 891852901,
+  "images": [
+   {
+    "file": "roblox/greenville-rp-4.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-e122ea22397cf1fcc6188816767aa855/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/greenville-rp-5.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-a6ba4f6b94e5c5d1cba2fcef163dc4b7/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/greenville-rp-7.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-182e8025c4ec24a25e52ca8b370ef7de/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   },
+   {
+    "file": "roblox/greenville-rp-10.jpg",
+    "source": "https://tr.rbxcdn.com/180DAY-b1a1201aa288672a3ea43ff5f7571eea/768/432/Image/Png/noFilter",
+    "kind": "in-game"
+   }
+  ],
+  "note": "Realistic driving on Roblox: car paint, realistic trees and terrain, haze, sunrise bloom."
+ }
+}

@@ -51,6 +51,8 @@ Nothing new starts while the current asset fails the gate.
 - A third-person camera and controls that feel like Roblox's: thumbstick and jump button on touch, with camera drag; WASD and mouse on desktop.
 - 60 fps on a mid-range phone for a typical scene, measured, not assumed.
 
+[Studio] **Rendering range (user, 2026-11-11):** the engine should render many qualities and styles, not only Roblox's: realistic, stylised (cel-shaded, ink, painterly), low-resolution and pixel looks, from classic-Roblox simple to AAA-informed. The reference set is `reference/rendering/` (105 screenshots from 41 games: AAA, stylised, medium-quality Steam, Roblox across styles), with a table of the features they use against what our renderer has. It shows that below AAA a look comes mostly from lighting, atmosphere and grading, so the cheap, every-tier features come first: particles, outlines and toon shading, volumetric fog, water, a low-resolution/pixel mode.
+
 Assets come from CC0 sources (Quaternius rigged characters and animations, Poly Haven and ambientCG materials and skies, Kenney) so the look is consistent and nothing is borrowed.
 
 ## Architecture
