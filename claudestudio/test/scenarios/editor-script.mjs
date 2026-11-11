@@ -61,6 +61,15 @@ export default async function (t) {
   const methods = await E(() => [...document.querySelectorAll('#scripteditor .cm-tooltip-autocomplete li')].map(li => li.textContent));
   check(methods.some(o => o.startsWith('FindFirstChild')) && !methods.some(o => o.startsWith('Anchored')), `after a colon it offers the Part's methods (${methods.slice(0, 3)})`);
   await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE); // back to the working script
+  // Script analysis: Luau's type checker against the engine and this place. A misspelt child of the
+  // workspace is a warning on its line (the place has a Baseplate, not a Baseplat).
+  await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code + 'workspace.Baseplat.Anchored = true\n' } }); }, CODE);
+  await t.page.waitForFunction(() => document.querySelector('#scripteditor .se-status').classList.contains('warn'), null, { timeout: 15000 }).catch(() => {});
+  const an = await E(() => ({ status: document.querySelector('#scripteditor .se-status').textContent, marks: document.querySelectorAll('#scripteditor .cm-lintRange-warning').length }));
+  check(/^Line 6: Key 'Baseplat' not found in class 'Workspace'/.test(an.status) && an.marks > 0, `script analysis warns about a misspelt child on its line ("${an.status}", ${an.marks} marked)`);
+  await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE);
+  await t.page.waitForFunction(() => document.querySelector('#scripteditor .se-status').textContent === 'No errors', null, { timeout: 5000 }).catch(() => {});
+  check((await E(() => document.querySelector('#scripteditor .se-status').textContent)) === 'No errors', 'fixed, the warning goes');
   if (!phone) { // Hover (a mouse has it, a phone doesn't): what the word under the pointer is.
     await t.page.mouse.click(5, 700); // move the pointer off the text first
     const at = await E(() => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf('Anchored') + 3, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; });

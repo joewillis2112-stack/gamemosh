@@ -9,15 +9,19 @@
 // Autocomplete (completions.js) offers what the engine really has: the VM's libraries, the class
 // table's members, services, classes and enums, and the open place's own instances; hovering a
 // word says what it is (type, owning class, read-only, a method's parameters, an instance's path).
+// Script analysis (as Studio's): Luau's own type checker (web/luaucheck.mjs, loaded in the background
+// the first time a script opens) in nonstrict mode against definitions generated from the engine and
+// the open place (luautypes.js); its problems show as warnings on their lines.
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
 import { keymap, hoverTooltip } from '@codemirror/view';
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { linter, lintGutter } from '@codemirror/lint';
+import { linter, lintGutter, forceLinting } from '@codemirror/lint';
 import { autocompletion } from '@codemirror/autocomplete';
 import { tags } from '@lezer/highlight';
 import { luau } from './luaumode.js';
 import { complete, describe } from './completions.js';
+import { definitions, readable } from './luautypes.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export const SCRIPT_CLASSES = ['Script', 'LocalScript', 'ModuleScript'];
@@ -39,7 +43,10 @@ const theme = EditorView.theme({
 export class ScriptEditor {
   constructor({ dm, commands, vm, panel, libs = {}, onState = () => {} }) {
     Object.assign(this, { dm, commands, vm, panel, libs, onState });
-    this.tabs = []; this.cur = -1; this.view = null; this.error = null;
+    this.tabs = []; this.cur = -1; this.view = null; this.error = null; this.warnings = [];
+    // Script analysis: the checker (loaded on first open) and whether the place changed since its definitions.
+    this.checker = null; this.defsStale = true;
+    dm.watch((inst, key) => { if (key === 'Parent' || key === 'Name') this.defsStale = true; });
     // A Source changed from outside (the scene's Undo/Redo, a script): a tab with no unsaved edits follows it.
     dm.watch((inst, key) => { if (key === 'Source') this.sourceChanged(inst); });
     panel.innerHTML = `<div class="ie-head"><div class="se-tabs"></div><span class="grow"></span><button data-se="save" title="Write the Source (Ctrl+S)">Save</button><button data-se="close" class="primary" title="Write every open script and hide the editor (its tabs stay)">Close</button></div>` +
@@ -57,11 +64,12 @@ export class ScriptEditor {
 
   // Each tab's own editor state (document, undo history, selection), all with the same extensions.
   makeState(inst) {
-    const check = view => { // Luau's own compiler: one diagnostic at the error's line
-      const e = this.vm.check(view.state.doc.toString()); this.error = e; this.showStatus();
-      if (!e) return [];
-      const line = view.state.doc.line(Math.min(Math.max(e.line, 1), view.state.doc.lines));
-      return [{ from: line.from, to: Math.max(line.to, line.from), severity: 'error', message: e.message }];
+    const check = view => { // Luau's own compiler first (a syntax error); if it compiles, its type checker
+      const src = view.state.doc.toString(), e = this.vm.check(src), doc = view.state.doc;
+      const at = n => doc.line(Math.min(Math.max(n, 1), doc.lines));
+      this.error = e; this.warnings = e ? [] : this.analyse(src); this.showStatus();
+      if (e) { const line = at(e.line); return [{ from: line.from, to: Math.max(line.to, line.from), severity: 'error', message: e.message }]; }
+      return this.warnings.map(w => { const a = at(w.line), b = at(w.endLine); return { from: Math.min(a.from + w.col - 1, a.to), to: Math.max(Math.min(b.from + w.endCol - 1, b.to), Math.min(a.from + w.col, a.to)), severity: 'warning', message: w.message }; });
     };
     return EditorState.create({
       doc: inst.props.Source,
@@ -75,9 +83,25 @@ export class ScriptEditor {
         EditorView.updateListener.of(u => { if (u.docChanged) this.renderTabs(); })],
     });
   }
+  // Load the checker once (outside the editor's bundle: it's only needed here), then re-check.
+  loadChecker() {
+    if (this.checkerLoading) return; this.checkerLoading = true;
+    import(/* @vite-ignore */ new URL('../../web/luaucheck.mjs', import.meta.url).href).then(m => m.default()).then(M => {
+      const call = (fn, str) => { const p = M.stringToNewUTF8(str); try { return M.UTF8ToString(M[fn](p)); } finally { M._free(p); } };
+      this.checker = { init: defs => call('_lc_init', defs), check: src => call('_lc_check', src) };
+      if (this.view) forceLinting(this.view); // check again, now with types
+    }).catch(err => console.warn('script analysis unavailable:', err));
+  }
+  /** Type problems in `src` (nonstrict, as Studio): [{ line, col, endLine, endCol, message }]. */
+  analyse(src) {
+    if (!this.checker) return [];
+    if (this.defsStale) { const r = this.checker.init(definitions(this.libs, {}, this.dm)); if (r) console.warn('script analysis definitions:', r); this.defsStale = false; }
+    return this.checker.check(src).split('\n').filter(Boolean).map(l => { const [line, col, endLine, endCol, message] = l.split('\t'); return { line: +line, col: +col, endLine: +endLine, endCol: +endCol, message: readable(message) }; });
+  }
   /** Open `inst` (a script) in its tab (a new one if it has none) and show the editor; false if it isn't a script. */
   open(inst) {
     if (!ScriptEditor.isScript(inst)) return false;
+    this.loadChecker();
     let i = this.tabs.findIndex(t => t.inst === inst);
     if (i < 0) { this.tabs.push({ inst, state: this.makeState(inst), saved: inst.props.Source }); i = this.tabs.length - 1; }
     this.panel.hidden = false;
@@ -91,7 +115,7 @@ export class ScriptEditor {
     this.cur = i;
     if (!this.view) this.view = new EditorView({ parent: this.body, state: this.tabs[i].state });
     else this.view.setState(this.tabs[i].state);
-    this.error = this.vm.check(this.text); this.showStatus();
+    this.error = this.vm.check(this.text); this.warnings = this.error ? [] : this.analyse(this.text); this.showStatus();
     this.renderTabs(); this.view.focus();
   }
   /** Write tab i's script and close the tab; the last one closed hides the editor. */
@@ -128,7 +152,11 @@ export class ScriptEditor {
     const d = this.view.state.doc, line = d.line(Math.min(Math.max(n, 1), d.lines));
     this.view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true }); this.view.focus();
   }
-  showStatus() { this.status.textContent = this.error ? `Line ${this.error.line}: ${this.error.message}` : 'No errors'; this.status.classList.toggle('bad', !!this.error); }
+  showStatus() {
+    const w = this.warnings || [];
+    this.status.textContent = this.error ? `Line ${this.error.line}: ${this.error.message}` : w.length ? `Line ${w[0].line}: ${w[0].message}${w.length > 1 ? ` (and ${w.length - 1} more)` : ''}` : 'No errors';
+    this.status.classList.toggle('bad', !!this.error); this.status.classList.toggle('warn', !this.error && w.length > 0);
+  }
   get text() { return this.view ? this.view.state.doc.toString() : null; }
   write(tab) { // one undo step if the script changed
     const t = tab.state.doc.toString();

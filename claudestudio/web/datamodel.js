@@ -916,6 +916,8 @@ function paramsOf(fn) {
   const m = /^[^(]*\(([^)]*)\)/.exec(String(fn));
   return m ? m[1].split(',').map(x => x.trim().replace(/\s*=.*$/, '')).filter(x => x && x !== 'self' && !x.startsWith('...')) : [];
 }
+/** Every class, bases before the classes built on them (definition order): { name, base, creatable, service }. */
+export function allClasses() { return Object.values(CLASSES).map(c => ({ name: c.name, base: c.base, creatable: c.creatable, service: c.service })); }
 /** Service classes (game:GetService's names), by name. */
 export function serviceClasses() { return Object.values(CLASSES).filter(c => c.service).map(c => c.name).sort(); }
 export function classInfo(cls) { const c = CLASSES[cls]; return c ? { creatable: c.creatable, service: c.service, base: c.base } : null; }
