@@ -9,7 +9,7 @@ const KEYWORDS = ['and', 'break', 'continue', 'do', 'else', 'elseif', 'end', 'fa
 const GLOBALS = ['game', 'workspace', 'script', 'print', 'warn', 'error', 'assert', 'pairs', 'ipairs', 'next', 'select', 'type', 'typeof', 'tostring', 'tonumber', 'pcall', 'xpcall', 'require', 'setmetatable', 'getmetatable', 'rawget', 'rawset', 'rawequal', 'unpack', 'wait', 'delay', 'spawn', 'tick', 'time', 'Enum'];
 
 /** The VM's library tables (name -> sorted keys), asked from Luau itself: what scripts really get. */
-export const LIBRARY_PROBE = `for _, name in {"math","string","table","task","coroutine","bit32","utf8","os","buffer","debug","Vector3","Vector2","CFrame","Color3","UDim","UDim2","Instance","TweenInfo"} do
+export const LIBRARY_PROBE = `for _, name in {"math","string","table","task","coroutine","bit32","utf8","os","buffer","debug","Vector3","Vector2","CFrame","Color3","UDim","UDim2","Instance","TweenInfo","NumberRange","NumberSequence","NumberSequenceKeypoint","ColorSequence","ColorSequenceKeypoint"} do
   local v = getfenv()[name]; local keys = {}
   if type(v) == "table" then for k in pairs(v) do table.insert(keys, tostring(k)) end end
   table.sort(keys); print("@lib " .. name .. " " .. table.concat(keys, " "))

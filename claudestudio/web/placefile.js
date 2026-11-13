@@ -7,7 +7,7 @@
 // (a Model's PrimaryPart, Workspace.CurrentCamera) are saved as ids inside the
 // file and come back pointing at the loaded copies; ones pointing outside the
 // saved tree come back nil. Terrain's cells ride on its node as `voxels`.
-import { DataModel, Instance, V3, V2, C3, UDim, UDim2, isA, propertiesOf } from './datamodel.js';
+import { DataModel, Instance, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, isA, propertiesOf } from './datamodel.js';
 import { CF } from './cframe.js';
 
 export const PLACE_FORMAT = 'claudestudio-place';
@@ -36,6 +36,8 @@ function encode(type, v, ids) {
     case 'CFrame': return [...v.m];
     case 'UDim': return [v.s, v.o];
     case 'UDim2': return [v.xs, v.xo, v.ys, v.yo];
+    case 'NumberRange': return [v.min, v.max];
+    case 'NumberSequence': case 'ColorSequence': return v.toString(); // Roblox's serialised form
     case 'Instance': return ids.has(v) ? { ref: ids.get(v) } : null;
     default: return type.startsWith('Enum.') ? (v.name || v) : undefined; // TweenInfo and other runtime-only types aren't saved
   }
@@ -49,6 +51,9 @@ function decode(type, v) {
     case 'CFrame': return new CF(v);
     case 'UDim': return new UDim(v[0], v[1]);
     case 'UDim2': return new UDim2(v[0], v[1], v[2], v[3]);
+    case 'NumberRange': return new NumberRange(v[0], v[1]);
+    case 'NumberSequence': return NumberSequence.parse(v);
+    case 'ColorSequence': return ColorSequence.parse(v);
     default: return v;
   }
 }

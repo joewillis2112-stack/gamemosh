@@ -60,6 +60,7 @@ const BUILTIN = {
     const where = parent || this.dm.workspace;
     return this.history.run('Insert ' + className, tx => {
       const extra = {};
+      if (className === 'ParticleEmitter') extra.LightInfluence = 1; // Studio's tools insert it lit (Instance.new gives 0)
       if (isA(className, 'BasePart')) {
         Object.assign(extra, { Anchored: true });
         const size = props.Size || new V3(4, 1, 2);

@@ -8,11 +8,31 @@ import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
 export { CF };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17 };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
 export class UDim { constructor(s = 0, o = 0) { this.s = Math.fround(s); this.o = Math.trunc(o); } }
 export class UDim2 { constructor(xs = 0, xo = 0, ys = 0, yo = 0) { this.xs = Math.fround(xs); this.xo = Math.trunc(xo); this.ys = Math.fround(ys); this.yo = Math.trunc(yo); } }
 export class V2 { constructor(x = 0, y = 0) { this.x = Math.fround(x); this.y = Math.fround(y); } }
+// Particle datatypes (mashup-research/ROBLOX_PARTICLES_2026-11-13.md): float32 values, as Roblox
+// stores them. NumberRange: min, max. NumberSequence: keypoints [time, value, envelope];
+// ColorSequence: keypoints [time, Color3]. Sequences keep Roblox's rules (the binding checks them on
+// construction): at least two keypoints, non-descending times from 0 to 1.
+const f32 = Math.fround;
+export class NumberRange { constructor(min = 0, max = min) { this.min = f32(min); this.max = f32(max); } }
+export class NumberSequence {
+  constructor(k = [[0, 0, 0], [1, 0, 0]]) { this.k = k.map(([t, v, e = 0]) => [f32(t), f32(v), f32(e)]); }
+  static of(a, b = a) { return new NumberSequence([[0, a, 0], [1, b, 0]]); }
+  /** Roblox's serialised form: "time value envelope " per keypoint. */
+  toString() { return this.k.map(k => k.map(n => +n.toPrecision(9)).join(' ') + ' ').join(''); }
+  static parse(s) { const n = String(s).trim().split(/\s+/).map(Number), k = []; for (let i = 0; i + 2 < n.length; i += 3) k.push([n[i], n[i + 1], n[i + 2]]); return new NumberSequence(k); }
+}
+export class ColorSequence {
+  constructor(k = [[0, new C3(1, 1, 1)], [1, new C3(1, 1, 1)]]) { this.k = k.map(([t, c]) => [f32(t), new C3(c.r, c.g, c.b)]); }
+  static of(a, b = a) { return new ColorSequence([[0, a], [1, b]]); }
+  /** Roblox's serialised form: "time r g b 0 " per keypoint. */
+  toString() { return this.k.map(([t, c]) => [t, c.r, c.g, c.b, 0].map(n => +f32(n).toPrecision(9)).join(' ') + ' ').join(''); }
+  static parse(s) { const n = String(s).trim().split(/\s+/).map(Number), k = []; for (let i = 0; i + 4 < n.length; i += 5) k.push([n[i], new C3(n[i + 1], n[i + 2], n[i + 3])]); return new ColorSequence(k); }
+}
 // TweenInfo: Roblox's fields; style and direction by EasingStyle/EasingDirection name.
 export class TweenInfo { constructor(time = 1, style = 'Quad', dir = 'Out', repeat = 0, reverses = false, delay = 0) { Object.assign(this, { time, style, dir, repeat, reverses, delay }); } }
 // A Luau table passed to the engine (keys and values converted).
@@ -42,6 +62,13 @@ export const ENUMS = {
   },
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+  // ParticleEmitter's (API dump, mashup-research/ROBLOX_PARTICLES_2026-11-13.md).
+  ParticleOrientation: { FacingCamera: 0, FacingCameraWorldUp: 1, VelocityParallel: 2, VelocityPerpendicular: 3 },
+  ParticleEmitterShape: { Box: 0, Sphere: 1, Cylinder: 2, Disc: 3 },
+  ParticleEmitterShapeInOut: { Outward: 0, Inward: 1, InAndOut: 2 },
+  ParticleEmitterShapeStyle: { Volume: 0, Surface: 1 },
+  ParticleFlipbookLayout: { None: 0, Grid2x2: 1, Grid4x4: 2, Grid8x8: 3, Custom: 4 },
+  ParticleFlipbookMode: { Loop: 0, OneShot: 1, PingPong: 2, Random: 3 },
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   TonemapperPreset: { Default: 0, Retro: 1 },
   AnimationPriority: { Idle: 0, Movement: 1, Action: 2, Action2: 3, Action3: 4, Action4: 5, Core: 1000 },
@@ -416,6 +443,29 @@ defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], 
 // by runtime/locallights.js.
 defineClass('Light', 'Instance', { creatable: false, props: { Brightness: ['number', 1], Color: ['Color3', [1, 1, 1]], Enabled: ['bool', true], Shadows: ['bool', false] } });
 defineClass('PointLight', 'Light', { props: { Range: ['number', 8] } });
+// ParticleEmitter: Roblox's properties and defaults, from the API dump (as its serialised strings);
+// behaviour in mashup-research/ROBLOX_PARTICLES_2026-11-13.md. Emit and Clear fire the hidden events
+// Roblox has for them (OnEmitRequested, OnClearRequested); the renderer (runtime/particles.js) does
+// the rest. LightInfluence is 0 from Instance.new, 1 when inserted with the editor's tools.
+defineClass('ParticleEmitter', 'Instance', {
+  props: {
+    Acceleration: ['Vector3', [0, 0, 0]], Brightness: ['number', 1], Color: ['ColorSequence', '0 1 1 1 0 1 1 1 1 0 '], Drag: ['number', 0],
+    EmissionDirection: ['Enum.NormalId', 'Top'], Enabled: ['bool', true], FlipbookBlendFrames: ['bool', true], FlipbookFramerate: ['NumberRange', '1 1 '],
+    FlipbookLayout: ['Enum.ParticleFlipbookLayout', 'None'], FlipbookMode: ['Enum.ParticleFlipbookMode', 'Loop'], FlipbookSizeX: ['number', 1], FlipbookSizeY: ['number', 1],
+    FlipbookStartRandom: ['bool', false], Lifetime: ['NumberRange', '5 10 '], LightEmission: ['number', 0], LightInfluence: ['number', 0], LockedToPart: ['bool', false],
+    Orientation: ['Enum.ParticleOrientation', 'FacingCamera'], Rate: ['number', 20], RotSpeed: ['NumberRange', '0 0 '], Rotation: ['NumberRange', '0 0 '],
+    Shape: ['Enum.ParticleEmitterShape', 'Box'], ShapeInOut: ['Enum.ParticleEmitterShapeInOut', 'Outward'], ShapePartial: ['number', 1], ShapeStyle: ['Enum.ParticleEmitterShapeStyle', 'Volume'],
+    Size: ['NumberSequence', '0 1 0 1 1 0 '], Speed: ['NumberRange', '5 5 '], SpreadAngle: ['Vector2', [0, 0]], Squash: ['NumberSequence', '0 0 0 1 0 0 '],
+    Texture: ['string', 'rbxasset://textures/particles/sparkles_main.dds'], TimeScale: ['number', 1], Transparency: ['NumberSequence', '0 0 0 1 0 0 '],
+    VelocityInheritance: ['number', 0], WindAffectsDrag: ['bool', false], ZOffset: ['number', 0],
+  },
+  methods: {
+    Emit(self, n = 16) { self.dm.fire(self, 'OnEmitRequested', [Math.max(0, Math.floor(+n || 0))]); return []; },
+    Clear(self) { self.dm.fire(self, 'OnClearRequested', []); return []; },
+    FastForward(self, frames) { self.dm.fire(self, 'OnFastForwardRequested', [Math.max(0, Math.floor(+frames || 0))]); return []; },
+  },
+  events: ['OnEmitRequested', 'OnClearRequested', 'OnFastForwardRequested'],
+});
 defineClass('SpotLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
 defineClass('SurfaceLight', 'Light', { props: { Range: ['number', 16], Angle: ['number', 90], Face: ['Enum.NormalId', 'Front'] } });
 export const LIGHT_RANGE_MAX = 120;
@@ -578,7 +628,7 @@ export class Instance {
     this.children = [];
     this.props = {};
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : d;
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : d;
     }
     this.props.Name = cls;
     if (cls === 'Terrain') this.voxels = new Voxels();
@@ -598,6 +648,7 @@ export class DataModel {
     // list only after StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true).
     this.coreGui = Object.fromEntries(Object.keys(ENUMS.CoreGuiType).filter(k => k !== 'All').map(k => [k, k !== 'PlayerList']));
     this.watchers = []; // (inst, key) -> void: the renderer, the player runtime
+    this.eventHooks = []; // (inst, event, args) -> void: engine code that answers an event (particles' Emit)
     this.tweens = new Set(); // playing (or delayed or paused) tweens
     this.animators = new Set(); // Animators with loaded tracks
     this.sequences = new Map(); // registered KeyframeSequences: id -> sequence
@@ -639,6 +690,7 @@ export class DataModel {
   create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
 
   fire(inst, ev, args) {
+    for (const h of this.eventHooks) h(inst, ev, args);
     const ids = this.connsOf.get(inst)?.get(ev);
     if (!ids) return;
     for (const id of [...ids]) {
@@ -849,6 +901,7 @@ export class DataModel {
     return root;
   }
   watch(fn) { this.watchers.push(fn); }
+  onEvent(fn) { this.eventHooks.push(fn); }
 
   // WorldRoot:Raycast's engine half (web/raycast.js): the nearest queryable part the ray
   // enters. Rays longer than 15000 studs are cut there (UNSURE: Roblox's documented cap).
@@ -884,6 +937,8 @@ function sameValue(a, b) {
   if (a instanceof UDim2 && b instanceof UDim2) return a.xs === b.xs && a.xo === b.xo && a.ys === b.ys && a.yo === b.yo;
   if (a instanceof UDim && b instanceof UDim) return a.s === b.s && a.o === b.o;
   if (a instanceof V2 && b instanceof V2) return a.x === b.x && a.y === b.y;
+  if (a instanceof NumberRange && b instanceof NumberRange) return a.min === b.min && a.max === b.max;
+  if ((a instanceof NumberSequence && b instanceof NumberSequence) || (a instanceof ColorSequence && b instanceof ColorSequence)) return a.toString() === b.toString();
   return false;
 }
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
@@ -948,6 +1003,9 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof UDim2) o.push({ t: T.UDIM2, n: v.xs, v: [v.xo, v.ys, v.yo] });
       else if (v instanceof UDim) o.push({ t: T.UDIM, v: [v.s, v.o, 0] });
       else if (v instanceof V2) o.push({ t: T.VEC2, v: [v.x, v.y, 0] });
+      else if (v instanceof NumberRange) o.push({ t: T.NUMRANGE, n: v.min, v: [v.max, 0, 0] });
+      else if (v instanceof NumberSequence) o.push({ t: T.NUMSEQ, n: v.k.length, s: v.toString() });
+      else if (v instanceof ColorSequence) o.push({ t: T.COLORSEQ, n: v.k.length, s: v.toString() });
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
@@ -982,6 +1040,9 @@ export function makeHost(dm, log = console.log) {
         case T.UDIM2: return new UDim2(a.n, a.v[0], a.v[1], a.v[2]);
         case T.UDIM: return new UDim(a.v[0], a.v[1]);
         case T.VEC2: return new V2(a.v[0], a.v[1]);
+        case T.NUMRANGE: return new NumberRange(a.n, a.v[0]);
+        case T.NUMSEQ: return NumberSequence.parse(a.s);
+        case T.COLORSEQ: return ColorSequence.parse(a.s);
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
       }
@@ -1031,7 +1092,7 @@ export function makeHost(dm, log = console.log) {
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
       if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
-      for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
+      for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2], ['NumberRange', NumberRange], ['NumberSequence', NumberSequence], ['ColorSequence', ColorSequence]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
       if (ty.startsWith('Enum.')) {
         // An EnumItem of this type, its name, or its number, as Roblox accepts.
         const type = ty.slice(5);

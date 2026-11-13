@@ -5,7 +5,8 @@
 // Source as one undo step, which Undo takes back and Redo restores; double-click (desktop) or
 // Edit Script (any) opens it again; Play, with an edit still open, runs the script as edited, and
 // the player's Output window shows its print, a warning and a run-time error; clicking an error
-// goes back to the editor with that script open at its line.
+// goes back to the editor with that script open at its line. Inserting a ParticleEmitter gives Studio's
+// LightInfluence 1, and it emits while editing.
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -147,5 +148,12 @@ export default async function (t) {
   await t.page.waitForFunction(() => window.editor && (window.editor.ready || window.editor.error), null, { timeout: 120000 });
   const back = await E(() => { const se = window.editor.scriptEditor, v = se.view; return { open: se.active, name: se.inst && se.inst.props.Name, line: v && v.state.doc.lineAt(v.state.selection.main.head).number }; });
   check(back.open && back.name === 'Broken' && back.line === 2, `clicking an error in the Output returns to the editor with that script open at its line (${back.name}, line ${back.line})`);
+  // Insert Object makes a ParticleEmitter lit (LightInfluence 1, as Studio's tools do; Instance.new gives 0), and it runs while editing.
+  const pe = await E(() => {
+    const ed = window.editor, part = ed.commands.run('insert', { className: 'Part' }), e = ed.commands.run('insert', { className: 'ParticleEmitter', parent: part });
+    ed.frames(60);
+    return { li: e.props.LightInfluence, n: ed.particles.count(e), made: e.parent === part };
+  });
+  check(pe.made && pe.li === 1 && pe.n >= 18 && pe.n <= 21, `Insert Object: a ParticleEmitter under a part, LightInfluence 1, emitting in the editor (${pe.n} particles after a second)`);
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }

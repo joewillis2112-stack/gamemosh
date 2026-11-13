@@ -17,6 +17,7 @@ import { startLuau } from './luau.js';
 import createLuau from './luau.mjs';
 import { World } from './runtime/world.js';
 import { LocalLights } from './runtime/locallights.js';
+import { Particles } from './runtime/particles.js';
 import { LightingController } from './runtime/lighting.js';
 import { Sky } from './runtime/sky.js';
 import { Commands, allParts, centre } from './editor/commands.js';
@@ -75,6 +76,7 @@ async function main() {
   lighting.update();
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
+  const particles = new Particles(scene, dm, world, { quality }); // Studio runs emitters while editing too
   await lighting.settled();
 
   const commands = new Commands(dm, { view: () => { const f = camera.forward(); return { origin: camera.pos, dir: f }; } });
@@ -245,12 +247,12 @@ async function main() {
   explorer.onOpen = inst => { if (ScriptEditor.isScript(inst)) scriptEditor.open(inst); };
   properties.onEdit = inst => scriptEditor.open(inst);
   const fixed = !!q.get('test');
-  const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); explorer.update(); properties.update(); };
+  const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); particles.update(dt); explorer.update(); properties.update(); };
   scene.onBeforeRenderObservable.add(() => step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)));
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.

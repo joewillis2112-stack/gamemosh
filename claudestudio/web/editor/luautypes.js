@@ -8,7 +8,7 @@
 // correct code.
 import { allClasses, membersOf, serviceClasses, ENUMS, DataModel } from '../datamodel.js';
 
-const DATATYPES = ['Vector3', 'Vector2', 'CFrame', 'Color3', 'UDim', 'UDim2', 'TweenInfo', 'BrickColor', 'Ray', 'NumberRange', 'NumberSequence', 'ColorSequence', 'RaycastParams', 'Rect', 'RaycastResult'];
+const DATATYPES = ['Vector3', 'Vector2', 'CFrame', 'Color3', 'UDim', 'UDim2', 'TweenInfo', 'BrickColor', 'Ray', 'NumberRange', 'NumberSequence', 'NumberSequenceKeypoint', 'ColorSequence', 'ColorSequenceKeypoint', 'RaycastParams', 'Rect', 'RaycastResult'];
 const LUAU_LIBS = new Set(['math', 'string', 'table', 'coroutine', 'bit32', 'utf8', 'os', 'debug', 'buffer']); // Luau's own: its checker already knows them
 
 function luauType(t, opts) {

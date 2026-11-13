@@ -44,6 +44,8 @@ run --phone --scenario test/scenarios/charmaker2.mjs
 node tools/rigmesh.mjs test/fixtures/stage2/male-adventurer-tripo.glb build/stage2/male-rigged.glb --reference test/fixtures/characters/male-adventurer.png >/dev/null && run --noshots --character build/stage2/male-rigged.glb --scenario test/scenarios/feet.mjs
 run --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
 run --phone --place places/lights-lab.luau --scenario test/scenarios/lights.mjs
+run --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
+run --phone --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs
@@ -86,6 +88,7 @@ vt=$(npx vitest run web/modeling/kernel test/modeling.test.mjs 2>&1); echo "$vt"
 node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
 node test/vector.test.mjs | tail -1 | grep -q PASS && echo "vector geometry test PASS" || { echo "FAILED: vector geometry test"; fail=1; }
 node test/develop.test.mjs | tail -1 | grep -q PASS && echo "develop test PASS" || { echo "FAILED: develop test"; fail=1; }
+node test/sequences.test.mjs | tail -1 | grep -q PASS && echo "particle datatypes test PASS" || { echo "FAILED: particle datatypes test"; fail=1; }
 node test/completions.test.mjs | tail -1 | grep -q PASS && echo "completions test PASS" || { echo "FAILED: completions test"; fail=1; }
 node test/luaucheck.test.mjs | tail -1 | grep -q PASS && echo "script checker test PASS" || { echo "FAILED: script checker test"; fail=1; }
 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }

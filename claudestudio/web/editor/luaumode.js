@@ -9,7 +9,7 @@ const builtins = words([
   '(?:math|string|table|coroutine|bit32|utf8|os|debug|buffer|task)(?:\\.\\w+)?',
   // Roblox's globals and datatypes
   'game', 'workspace', 'script', 'shared', 'plugin', 'wait', 'delay', 'spawn', 'tick', 'time', 'warn', 'settings', 'Enum(?:\\.[\\w.]+)?',
-  '(?:Instance|Vector3|Vector2|CFrame|Color3|UDim2|UDim|TweenInfo|BrickColor|Ray|Region3|NumberRange|NumberSequence|ColorSequence|RaycastParams|OverlapParams|Rect)(?:\\.\\w+)?',
+  '(?:Instance|Vector3|Vector2|CFrame|Color3|UDim2|UDim|TweenInfo|BrickColor|Ray|Region3|NumberRange|NumberSequence|NumberSequenceKeypoint|ColorSequence|ColorSequenceKeypoint|RaycastParams|OverlapParams|Rect)(?:\\.\\w+)?',
 ]);
 const keywords = words(['and', 'break', 'continue', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while']);
 const indentTokens = words(['function', 'if', 'repeat', 'do', '\\(', '\\{']);

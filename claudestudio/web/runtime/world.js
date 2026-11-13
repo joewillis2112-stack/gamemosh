@@ -129,10 +129,15 @@ export class World {
   }
 
   // Built-in images for Decal/Texture. "studio://grid": one cell of a light
-  // grid (transparent with a dark edge), for baseplates. Drawn once.
+  // grid (transparent with a dark edge), for baseplates; "studio://white". Drawn once.
   builtinUrl(id) {
     this._builtin = this._builtin || {};
     if (this._builtin[id]) return this._builtin[id];
+    if (id === 'studio://white') { // plain white, for effects that colour it themselves
+      const c = document.createElement('canvas'); c.width = c.height = 4;
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 4, 4);
+      return (this._builtin[id] = c.toDataURL('image/png'));
+    }
     if (id !== 'studio://grid') return null;
     const N = 256, c = document.createElement('canvas');
     c.width = c.height = N;

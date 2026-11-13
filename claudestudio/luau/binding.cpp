@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14, T_UDIM = 15, T_UDIM2 = 16, T_VEC2 = 17 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14, T_UDIM = 15, T_UDIM2 = 16, T_VEC2 = 17, T_NUMRANGE = 18, T_NUMSEQ = 19, T_COLORSEQ = 20 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -143,6 +143,7 @@ static Color* check_color(lua_State* L, int idx) {
     if (!c) luaL_typeerror(L, idx, "Color3");
     return c;
 }
+#include "seq_types.h"
 
 // EnumItem: one per "Type.Name", cached, immutable.
 struct EnumItem { int value; char type[40]; char name[56]; };
@@ -197,6 +198,9 @@ static void send_arg(lua_State* L, int idx) {
         if (UD* u = to_ud<UD>(L, idx, UDIM_MT)) { js_arg(T_UDIM, 0, nullptr, u->s, u->o, 0); break; }
         if (UD2* u = to_ud<UD2>(L, idx, UDIM2_MT)) { js_arg(T_UDIM2, u->x.s, nullptr, u->x.o, u->y.s, u->y.o); break; }
         if (V2* v = to_ud<V2>(L, idx, VEC2_MT)) { js_arg(T_VEC2, 0, nullptr, v->x, v->y, 0); break; }
+        if (NR* r = to_ud<NR>(L, idx, NUMRANGE_MT)) { js_arg(T_NUMRANGE, r->min, nullptr, r->max, 0, 0); break; }
+        if (NSeq* q = to_ud<NSeq>(L, idx, NUMSEQ_MT)) { js_arg(T_NUMSEQ, q->n, numseq_str(q).c_str(), 0, 0, 0); break; }
+        if (CSeq* q = to_ud<CSeq>(L, idx, COLORSEQ_MT)) { js_arg(T_COLORSEQ, q->n, colorseq_str(q).c_str(), 0, 0, 0); break; }
         if (TI* t = to_ti(L, idx)) { std::string k = std::string(t->style) + "," + t->dir; js_arg(T_TWEENINFO, t->time, k.c_str(), t->repeat, t->reverses, t->delay); break; }
         if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
@@ -246,6 +250,9 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_UDIM: push_udim(L, js_ret_vec(i, 0), js_ret_vec(i, 1)); break;
     case T_UDIM2: push_udim2(L, js_ret_num(i), js_ret_vec(i, 0), js_ret_vec(i, 1), js_ret_vec(i, 2)); break;
     case T_VEC2: push_vec2(L, js_ret_vec(i, 0), js_ret_vec(i, 1)); break;
+    case T_NUMRANGE: push_numrange(L, js_ret_num(i), js_ret_vec(i, 0)); break;
+    case T_NUMSEQ: { char* q = js_ret_str(i); push_numseq_str(L, q ? q : ""); free(q); break; }
+    case T_COLORSEQ: { char* q = js_ret_str(i); push_colorseq_str(L, q ? q : ""); free(q); break; }
     case T_TWEENINFO: {
         char* s = js_ret_str(i);
         std::string k = s ? s : "Quad,Out";
@@ -986,6 +993,7 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
 
     register_cframe(L0);
     register_gui_types(L0);
+    register_seq_types(L0);
     luaL_newmetatable(L0, TWEENINFO_MT);
     lua_pushcfunction(L0, ti_index, "__index"); lua_setfield(L0, -2, "__index");
     lua_pushcfunction(L0, color_newindex, "__newindex"); lua_setfield(L0, -2, "__newindex");

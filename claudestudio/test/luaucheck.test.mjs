@@ -49,6 +49,7 @@ for (const code of [
   'for _, c in ipairs(workspace:GetChildren()) do if c:IsA("BasePart") then c.CanCollide = false end end',
   'local gui = Instance.new("ScreenGui")\nlocal f = Instance.new("Frame", gui)\nf.Size = UDim2.new(1, 0, 0, 40)\nf.BackgroundColor3 = Color3.new(0, 0, 0)',
   'script.Parent.Name = "x"\nlocal ok, err = pcall(function() error("no") end)\nwarn(ok, err)',
+  'local e = Instance.new("ParticleEmitter", workspace.Baseplate)\ne.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })\ne.Color = ColorSequence.new(Color3.new(1, 1, 0), Color3.new(1, 0, 0))\ne.Lifetime = NumberRange.new(0.5, 1)\ne:Emit(20)',
 ]) { const p = problems(code); check(!p.length, `no problems in ${JSON.stringify(code.split('\n')[0].slice(0, 50))}${p.length ? ' (' + p.map(x => x.line + ': ' + x.msg).join('; ').slice(0, 160) + ')' : ''}`); }
 
 // 3. Planted mistakes, each caught on its line.
