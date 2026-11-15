@@ -16,12 +16,13 @@ import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader.js';
 import '@babylonjs/core/Helpers/sceneHelpers.js';
+import { tier } from './runtime/quality.js';
 
 // 1 stud = 0.28 m; Babylon units are studs. A character is 5 studs tall.
 export const STUD = 0.28;
 
 /**
- * opts.quality: 'high' (desktop) or 'phone'.
+ * opts.quality: a fidelity tier from runtime/quality.js ('low', 'phone', 'high', 'ultra').
  * Returns { engine, scene, sun, shadows, pipeline, ready }.
  */
 // dynamicSky: the caller draws the sky and environment (runtime/sky.js, which
@@ -66,16 +67,16 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   sun.shadowMinZ = 1;
   sun.shadowMaxZ = 600;
 
-  const shadows = new CascadedShadowGenerator(quality === 'phone' ? 1024 : 2048, sun);
-  shadows.numCascades = quality === 'phone' ? 2 : 4;
+  const Q = tier(quality);
+  const shadows = new CascadedShadowGenerator(Q.sunShadowSize, sun);
+  shadows.numCascades = Q.sunCascades;
   shadows.lambda = 0.85;
   shadows.stabilizeCascades = true;
-  shadows.bias = 0.004;
-  shadows.normalBias = 0.02;
+  [shadows.bias, shadows.normalBias] = Q.sunShadowBias;
   shadows.usePercentageCloserFiltering = true;
-  shadows.filteringQuality = quality === 'phone' ? CascadedShadowGenerator.QUALITY_LOW : CascadedShadowGenerator.QUALITY_HIGH;
+  shadows.filteringQuality = Q.sunShadowFilter === 'low' ? CascadedShadowGenerator.QUALITY_LOW : CascadedShadowGenerator.QUALITY_HIGH;
   shadows.autoCalcDepthBounds = true;
-  shadows.shadowMaxZ = 400;
+  shadows.shadowMaxZ = Q.sunShadowDistance; // studs from the camera that get sun shadows
 
   if (!post) return { engine, scene, sun, shadows, pipeline: null, ready, attachCamera() {} };
   // Post: ACES tone mapping, slight contrast, gentle bloom on bright bits, FXAA.
@@ -90,7 +91,7 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   pipeline.bloomWeight = 0.25;
   pipeline.bloomKernel = 48;
   pipeline.fxaaEnabled = true;
-  pipeline.samples = quality === 'phone' ? 1 : 4;
+  pipeline.samples = Q.msaa;
 
   return { engine, scene, sun, shadows, pipeline, ready, attachCamera(cam) { pipeline.addCamera(cam); } };
 }

@@ -85,7 +85,7 @@ async function main() {
   lighting.update();
   const localLights = new LocalLights(scene, dm, world, { quality: q.get('quality') || 'high', sunShadows: R.shadows });
   localLights.update();
-  const particles = new Particles(scene, dm, world, { quality: q.get('quality') || 'high' });
+  const particles = new Particles(scene, dm, world, { quality: q.get('quality') || 'high', localLights });
   await lighting.settled(); // the sky drawn into the environment for the starting time
   const controls = new Controls(canvas, camera);
   gui.small = controls.isTouch;

@@ -22,7 +22,8 @@ const logs = [];
 page.on('console', m => logs.push(m.type() + ' ' + m.text()));
 page.on('pageerror', e => logs.push('pageerror ' + e.message));
 page.on('response', r => { if (r.status() >= 400) logs.push('error ' + r.status() + ' ' + r.url()); });
-const q = new URLSearchParams({ test: '1', quality: phone ? 'phone' : 'high' });
+const quality = opt('quality', phone ? 'phone' : 'high'); // a fidelity tier (web/runtime/quality.js)
+const q = new URLSearchParams({ test: '1', quality });
 if (opt('place')) q.set('place', '../' + opt('place'));
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
 if (opt('character')) q.set('character', '../' + opt('character'));
@@ -48,7 +49,7 @@ const api = {
   async golden(name, opts = {}) {
     if (noShots) return;
     const buf = await page.screenshot({ timeout: 300000 });
-    const r = checkGolden(path.join('goldens/play', name + (phone ? '-phone' : '') + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name), text: !!opts.text });
+    const r = checkGolden(path.join('goldens/play', name + (phone ? '-phone' : '') + (opt('quality') ? '-' + quality : '') + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name), text: !!opts.text });
     if (r.saved) console.log('golden saved', name);
     else { console.log(`golden ${name}: ${(r.frac * 100).toFixed(3)}% pixels differ, mean ${r.mean.toFixed(3)}/255`); if (!r.ok) mismatches.push(name); }
   },

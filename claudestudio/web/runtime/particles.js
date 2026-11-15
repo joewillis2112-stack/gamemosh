@@ -20,6 +20,20 @@
 // (area-keeping: 1 = twice as tall and half as wide), a SpreadAngle of X as
 // ±X degrees, envelopes drawn once per particle per keypoint, the light level,
 // and the cap of MAX_PER_EMITTER live particles.
+//
+// Beyond Roblox (Claude Studio's own properties, datamodel.js STUDIO_OWN), each
+// budgeted by the fidelity tier (runtime/quality.js), which never removes a
+// particle, only these extras:
+// - CastLight: the emitter lights its surroundings with one point light at its
+//   particles' centre, their average colour, up to LightRange studs; it takes a
+//   place in LocalLights' per-surface light budget. The tier says how many
+//   emitters may (nearest the camera first).
+// - Collision Bounce/Stick/Die against collidable parts (Havok rays from each
+//   particle's last position to its new one), Bounciness the share of speed
+//   kept off the surface; the tier caps the rays per frame (the rest move on).
+// - Soft particles: on tiers that have them, quads fade where they meet a
+//   surface instead of cutting a hard line through it (a shared depth pass).
+// LightInfluence also takes in local lights near the emitter (all tiers).
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial.js';
@@ -28,7 +42,12 @@ import { BoundingInfo } from '@babylonjs/core/Culling/boundingInfo.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
+import { Light } from '@babylonjs/core/Lights/light.js';
+import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
 import { isA } from '../datamodel.js';
+import { tier } from './quality.js';
+import { useDepth } from './depth.js';
 
 export const MAX_PER_EMITTER = 5000;
 const FRAME = 1 / 60; // FastForward's frame
@@ -38,6 +57,9 @@ const FACE = { Right: [0, 1], Left: [0, -1], Top: [1, 1], Bottom: [1, -1], Back:
 const GRID = { None: 1, Grid2x2: 2, Grid4x4: 4, Grid8x8: 8 };
 const en = v => (v && v.name) || v;
 const lin = c => Math.pow(Math.max(0, c), 2.2);
+const CAST_INTENSITY = 2;   // per Brightness, as LocalLights' INTENSITY_PER_BRIGHTNESS
+const CAST_FULL_ALPHA = 8;  // OURS: this much summed opacity lights at full strength
+const SOFT_RANGE = 1.0;     // OURS: studs over which a particle fades into a surface
 
 // A small seeded generator, so tests see the same particles every run.
 function rng(seed) {
@@ -98,15 +120,23 @@ function builtinTexture(id) {
 
 const VERTEX = `precision highp float;
 attribute vec3 position; attribute vec2 uv; attribute vec2 uv2; attribute vec4 color; attribute float blend;
-uniform mat4 viewProjection;
-varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos;
-void main() { vA = uv; vB = uv2; vColor = color; vBlend = blend; vPos = position; gl_Position = viewProjection * vec4(position, 1.0); }`;
+uniform mat4 viewProjection; uniform vec2 depthValues;
+varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth;
+void main() {
+  vA = uv; vB = uv2; vColor = color; vBlend = blend; vPos = position; gl_Position = viewProjection * vec4(position, 1.0);
+  vDepth = (gl_Position.z + depthValues.x) / depthValues.y; // the depth renderer's own metric
+}`;
 const FRAGMENT = `precision highp float;
 uniform sampler2D tex; uniform float lightEmission; uniform vec3 eye; uniform vec4 fog; uniform vec3 fogColor;
-varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos;
+uniform vec2 depthValues; uniform vec2 screen; uniform sampler2D depthTex;
+varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth;
 void main() {
   vec4 t = mix(texture2D(tex, vA), texture2D(tex, vB), vBlend);
   float a = t.a * vColor.a;
+#ifdef SOFT
+  float behind = (texture2D(depthTex, gl_FragCoord.xy / screen).r - vDepth) * depthValues.y; // studs to the surface behind
+  a *= clamp(behind / ${SOFT_RANGE.toFixed(3)}, 0.0, 1.0);
+#endif
   if (a <= 0.0) discard;
   vec3 rgb = pow(t.rgb, vec3(2.2)) * vColor.rgb;
   float f = 1.0;
@@ -116,8 +146,11 @@ void main() {
 }`;
 
 export class Particles {
-  constructor(scene, dm, world, { quality = 'high', lighting = null, seed = 1 } = {}) {
-    Object.assign(this, { scene, dm, world, quality, lighting });
+  constructor(scene, dm, world, { quality = 'high', lighting = null, localLights = null, seed = 1 } = {}) {
+    Object.assign(this, { scene, dm, world, quality, lighting, localLights });
+    this.Q = tier(quality);
+    this.ray = new PhysicsRaycastResult();
+    this.used = { rays: 0, lights: 0 }; // this frame's extras (tests read it)
     this.emitters = new Map(); // ParticleEmitter -> state
     this.random = rng(seed);
     this.textures = new Map();
@@ -145,7 +178,7 @@ export class Particles {
   sync() {
     this.dirty = false;
     const want = new Set(this.collect());
-    for (const [inst, e] of this.emitters) if (!want.has(inst)) { e.mesh.dispose(); e.mat.dispose(); this.emitters.delete(inst); }
+    for (const [inst, e] of this.emitters) if (!want.has(inst)) { this.dropLight(e); e.mesh.dispose(); e.mat.dispose(); this.emitters.delete(inst); }
     for (const inst of want) if (!this.emitters.has(inst)) this.emitters.set(inst, this.create(inst));
   }
 
@@ -155,13 +188,14 @@ export class Particles {
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.metadata = { particles: inst };
     const mat = new ShaderMaterial('particles', this.scene, { vertexSource: VERTEX, fragmentSource: FRAGMENT }, {
-      attributes: ['position', 'uv', 'uv2', 'color', 'blend'], uniforms: ['viewProjection', 'lightEmission', 'eye', 'fog', 'fogColor'], samplers: ['tex'], needAlphaBlending: true,
+      attributes: ['position', 'uv', 'uv2', 'color', 'blend'], uniforms: ['viewProjection', 'lightEmission', 'eye', 'fog', 'fogColor', 'depthValues', 'screen'], samplers: ['tex', 'depthTex'], needAlphaBlending: true,
+      defines: this.Q.softParticles ? ['#define SOFT'] : [],
     });
     mat.backFaceCulling = false;
     mat.disableDepthWrite = true;
     mat.alphaMode = Constants.ALPHA_PREMULTIPLIED; // ONE, ONE_MINUS_SRC_ALPHA: LightEmission 0 normal, 1 additive
     mesh.material = mat;
-    return { inst, mesh, mat, ps: [], acc: 0, cap: 0, texFor: null, seq: 0 };
+    return { inst, mesh, mat, ps: [], acc: 0, cap: 0, texFor: null, seq: 0, light: null, stats: null };
   }
 
   texture(id) {
@@ -253,6 +287,7 @@ export class Particles {
   advance(e, p, dt) {
     const P = e.inst.props;
     p.age += dt;
+    if (p.stuck) { p.rot += p.rs * dt; return; }
     let A = P.Acceleration;
     if (p.local) { const F = e.F || (e.F = this.frame(e.inst.parent)); const a = [A.x, A.y, A.z]; A = { x: F.ax[0][0] * a[0] + F.ax[0][1] * a[1] + F.ax[0][2] * a[2], y: F.ax[1][0] * a[0] + F.ax[1][1] * a[1] + F.ax[1][2] * a[2], z: F.ax[2][0] * a[0] + F.ax[2][1] * a[1] + F.ax[2][2] * a[2] }; }
     // Exact for constant acceleration; drag then takes half the speed every Drag seconds (negative grows it).
@@ -268,7 +303,28 @@ export class Particles {
     e.F = null;
     const ts = Math.min(1, Math.max(0, P.TimeScale)), d = dt * ts;
     if (d <= 0) return;
-    for (const p of e.ps) this.advance(e, p, d);
+    const collide = en(P.Collision), phys = collide && collide !== 'None' && this.Q.particleCollisionRays > 0 && this.scene.getPhysicsEngine && this.scene.getPhysicsEngine();
+    if (phys) {
+      // Rays from each particle's last position to its new one, while the frame's budget lasts.
+      const own = this.world && this.world.parts.get(e.inst.parent), ownBody = own && own.agg && own.agg.body;
+      const from = new Vector3(), to = new Vector3(), ray = this.ray, k = Math.min(1, Math.max(0, P.Bounciness));
+      for (const p of e.ps) {
+        const x0 = p.x, y0 = p.y, z0 = p.z;
+        this.advance(e, p, d);
+        if (p.local || p.stuck || this.used.rays >= this.Q.particleCollisionRays) continue;
+        this.used.rays++;
+        from.set(x0, y0, z0); to.set(p.x, p.y, p.z);
+        ray.reset(); phys.raycastToRef(from, to, ray);
+        if (!ray.hasHit || (ownBody && ray.body === ownBody)) continue;
+        const n = ray.hitNormalWorld, h = ray.hitPointWorld;
+        if (collide === 'Die') { p.age = p.life; continue; }
+        if (collide === 'Stick') { p.x = h.x; p.y = h.y; p.z = h.z; p.vx = p.vy = p.vz = 0; p.stuck = true; continue; }
+        // Bounce: the speed into the surface turns back, Bounciness of it kept; along it, kept.
+        const vn = p.vx * n.x + p.vy * n.y + p.vz * n.z;
+        if (vn < 0) { p.vx -= (1 + k) * vn * n.x; p.vy -= (1 + k) * vn * n.y; p.vz -= (1 + k) * vn * n.z; }
+        p.x = h.x + n.x * 0.02; p.y = h.y + n.y * 0.02; p.z = h.z + n.z * 0.02;
+      }
+    } else for (const p of e.ps) this.advance(e, p, d);
     e.ps = e.ps.filter(p => p.age < p.life);
     if (P.Enabled && P.Rate > 0) {
       e.acc += P.Rate * d;
@@ -288,6 +344,49 @@ export class Particles {
     if (sp && sp.xx) { const avg = c => (sp.xx[c] + sp.yy[c] + sp.zz[c]) / 3; out[0] += avg('x'); out[1] += avg('y'); out[2] += avg('z'); }
     return out;
   }
+  // Plus the local lights (point, spot, surface; and other emitters' cast light) that reach a point:
+  // linear to zero at their range, as LocalLights draws them (OURS: cones ignored).
+  localLevel(base, at, skip) {
+    const out = base.slice();
+    for (const l of this.scene.lights) {
+      if (l === skip || !l.isEnabled() || l.intensity <= 0 || !l.range || l.range === Number.MAX_VALUE || !l.position) continue;
+      const c = l.getClassName(); if (c !== 'PointLight' && c !== 'SpotLight') continue;
+      const d = Math.hypot(l.position.x - at[0], l.position.y - at[1], l.position.z - at[2]), f = 1 - d / l.range;
+      if (f > 0) { out[0] += l.diffuse.r * l.intensity * f; out[1] += l.diffuse.g * l.intensity * f; out[2] += l.diffuse.b * l.intensity * f; }
+    }
+    return out;
+  }
+
+  // CastLight: the emitters nearest the camera, up to the tier's count, each get a point light.
+  castLights(eye) {
+    const want = [];
+    for (const e of this.emitters.values()) {
+      const P = e.inst.props, s = e.stats;
+      if (P.CastLight && s && s.a > 0 && P.LightRange > 0 && P.Brightness > 0 && this.localLights) want.push(e);
+      else this.dropLight(e);
+    }
+    want.sort((a, b) => a.stats.d - b.stats.d);
+    this.used.lights = 0;
+    want.forEach((e, i) => {
+      if (i >= this.Q.particleLights) { this.dropLight(e); return; }
+      const P = e.inst.props, s = e.stats;
+      if (!e.light) {
+        e.light = new PointLight('particlelight', Vector3.Zero(), this.scene);
+        e.light.falloffType = Light.FALLOFF_STANDARD; e.light.specular = Color3.Black();
+        e.light.setEnabled(false); // LocalLights turns it on for the surfaces that choose it
+        e.lightEntry = this.localLights.addExternal(e.light);
+      }
+      e.light.position.set(s.x / s.a, s.y / s.a, s.z / s.a);
+      e.light.diffuse.set(s.r / s.a, s.g / s.a, s.b / s.a);
+      e.light.range = Math.min(60, P.LightRange);
+      e.light.intensity = CAST_INTENSITY * P.Brightness * Math.min(1, s.a / CAST_FULL_ALPHA);
+      this.used.lights++;
+    });
+  }
+  dropLight(e) {
+    if (!e.light) return;
+    this.localLights.removeExternal(e.lightEntry); e.light.dispose(); e.light = null; e.lightEntry = null;
+  }
 
   update(dt) {
     if (this.dirty) this.sync();
@@ -297,24 +396,37 @@ export class Particles {
     const eye = cam.globalPosition, view = cam.getViewMatrix(), vm = view.m;
     // Camera axes in world space (rows of the view matrix's rotation).
     const R = [vm[0], vm[4], vm[8]], U = [vm[1], vm[5], vm[9]];
-    const light = this.lightLevel(), sc = this.scene;
+    const base = this.lightLevel(), sc = this.scene;
     const fog = sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
+    // Soft particles: the camera's depth (shared with the post effects), held once there are emitters.
+    let depth = null;
+    if (this.Q.softParticles) { if (!this.depth || this.depthCam !== cam) { this.depth = useDepth(sc, cam, this); this.depthCam = cam; } depth = this.depth.getDepthMap(); }
+    const eng = sc.getEngine(), screen = { x: eng.getRenderWidth(), y: eng.getRenderHeight() }, dv = { x: cam.minZ, y: cam.minZ + cam.maxZ };
+    this.used.rays = 0;
     for (const e of this.emitters.values()) {
       this.simulate(e, dt);
+      const P = e.inst.props, F = this.frame(e.inst.parent);
+      const light = P.LightInfluence > 0 ? this.localLevel(base, F.o, e.light) : base;
       this.build(e, eye, R, U, light);
-      const m = e.mat, P = e.inst.props;
+      const m = e.mat;
+      m.setVector2('depthValues', dv); m.setVector2('screen', screen);
+      if (depth) m.setTexture('depthTex', depth);
       m.setFloat('lightEmission', Math.min(1, Math.max(0, P.LightEmission)));
       m.setVector3('eye', eye);
       m.setVector4('fog', { x: fog[0], y: fog[1], z: fog[2], w: fog[3] });
       m.setColor3('fogColor', sc.fogColor || Color3.Black());
       if (e.texFor !== P.Texture) { e.texFor = P.Texture; m.setTexture('tex', this.texture(P.Texture)); }
     }
+    this.castLights(eye);
   }
 
   build(e, eye, R, U, light) {
     const P = e.inst.props, ps = e.ps, n = ps.length, mesh = e.mesh;
     mesh.setEnabled(n > 0);
+    e.stats = null;
     if (!n) return;
+    // For CastLight: opacity-weighted centre and linear colour, and the distance to the camera.
+    const st = P.CastLight ? (e.stats = { x: 0, y: 0, z: 0, r: 0, g: 0, b: 0, a: 0, d: 0 }) : null;
     if (n > e.cap) this.grow(e, Math.max(64, 1 << Math.ceil(Math.log2(n))));
     const F = this.frame(e.inst.parent);
     // World positions (locked particles ride their part) and distance, back to front for normal blending.
@@ -373,6 +485,7 @@ export class Particles {
       }
       colorAt(P.Color.k, t, c3);
       const alpha = 1 - tr;
+      if (st) { st.x += w.x * alpha; st.y += w.y * alpha; st.z += w.z * alpha; st.r += lin(c3[0]) * alpha; st.g += lin(c3[1]) * alpha; st.b += lin(c3[2]) * alpha; st.a += alpha; }
       for (let k = 0; k < 4; k++) {
         const sx = k === 0 || k === 3 ? -1 : 1, sy = k < 2 ? -1 : 1, o = (i * 4 + k);
         const px = cx + ax[0] * hw * sx + ay[0] * hh * sy, py = cy + ax[1] * hw * sx + ay[1] * hh * sy, pz = cz + ax[2] * hw * sx + ay[2] * hh * sy;
@@ -396,6 +509,7 @@ export class Particles {
     const sm = mesh.subMeshes[0], box = new BoundingInfo(Vector3.FromArray(min), Vector3.FromArray(max));
     sm.indexCount = n * 6; sm.verticesCount = n * 4;
     mesh.setBoundingInfo(box); sm.setBoundingInfo(box);
+    if (st && st.a > 0) st.d = Math.hypot(st.x / st.a - eye.x, st.y / st.a - eye.y, st.z / st.a - eye.z);
   }
 
   grow(e, cap) {

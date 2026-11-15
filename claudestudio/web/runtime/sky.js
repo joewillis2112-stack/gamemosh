@@ -18,6 +18,7 @@ import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTextur
 import { HDRFiltering } from '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering.js';
 import { CubeMapToSphericalPolynomialTools } from '@babylonjs/core/Misc/HighDynamicRange/cubemapToSphericalPolynomial.js';
 import { Color3, Matrix, Vector3 } from '@babylonjs/core/Maths/math.js';
+import { tier } from './quality.js';
 
 const FACES = ['right', 'left', 'up', 'down', 'front', 'back']; // Babylon's order (envCubeTexture._FacesMapping)
 const FACE_CORNERS = [PanoramaToCubeMapTools.FACE_RIGHT, PanoramaToCubeMapTools.FACE_LEFT, PanoramaToCubeMapTools.FACE_UP, PanoramaToCubeMapTools.FACE_DOWN, PanoramaToCubeMapTools.FACE_FRONT, PanoramaToCubeMapTools.FACE_BACK];
@@ -72,7 +73,7 @@ function hash3(x, y, z) { // a fixed pseudo-random value per star cell
 export class Sky {
   constructor(scene, url, { quality = 'high', size } = {}) {
     this.scene = scene;
-    this.n = size || (quality === 'phone' ? 128 : 256);
+    this.n = size || tier(quality).skySize;
     this.filtering = new HDRFiltering(scene.getEngine());
     this.horizon = DAY_HORIZON.clone();
     this.version = 0;

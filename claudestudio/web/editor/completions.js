@@ -128,7 +128,7 @@ export function describe(text, pos, ctx = {}) {
     if (kid) return out(`${word}: ${kid.ClassName}`, `${fullName(kid)} in this place`);
     const m = mem.methods.find(x => x.name === word), p = mem.props.find(x => x.name === word), e = mem.events.find(x => x.name === word);
     if (m) return out(`${r.cls}:${word}(${m.params.join(', ')})`, `method of ${m.owner}`);
-    if (p) return out(`${r.cls}.${word}: ${p.type}`, `property of ${p.owner}`, p.readOnly && 'read-only to scripts');
+    if (p) return out(`${r.cls}.${word}: ${p.type}`, `property of ${p.owner}`, p.readOnly && 'read-only to scripts', p.own && "Claude Studio's own (not in Roblox)");
     if (e) return out(`${r.cls}.${word}: RBXScriptSignal`, `event of ${e.owner}`);
     if (word === 'Parent') return out(`${r.cls}.Parent: Instance`, 'property of Instance');
     if (word === 'ClassName') return out(`${r.cls}.ClassName: string`, 'property of Instance', 'read-only to scripts');

@@ -69,6 +69,7 @@ export const ENUMS = {
   ParticleEmitterShapeStyle: { Volume: 0, Surface: 1 },
   ParticleFlipbookLayout: { None: 0, Grid2x2: 1, Grid4x4: 2, Grid8x8: 3, Custom: 4 },
   ParticleFlipbookMode: { Loop: 0, OneShot: 1, PingPong: 2, Random: 3 },
+  ParticleCollision: { None: 0, Bounce: 1, Stick: 2, Die: 3 }, // Claude Studio's own (STUDIO_OWN)
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   TonemapperPreset: { Default: 0, Retro: 1 },
   AnimationPriority: { Idle: 0, Movement: 1, Action: 2, Action2: 3, Action3: 4, Action4: 5, Core: 1000 },
@@ -458,6 +459,9 @@ defineClass('ParticleEmitter', 'Instance', {
     Size: ['NumberSequence', '0 1 0 1 1 0 '], Speed: ['NumberRange', '5 5 '], SpreadAngle: ['Vector2', [0, 0]], Squash: ['NumberSequence', '0 0 0 1 0 0 '],
     Texture: ['string', 'rbxasset://textures/particles/sparkles_main.dds'], TimeScale: ['number', 1], Transparency: ['NumberSequence', '0 0 0 1 0 0 '],
     VelocityInheritance: ['number', 0], WindAffectsDrag: ['bool', false], ZOffset: ['number', 0],
+    // Claude Studio's own extras (not in Roblox; STUDIO_OWN): the particles light their surroundings
+    // (LightRange studs), and collide with parts. The fidelity tier budgets both (runtime/quality.js).
+    CastLight: ['bool', false], LightRange: ['number', 8], Collision: ['Enum.ParticleCollision', 'None'], Bounciness: ['number', 0.5],
   },
   methods: {
     Emit(self, n = 16) { self.dm.fire(self, 'OnEmitRequested', [Math.max(0, Math.floor(+n || 0))]); return []; },
@@ -944,6 +948,8 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
+// Members that are Claude Studio's own, not Roblox's: the editor says so where it describes them.
+export const STUDIO_OWN = new Set(['ParticleEmitter.CastLight', 'ParticleEmitter.LightRange', 'ParticleEmitter.Collision', 'ParticleEmitter.Bounciness']);
 const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
@@ -960,7 +966,7 @@ export function creatableClasses() { return Object.values(CLASSES).filter(c => c
 export function membersOf(cls) {
   const out = { props: [], methods: [], events: [] }, seen = new Set();
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-    for (const [k, [ty]] of Object.entries(c.props)) if (!seen.has(k)) { seen.add(k); out.props.push({ name: k, type: ty, owner: c.name, readOnly: READ_ONLY.has(c.name + '.' + k) }); }
+    for (const [k, [ty]] of Object.entries(c.props)) if (!seen.has(k)) { seen.add(k); out.props.push({ name: k, type: ty, owner: c.name, readOnly: READ_ONLY.has(c.name + '.' + k), own: STUDIO_OWN.has(c.name + '.' + k) }); }
     for (const [k, fn] of Object.entries(c.methods)) if (!seen.has(k)) { seen.add(k); out.methods.push({ name: k, owner: c.name, params: paramsOf(fn) }); }
     for (const k of c.events) if (!seen.has(k)) { seen.add(k); out.events.push({ name: k, owner: c.name }); }
   }

@@ -49,6 +49,8 @@ const hover = (text, word, k = 0) => { let i = -1; for (let n = 0; n <= k; n++) 
 const H = (text, word, want, k) => { const got = hover(text, word, k); check(got === want, `hover ${JSON.stringify(word)} in ${JSON.stringify(text.slice(0, 40))}: ${got}`); };
 H('local p = Instance.new("Part")\np.Anchored = true', 'Anchored', 'Part.Anchored: bool | property of BasePart');
 H('workspace.Baseplate:PivotTo(cf)', 'PivotTo', 'Part:PivotTo(cf) | method of BasePart');
+H('local e = Instance.new("ParticleEmitter")\ne.CastLight = true', 'CastLight', "ParticleEmitter.CastLight: bool | property of ParticleEmitter | Claude Studio's own (not in Roblox)");
+H('local e = Instance.new("ParticleEmitter")\ne.Rate = 5', 'Rate', 'ParticleEmitter.Rate: number | property of ParticleEmitter');
 H('workspace.Baseplate.Touched:Connect(f)', 'Touched', 'Part.Touched: RBXScriptSignal | event of BasePart');
 H('workspace.Baseplate', 'Baseplate', 'Baseplate: Part | Workspace.Baseplate in this place');
 H('local n = game.Players.LocalPlayer', 'LocalPlayer', 'Players.LocalPlayer: Instance | property of Players | read-only to scripts');

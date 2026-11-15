@@ -11,8 +11,14 @@
 // - drawing: VelocityParallel quads lie along the velocity, ZOffset keeps the
 //   screen size, a OneShot flipbook walks its frames over the life;
 //   LightEmission 1 adds light, Transparency 1 draws nothing, Color tints,
-//   Brightness brightens, LightInfluence 1 darkens at night.
-// Goldens: the lab, desktop and phone.
+//   Brightness brightens, LightInfluence 1 darkens at night;
+// - Claude Studio's extras, by fidelity tier (run with --quality low|ultra too):
+//   soft particles fade into a surface just behind them, CastLight lights the
+//   floor in the particles' colour, the light budget goes to the nearest
+//   emitters while every emitter keeps its particles, Collision Bounce/Stick/Die
+//   on a shelf (None falls through, as in Roblox); tiers without an extra show
+//   it off, never with fewer particles.
+// Goldens: the lab, desktop and phone (and per tier when --quality is given).
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -197,6 +203,63 @@ export default async function (t) {
   const night0 = await screen('e.Brightness = 1 e.Color = ColorSequence.new(Color3.new(1, 1, 1)) e.LightInfluence = 0');
   const night1 = await screen('e.LightInfluence = 1');
   check(night1.l < night0.l - 30, `at night LightInfluence 1 darkens a white particle (${night0.l.toFixed(0)} -> ${night1.l.toFixed(0)})`);
+
+  // Beyond Roblox: the extras, budgeted by the fidelity tier, which never removes a particle.
+  const Q = await t.eval(() => ({ ...window.studio.particles.Q, name: window.studio.particles.quality }));
+  console.log(`tier ${Q.name}: ${Q.particleLights} cast lights, ${Q.particleCollisionRays} collision rays a frame, soft ${Q.softParticles}`);
+  // Soft particles: a white particle 0.3 studs in front of a dark panel fades into it; 3 studs in front it doesn't.
+  const backdrop = async gap => { await run(`local e = workspace.ScreenPart.Screen local f = workspace.CurrentCamera.CFrame local at = workspace.ScreenPart.Position + f.LookVector * ${gap}
+    local b = workspace:FindFirstChild("Backdrop") or Instance.new("Part") b.Name = "Backdrop" b.Anchored = true b.Size = Vector3.new(12, 12, 0.2) b.Color = Color3.new(0.05, 0.05, 0.05) b.CFrame = CFrame.lookAt(at, at + f.LookVector) b.Parent = workspace`); return screen('e.LightInfluence = 0 e.Brightness = 1 e.Color = ColorSequence.new(Color3.new(1, 1, 1)) e.Transparency = NumberSequence.new(0) e.LightEmission = 0'); };
+  const far = await backdrop(3), near = await backdrop(0.3);
+  if (Q.softParticles) check(near.l < far.l - 20, `soft particles: 0.3 studs from a surface it fades (${far.l.toFixed(0)} -> ${near.l.toFixed(0)})`);
+  else check(Math.abs(near.l - far.l) < 3, `no soft particles on this tier: the same 0.3 or 3 studs from a surface (${far.l.toFixed(0)}, ${near.l.toFixed(0)})`);
+  await run('workspace.Backdrop:Destroy() workspace.ScreenPart.Screen:Clear()');
+
+  // CastLight, at night: an orange glow lights the floor under it, on tiers that cast light.
+  const floorLum = pt => t.eval(async pt => {
+    const S = window.studio; S.frames(1); await S.scene.whenReadyAsync(); S.frames(1);
+    const c = document.getElementById('c'), g = S.scene.getEngine()._gl, cam = S.cam, V = cam.position.constructor;
+    const p = V.Project(new V(...pt), S.scene.getTransformMatrix().constructor.Identity(), S.scene.getTransformMatrix(), cam.viewport.toGlobal(c.width, c.height));
+    const px = new Uint8Array(4 * 9); g.readPixels(Math.round(p.x) - 1, Math.round(c.height - 1 - p.y) - 1, 3, 3, g.RGBA, g.UNSIGNED_BYTE, px);
+    const m = [0, 1, 2].map(k => { let s = 0; for (let i = 0; i < 9; i++) s += px[i * 4 + k]; return s / 9; });
+    return { rgb: m, l: 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2], on: p.x > 0 && p.y > 0 && p.x < c.width && p.y < c.height };
+  }, pt);
+  await run(`local p = Instance.new("Part") p.Name = "Torch" p.Anchored = true p.CanCollide = false p.Transparency = 1 p.Size = Vector3.new(1, 1, 1) p.Position = Vector3.new(-6, 1.5, 4) p.Parent = workspace
+    local e = Instance.new("ParticleEmitter") e.Name = "Glow" e.Rate = 30 e.Lifetime = NumberRange.new(1) e.Speed = NumberRange.new(1) e.Size = NumberSequence.new(0.6) e.LightEmission = 1 e.Brightness = 3
+    e.Color = ColorSequence.new(Color3.fromRGB(255, 150, 60)) e.LightRange = 10 e.Parent = p`);
+  await t.sim(60);
+  const spot = [-6, 0, 7], dark = await floorLum(spot);
+  await run('workspace.Torch.Glow.CastLight = true'); await t.sim(30);
+  const glow = await floorLum(spot), lights = await t.eval(() => window.studio.particles.used.lights);
+  check(dark.on, 'the floor under the glow is on screen');
+  if (Q.particleLights > 0) check(glow.l > dark.l + 6 && glow.rgb[0] > glow.rgb[2] && lights === 1, `CastLight lights the floor in the particles' colour (${dark.l.toFixed(0)} -> ${glow.l.toFixed(0)}, rgb ${glow.rgb.map(v => v.toFixed(0))})`);
+  else check(Math.abs(glow.l - dark.l) < 1.5 && lights === 0, `no cast light on this tier: the floor stays (${dark.l.toFixed(0)} -> ${glow.l.toFixed(0)})`);
+  // More emitters asking for light than the tier allows: the nearest get it, and every one keeps its particles.
+  await run(`for i = 1, 9 do local p = workspace.Torch:Clone() p.Name = "Torch" .. i p.Position = Vector3.new(-30 + i * 6, 1.5, -2) p.Parent = workspace end`);
+  await t.sim(30);
+  const budget = await t.eval(() => { const P = window.studio.particles; return { lights: P.used.lights, counts: [...P.emitters].filter(([i]) => i.Name === 'Glow').map(([, e]) => e.ps.length) }; });
+  check(budget.lights === Math.min(10, Q.particleLights) && budget.counts.length === 10 && budget.counts.every(n => n >= 14), `10 glows ask for light: ${budget.lights} get it (tier: ${Q.particleLights}), all 10 keep their particles (${budget.counts.join(',')})`);
+  await run('for i = 1, 9 do workspace["Torch" .. i]:Destroy() end workspace.Torch:Destroy()');
+
+  // Collisions: particles dropped onto a shelf.
+  await run(`local s = Instance.new("Part") s.Name = "Shelf" s.Anchored = true s.Size = Vector3.new(12, 1, 12) s.Position = Vector3.new(0, 40, 30) s.Parent = workspace
+    local p = Instance.new("Part") p.Name = "Dropper" p.Anchored = true p.CanCollide = false p.Transparency = 1 p.Size = Vector3.new(6, 0.2, 6) p.Position = Vector3.new(0, 44, 30) p.Parent = workspace
+    local e = Instance.new("ParticleEmitter") e.Name = "Drops" e.Enabled = false e.Speed = NumberRange.new(0) e.Acceleration = Vector3.new(0, -60, 0) e.Lifetime = NumberRange.new(10) e.Parent = p`);
+  const drop = async mode => { await run(`local e = workspace.Dropper.Drops e:Clear() e.Collision = Enum.ParticleCollision.${mode} e:Emit(30)`); await t.sim(70); return ps('Drops'); };
+  const none = await drop('None');
+  check(none.length === 30 && none.every(p => p.y < 39), 'Collision None: they fall through the shelf, as in Roblox');
+  const bounce = await drop('Bounce');
+  if (Q.particleCollisionRays > 0) {
+    check(bounce.length === 30 && bounce.every(p => p.y > 40.45), `Collision Bounce: all 30 stay on the shelf (lowest ${Math.min(...bounce.map(p => p.y)).toFixed(2)})`);
+    await run('local e = workspace.Dropper.Drops e:Clear() e:Emit(30)'); await t.sim(23); // just after they hit
+    const up = await ps('Drops');
+    check(up.some(p => p.vy > 5), `and bounce back up (fastest up ${Math.max(...up.map(p => p.vy)).toFixed(1)} studs/s)`);
+    const stick = await drop('Stick');
+    check(stick.length === 30 && stick.every(p => Math.abs(p.y - 40.5) < 0.01 && p.vy === 0), 'Collision Stick: they stop on the surface');
+    const die = await drop('Die');
+    check(die.length === 0, 'Collision Die: they end where they hit');
+  } else check(bounce.length === 30 && bounce.every(p => p.y < 39), 'no collision rays on this tier: they fall through, all 30 kept');
+  await run('workspace.Shelf:Destroy() workspace.Dropper:Destroy()');
   await run('game:GetService("Lighting").ClockTime = 16 workspace.ScreenPart:Destroy() workspace.Probe:Destroy()'); await t.sim(2); await t.eval(() => window.studio.lighting.settled());
   check(await t.eval(() => [...window.studio.particles.emitters.keys()].every(i => i.Name !== 'Screen' && i.Name !== 'P')), 'emitters go with their part');
 

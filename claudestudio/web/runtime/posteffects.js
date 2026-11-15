@@ -20,6 +20,8 @@ import { PassPostProcess } from '@babylonjs/core/PostProcesses/passPostProcess.j
 import { Effect } from '@babylonjs/core/Materials/effect.js';
 import { Vector2, Vector3, Matrix } from '@babylonjs/core/Maths/math.js';
 import '@babylonjs/core/Rendering/depthRendererSceneComponent.js';
+import { tier } from './quality.js';
+import { useDepth, releaseDepth } from './depth.js';
 import '@babylonjs/core/Materials/standardMaterial.js'; // the depth renderer needs its side effect
 
 const DOF_BLUR_KERNEL = 48;      // full-resolution px at 720 px tall, scaled with the render (Roblox sizes its DOF blur in screen units); ours
@@ -155,7 +157,7 @@ export class PostEffects {
 
   update() {
     const dof = this.effects('DepthOfFieldEffect')[0];
-    const rays = this.quality === 'phone' ? null : this.effects('SunRaysEffect').reduce((a, e) => (!a || e.props.Intensity > a.props.Intensity ? e : a), null);
+    const rays = !tier(this.quality).sunRays ? null : this.effects('SunRaysEffect').reduce((a, e) => (!a || e.props.Intensity > a.props.Intensity ? e : a), null);
     const blurs = this.effects('BlurEffect'), blur = blurs.reduce((a, e) => (!a || e.props.Size > a.props.Size ? e : a), null);
     const ccs = this.effects('ColorCorrectionEffect');
     // Which passes, in order: depth of field, sun rays, blur, colour correction.
@@ -184,14 +186,14 @@ export class PostEffects {
   }
 
   depth() {
-    if (!this.depthRenderer) this.depthRenderer = this.scene.enableDepthRenderer(this.camera, false);
+    if (!this.depthRenderer) this.depthRenderer = useDepth(this.scene, this.camera, this);
     return this.depthRenderer;
   }
 
   rebuild(want, { blur }) {
     for (const pp of this.order) pp.dispose(this.camera);
     this.order = [];
-    if (!want.some(w => w === 'dof' || w === 'rays') && this.depthRenderer) { this.scene.disableDepthRenderer(this.camera); this.depthRenderer = null; }
+    if (!want.some(w => w === 'dof' || w === 'rays') && this.depthRenderer) { releaseDepth(this.scene, this.camera, this); this.depthRenderer = null; }
     const cam = this.camera, engine = this.scene.getEngine(), add = pp => { this.order.push(pp); return pp; };
     for (const w of want) {
       if (w === 'dof') {

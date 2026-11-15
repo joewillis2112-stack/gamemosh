@@ -4,7 +4,8 @@
 -- Transparency over life), smoke (Drag, Rotation, RotSpeed, normal blending,
 -- LightInfluence 1),
 -- sparkles from a sphere's surface (the default texture), and rain from a
--- wide box (Squash, VelocityParallel).
+-- wide box (Squash, VelocityParallel). Two of Claude Studio's own extras: the
+-- fire casts light, the rain stops at the floor.
 game:GetService("Lighting").ClockTime = 16
 local function part(name, size, pos, color, props)
   local p = Instance.new("Part")
@@ -37,6 +38,7 @@ emitter(hearth, {
   LightEmission = 1, Brightness = 2, Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.2, 0.4), NumberSequenceKeypoint.new(1, 0.2) }),
   Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 120)), ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 110, 30)), ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 20, 10)) }),
   Transparency = NumberSequence.new(0.1, 1), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-90, 90),
+  CastLight = true, LightRange = 12, -- Claude Studio's own: the fire lights the floor around it
 })
 
 local chimney = part("Chimney", Vector3.new(2, 1, 2), Vector3.new(0, 0.5, -10), Color3.fromRGB(70, 60, 55))
@@ -58,5 +60,6 @@ emitter(cloud, {
   Name = "Rain", EmissionDirection = Enum.NormalId.Bottom, Rate = 120, Lifetime = NumberRange.new(1), Speed = NumberRange.new(18),
   Orientation = Enum.ParticleOrientation.VelocityParallel, Squash = NumberSequence.new(2.5), Size = NumberSequence.new(0.35),
   Color = ColorSequence.new(Color3.fromRGB(170, 200, 255)), Transparency = NumberSequence.new(0.3),
+  Collision = Enum.ParticleCollision.Die, -- Claude Studio's own: drops end on the floor, not through it
 })
 print("particles ready")

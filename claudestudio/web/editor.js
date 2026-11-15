@@ -76,7 +76,7 @@ async function main() {
   lighting.update();
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
-  const particles = new Particles(scene, dm, world, { quality }); // Studio runs emitters while editing too
+  const particles = new Particles(scene, dm, world, { quality, localLights }); // Studio runs emitters while editing too
   await lighting.settled();
 
   const commands = new Commands(dm, { view: () => { const f = camera.forward(); return { origin: camera.pos, dir: f }; } });

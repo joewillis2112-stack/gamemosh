@@ -19,12 +19,11 @@ import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
 import { Vector3, Color3 } from '@babylonjs/core/Maths/math.js';
 import { isA } from '../datamodel.js';
+import { tier } from './quality.js';
 
 const INTENSITY_PER_BRIGHTNESS = 2;   // ours: a Brightness-1 light at night lights a wall clearly
-const SHADOW_LIGHTS = { high: 4, phone: 2 }; // shadow-casting local lights at once
-const SHADOW_SIZE = { high: 1024, phone: 512 };
-// How many lights one material shades: the sun and sky light plus local lights.
-export const MAX_LIGHTS = { high: 10, phone: 6 };
+// Per tier (runtime/quality.js): how many lights one material shades (the sun and sky light
+// plus local lights), how many local lights cast shadows at once, and their shadow maps' size.
 const lin = c => new Color3(c.r, c.g, c.b).toLinearSpace();
 // NormalId -> the part's local axis (columns of its rotation: right, up, back).
 const FACE = { Right: [0, 1], Left: [0, -1], Top: [1, 1], Bottom: [1, -1], Back: [2, 1], Front: [2, -1] };
@@ -33,9 +32,10 @@ export class LocalLights {
   constructor(scene, dm, world, { quality = 'high', sunShadows } = {}) {
     Object.assign(this, { scene, dm, world, quality, sunShadows });
     this.lights = new Map(); // Light instance -> { light, kind, shadow, key, meshKey }
+    this.external = new Set(); // lights other systems drive (particles' CastLight), in the same budget
     this.frame = 0;
     // Every material shades enough lights for the sun, the sky and the local lights near it.
-    const max = MAX_LIGHTS[quality] || MAX_LIGHTS.high;
+    const max = tier(quality).maxLights;
     const raise = m => { if ('maxSimultaneousLights' in m) m.maxSimultaneousLights = max; };
     scene.materials.forEach(raise);
     scene.onNewMaterialAddedObservable.add(raise);
@@ -58,7 +58,7 @@ export class LocalLights {
     this.frame++;
     if (this.dirty) { this.sync(); this.dirty = false; }
     const realistic = this.dm.service('Lighting').props.LightingStyle === 'Realistic';
-    let shadowsLeft = realistic ? (SHADOW_LIGHTS[this.quality] || 2) : 0;
+    let shadowsLeft = realistic ? tier(this.quality).localShadowLights : 0;
     for (const [inst, e] of this.lights) {
       const P = inst.props, part = inst.parent, cf = part.props.CFrame, size = part.props.Size;
       const on = P.Enabled && P.Brightness > 0 && P.Range > 0;
@@ -123,9 +123,9 @@ export class LocalLights {
   // Range), nearest the camera first, up to the budget; each light then shades
   // exactly the meshes that chose it.
   assign() {
-    const budget = (MAX_LIGHTS[this.quality] || MAX_LIGHTS.high) - 2;
+    const budget = tier(this.quality).maxLights - 2;
     const cam = this.scene.activeCamera, eye = cam ? cam.globalPosition : Vector3.Zero();
-    const live = [...this.lights.values()].filter(e => e.on);
+    const live = [...this.lights.values(), ...this.external].filter(e => e.on);
     live.forEach(e => { e.next = []; e.camDist = Vector3.Distance(e.light.position, eye); });
     live.sort((x, y) => x.camDist - y.camDist);
     for (const mesh of this.scene.meshes) {
@@ -144,10 +144,14 @@ export class LocalLights {
     }
   }
 
+  // A light another system positions and colours itself; it shares the per-surface budget.
+  addExternal(light) { const e = { light, on: true, external: true }; this.external.add(e); this.reassign = true; return e; }
+  removeExternal(e) { if (e && this.external.delete(e)) this.reassign = true; }
+
   ensureShadow(e, part) {
     const own = this.world && this.world.parts.get(part);
     if (!e.shadow) {
-      e.shadow = new ShadowGenerator(SHADOW_SIZE[this.quality] || 1024, e.light);
+      e.shadow = new ShadowGenerator(tier(this.quality).localShadowSize, e.light);
       e.shadow.usePercentageCloserFiltering = true;
       e.shadow.bias = 0.0005; e.shadow.normalBias = 0.02;
     }

@@ -7,6 +7,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { Vector3, Color3 } from '@babylonjs/core/Maths/math.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { createSSAO } from './ssao.js';
+import { tier } from './quality.js';
 import { PostEffects } from './posteffects.js';
 import { sunDirection, isA } from '../datamodel.js';
 
@@ -153,8 +154,10 @@ export class LightingController {
 
     // LightingStyle: Realistic adds ambient occlusion; Soft doesn't.
     const realistic = P.LightingStyle === 'Realistic';
-    if (realistic && !this.ssao && this.camera) {
-      this.ssao = createSSAO(scene, [this.camera], { totalStrength: SSAO.totalStrength, radius: SSAO.radiusMetres / 0.28, base: SSAO.base }, this.quality === 'phone' ? 0.5 : 1);
+    // (The tier sets its resolution; the lowest tier has none.)
+    const ao = tier(this.quality).ssao;
+    if (realistic && ao && !this.ssao && this.camera) {
+      this.ssao = createSSAO(scene, [this.camera], { totalStrength: SSAO.totalStrength, radius: SSAO.radiusMetres / 0.28, base: SSAO.base }, ao);
     } else if (!realistic && this.ssao) {
       scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline('ssao', this.camera);
       this.ssao.dispose(); this.ssao = null;
