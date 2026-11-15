@@ -149,7 +149,7 @@ export class LightingController {
     } else if (!atmo && P.FogEnd < 1e5) {
       scene.fogMode = 3;
       scene.fogStart = P.FogStart; scene.fogEnd = Math.max(P.FogEnd, P.FogStart + 0.01);
-      scene.fogColor = lin(P.FogColor);
+      scene.fogColor = new Color3(P.FogColor.r, P.FogColor.g, P.FogColor.b); // sRGB: Babylon's PBR makes it linear itself
     } else scene.fogMode = 0;
 
     // LightingStyle: Realistic adds ambient occlusion; Soft doesn't.

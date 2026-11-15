@@ -3,7 +3,7 @@
 // changes (at most once a frame). Every edit is a command, so it can be undone.
 // Each Explorer row has Studio's + (Insert Object, under that row: onAdd); double-clicking a row
 // opens it (a script in the script editor: onOpen); a script's Properties offer Edit Script.
-import { ENUMS, V3, C3, propertiesOf } from '../datamodel.js';
+import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, propertiesOf } from '../datamodel.js';
 
 // Studio shows these services in the Explorer, in this order (others it hides).
 const SHOWN = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
@@ -80,6 +80,14 @@ export class Properties {
       const E = ENUMS[p.type.slice(5)] || {}, cur = v && v.name || v;
       return `<select ${k}${ro}>${Object.keys(E).map(n => `<option${n === cur ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
     }
+    if (p.type === 'Vector2') return `<span class="v3">${['x', 'y'].map(a => `<input type="number" step="any" ${k} data-a="${a}" value="${agree && v ? fmt(v[a]) : ''}"${ro}>`).join('')}</span>`;
+    // UDim, UDim2, NumberRange and NumberSequence are typed as text, in Studio's own forms.
+    if (TEXT_TYPES[p.type]) return `<input type="text" ${k} value="${agree && v ? esc(TEXT_TYPES[p.type].show(v)) : ''}"${ro}>`;
+    if (p.type === 'ColorSequence') {
+      // The gradient, with its first and last colours editable (inner keypoints are kept).
+      const ks = v ? v.k : [], grad = ks.map(([t, c]) => `${hex(c)} ${(t * 100).toFixed(1)}%`).join(', ');
+      return `<span class="cseq"><input type="color" ${k} data-a="first" value="${ks.length ? hex(ks[0][1]) : '#ffffff'}"${ro}><span class="grad" style="background:linear-gradient(90deg, ${agree && grad ? grad : '#0000, #0000'})"></span><input type="color" ${k} data-a="last" value="${ks.length ? hex(ks[ks.length - 1][1]) : '#ffffff'}"${ro}></span>`;
+    }
     if (p.type === 'Instance') return `<span class="ref">${v ? esc(v.props.Name) : ''}</span>`;
     return `<span class="ref">${esc(String(v ?? ''))}</span>`;
   }
@@ -95,13 +103,49 @@ export class Properties {
       const a = t.dataset.a, n = parseFloat(t.value); if (!isFinite(n)) return this.dirty = true;
       this.commands.history.run('Set ' + key, tx => this.commands.selection.items.forEach(i => { const o = i.props[key]; if (o) tx.set(i, key, new V3(a === 'x' ? n : o.x, a === 'y' ? n : o.y, a === 'z' ? n : o.z)); }));
       this.dirty = true; return;
-    } else if (ty.startsWith('Enum.')) value = t.value;
+    } else if (ty === 'Vector2') {
+      const a = t.dataset.a, n = parseFloat(t.value); if (!isFinite(n)) return this.dirty = true;
+      this.commands.history.run('Set ' + key, tx => this.commands.selection.items.forEach(i => { const o = i.props[key]; if (o) tx.set(i, key, new V2(a === 'x' ? n : o.x, a === 'y' ? n : o.y)); }));
+      this.dirty = true; return;
+    } else if (ty === 'ColorSequence') {
+      const n = parseInt(t.value.slice(1), 16), c = new C3((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255), first = t.dataset.a === 'first';
+      this.commands.history.run('Set ' + key, tx => this.commands.selection.items.forEach(i => {
+        const ks = i.props[key].k.map(([kt, kc]) => [kt, kc]); ks[first ? 0 : ks.length - 1] = [ks[first ? 0 : ks.length - 1][0], c]; tx.set(i, key, new ColorSequence(ks));
+      }));
+      this.dirty = true; return;
+    } else if (TEXT_TYPES[ty]) { value = TEXT_TYPES[ty].parse(t.value); if (value == null) return this.dirty = true; } // not valid: shown again as it was
+    else if (ty.startsWith('Enum.')) value = t.value;
     else return;
     this.commands.run('setProperty', { key, value });
     this.dirty = true;
   }
 }
 
+// Text forms: what the field shows, and what it accepts (null: not valid, nothing changes).
+// UDim "{scale, offset}", UDim2 "{xs, xo},{ys, yo}" (Studio's), NumberRange "min max" (one number
+// sets both), NumberSequence one number (constant), "start end", or Roblox's serialised form
+// ("time value envelope" per keypoint, checked with Roblox's rules).
+const nums = s => { const m = String(s).match(/-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/gi); return m ? m.map(Number) : []; };
+const TEXT_TYPES = {
+  UDim: { show: u => `{${fmt(u.s)}, ${u.o}}`, parse: s => { const n = nums(s); return n.length === 2 ? new UDim(n[0], n[1]) : null; } },
+  UDim2: { show: u => `{${fmt(u.xs)}, ${u.xo}},{${fmt(u.ys)}, ${u.yo}}`, parse: s => { const n = nums(s); return n.length === 4 ? new UDim2(...n) : null; } },
+  NumberRange: {
+    show: r => r.min === r.max ? fmt(r.min) : `${fmt(r.min)} ${fmt(r.max)}`,
+    parse: s => { const n = nums(s); if (n.length === 1) return new NumberRange(n[0]); return n.length === 2 && n[0] <= n[1] ? new NumberRange(n[0], n[1]) : null; },
+  },
+  NumberSequence: {
+    show: q => q.k.every(k => k[1] === q.k[0][1] && !k[2]) ? fmt(q.k[0][1]) : q.k.length === 2 && !q.k[0][2] && !q.k[1][2] ? `${fmt(q.k[0][1])} ${fmt(q.k[1][1])}` : q.toString().trim(),
+    parse: s => {
+      const n = nums(s);
+      if (n.length === 1) return NumberSequence.of(n[0]);
+      if (n.length === 2) return NumberSequence.of(n[0], n[1]);
+      if (n.length < 6 || n.length % 3 || n.length / 3 > 20) return null;
+      const k = []; for (let i = 0; i < n.length; i += 3) k.push([n[i], n[i + 1], n[i + 2]]);
+      const ok = k[0][0] === 0 && k[k.length - 1][0] === 1 && k.every((x, i) => x[2] >= 0 && (!i || x[0] >= k[i - 1][0]));
+      return ok ? new NumberSequence(k) : null;
+    },
+  },
+};
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const fmt = n => typeof n === 'number' ? String(Math.round(n * 1000) / 1000) : '';
 const hex = c => '#' + [c.r, c.g, c.b].map(x => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, '0')).join('');

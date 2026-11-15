@@ -263,6 +263,75 @@ export default async function (t) {
   await run('game:GetService("Lighting").ClockTime = 16 workspace.ScreenPart:Destroy() workspace.Probe:Destroy()'); await t.sim(2); await t.eval(() => window.studio.lighting.settled());
   check(await t.eval(() => [...window.studio.particles.emitters.keys()].every(i => i.Name !== 'Screen' && i.Name !== 'P')), 'emitters go with their part');
 
+  // The tier's table is what the renderer uses.
+  const applied = await t.eval(() => { const S = window.studio, R = S.R; return { size: R.shadows.getShadowMap().getSize().width, cascades: R.shadows.numCascades, msaa: R.pipeline.samples, sky: S.sky.n, maxZ: R.shadows.shadowMaxZ, bias: [R.shadows.bias, R.shadows.normalBias] }; });
+  check(applied.size === Q.sunShadowSize && applied.cascades === Q.sunCascades && applied.msaa === Q.msaa && applied.sky === Q.skySize && applied.maxZ === Q.sunShadowDistance && applied.bias.join() === Q.sunShadowBias.join(), `the renderer runs the ${Q.name} tier's numbers (${JSON.stringify(applied)})`);
+
+  // Robustness (found in review, 2026-11-15).
+  await run(`local p = Instance.new("Part") p.Name = "Stress" p.Anchored = true p.Transparency = 1 p.CanCollide = false p.Position = Vector3.new(0, 80, 30) p.Parent = workspace
+    local e = Instance.new("ParticleEmitter") e.Name = "S" e.Enabled = false e.Lifetime = NumberRange.new(1000) e.Parent = p`);
+  const t0 = Date.now();
+  await run('local e = workspace.Stress.S e.Rate = math.huge e.Enabled = true');
+  await run('local e = workspace.Stress.S e.Enabled = false e:Emit(math.huge) e:FastForward(math.huge)');
+  const huge = (await ps('S')).length;
+  check(huge === 5000 && Date.now() - t0 < 60000, `Rate = math.huge, Emit(math.huge), FastForward(math.huge) fill the emitter to its cap (${huge}) instead of hanging (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  await run('local e = workspace.Stress.S e:Clear() e.Rate = 20 e.Speed = NumberRange.new(0) e:Emit(10)');
+  await run('workspace.Stress.S.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 3, 1), NumberSequenceKeypoint.new(1, 1) })');
+  await t.frames(1); await t.sim(1);
+  const nan = await t.eval(() => { const P = window.studio.particles; for (const [i, e] of P.emitters) if (i.Name === 'S') return { bad: [...e.pos.slice(0, e.ps.length * 12)].some(v => !Number.isFinite(v)), n: e.ps[0].size.length }; });
+  check(!nan.bad && nan.n === 3, 'a Size sequence with more keypoints, set while particles live: each draws values for the new keypoints, no NaN');
+  // LockedToPart toggled with live particles: they stay where they are, then follow the part.
+  const before = await ps('S');
+  await run('workspace.Stress.S.LockedToPart = true'); const mid = await ps('S');
+  await run('workspace.Stress.Position = workspace.Stress.Position + Vector3.new(0, 0, 4)'); const moved = await ps('S');
+  await run('workspace.Stress.S.LockedToPart = false workspace.Stress.Position = workspace.Stress.Position - Vector3.new(0, 0, 4)'); const after = await ps('S');
+  const close = (a, b, dz = 0) => a.every((p, i) => Math.abs(p.x - b[i].x) < 1e-3 && Math.abs(p.y - b[i].y) < 1e-3 && Math.abs(p.z - b[i].z - dz) < 1e-3);
+  check(close(mid, before) && close(moved, mid, 4) && close(after, moved), 'LockedToPart turned on and off with live particles: no jump, locked ones follow the part, unlocked ones stay');
+  // Textures no emitter uses are let go.
+  await run('local e = workspace.Stress.S for _, id in ipairs({ "studio://white", "rbxasset://textures/particles/smoke_main.dds", "rbxasset://textures/particles/fire_main.dds", "studio://white" }) do e.Texture = id task.wait() end');
+  await t.sim(5);
+  const texs = await t.eval(() => { const P = window.studio.particles, used = new Set([...P.emitters.values()].map(e => e.texFor)); return { n: P.textures.size, emitters: used.size }; });
+  check(texs.n <= texs.emitters + 1, `a texture no emitter uses is freed (${texs.n} loaded for ${texs.emitters} textures in use)`);
+  // Negative FlipbookFramerate: frames stay in the atlas.
+  await run('local e = workspace.Stress.S e:Clear() e.Texture = "studio://white" e.FlipbookLayout = Enum.ParticleFlipbookLayout.Grid2x2 e.FlipbookFramerate = NumberRange.new(-5) e:Emit(5)');
+  await t.sim(30); await t.frames(1);
+  const uvs = await t.eval(() => { const P = window.studio.particles; for (const [i, e] of P.emitters) if (i.Name === 'S') return [...e.uv.slice(0, e.ps.length * 8), ...e.uv2.slice(0, e.ps.length * 8)]; });
+  check(uvs.every(u => u >= 0 && u <= 1), 'a negative FlipbookFramerate keeps every frame inside the atlas');
+  // Soft edges: never on emitters whose particles collide (they rest on surfaces) or lie flat.
+  await run('local e = workspace.Stress.S e:Clear() e.FlipbookLayout = Enum.ParticleFlipbookLayout.None e.Size = NumberSequence.new(4) e:Emit(3)'); await t.frames(1);
+  const softRange = () => t.eval(() => { const P = window.studio.particles; for (const [i, e] of P.emitters) if (i.Name === 'S') return e.bl[1]; });
+  const plain = await softRange();
+  await run('local e = workspace.Stress.S e.Collision = Enum.ParticleCollision.Stick'); await t.frames(1); const stuck = await softRange();
+  await run('local e = workspace.Stress.S e.Collision = Enum.ParticleCollision.None e.Orientation = Enum.ParticleOrientation.VelocityPerpendicular'); await t.frames(1); const flat = await softRange();
+  check((Q.softParticles ? plain === 1 : plain === 0) && stuck === 0 && flat === 0, `soft fade distance: ${plain} studs for a 4-stud particle, 0 when it collides (${stuck}) or lies flat (${flat})`);
+  // The depth pass soft particles need is let go when the last emitter goes.
+  await run('workspace.Stress:Destroy() _G.saved = {} for _, d in ipairs(workspace:GetDescendants()) do if d:IsA("ParticleEmitter") then table.insert(_G.saved, { d, d.Parent }) d.Parent = nil end end'); await t.frames(2);
+  const held = await t.eval(() => window.studio.particles.depth !== null);
+  check(!held, 'with no emitters left, particles let go of the depth pass (other users, such as sun rays, may keep it)');
+
+  // Fog: a particle past FogEnd turns the fog colour exactly as a part does (Babylon's PBR takes the
+  // scene's fog colour as sRGB); and Lighting.FogColor is that colour: a fully fogged wall matches an
+  // unfogged particle of the same colour, near the camera.
+  await run(`local f = workspace.CurrentCamera.CFrame
+    local w = Instance.new("Part") w.Name = "FogWall" w.Anchored = true w.Size = Vector3.new(80, 60, 1) w.CFrame = CFrame.lookAt(f.Position + f.LookVector * 70, f.Position) w.Parent = workspace
+    local function at(name, dist, side, color) local p = Instance.new("Part") p.Name = name p.Anchored = true p.CanCollide = false p.Transparency = 1 p.Size = Vector3.new(0.1, 0.1, 0.1) p.Position = f.Position + f.LookVector * dist + f.RightVector * side p.Parent = workspace
+      local e = Instance.new("ParticleEmitter") e.Name = "E" e.Enabled = false e.Speed = NumberRange.new(0) e.Lifetime = NumberRange.new(1000) e.Size = NumberSequence.new(dist / 4) e.Texture = "studio://white" e.Color = ColorSequence.new(color) e.Parent = p e:Emit(1) end
+    at("NearRef", 12, -3, Color3.new(0.5, 0.5, 0.5)) at("FarRed", 60, 8, Color3.new(1, 0, 0))
+    local L = game:GetService("Lighting") _G.atmo = L:FindFirstChildOfClass("Atmosphere") if _G.atmo then _G.atmo.Parent = nil end
+    L.FogStart = 30 L.FogEnd = 31 L.FogColor = Color3.new(0.5, 0.5, 0.5)`);
+  await t.sim(3);
+  const px = pts => t.eval(async pts => {
+    const S = window.studio; S.frames(1); await S.scene.whenReadyAsync(); S.frames(1);
+    const c = document.getElementById('c'), g = S.scene.getEngine()._gl, cam = S.cam, V = cam.position.constructor;
+    return pts.map(pt => { const p = V.Project(new V(...pt), S.scene.getTransformMatrix().constructor.Identity(), S.scene.getTransformMatrix(), cam.viewport.toGlobal(c.width, c.height)); const b = new Uint8Array(4 * 9); g.readPixels(Math.round(p.x) - 1, Math.round(c.height - 1 - p.y) - 1, 3, 3, g.RGBA, g.UNSIGNED_BYTE, b); return [0, 1, 2].map(k => { let s = 0; for (let i = 0; i < 9; i++) s += b[i * 4 + k]; return Math.round(s / 9); }); });
+  }, pts);
+  const where = await t.eval(() => { const W = window.studio.dm.workspace, get = n => { const p = W.children.find(c => c.props.Name === n).props.Position; return [p.x, p.y, p.z]; }; const f = W.props.CurrentCamera.props.CFrame, m = f.m, look = [-m[5], -m[8], -m[11]], right = [m[3], m[6], m[9]]; const wall = get('FogWall'); return { near: get('NearRef'), far: get('FarRed'), wall: [wall[0] - right[0] * 8, wall[1] + 18, wall[2] - right[2] * 8] }; });
+  const [nearPx, farPx, wallPx] = await px([where.near, where.far, where.wall]);
+  const diff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  check(diff(wallPx, nearPx) <= 6, `FogColor (0.5 grey): a fully fogged wall ${wallPx} matches an unfogged 0.5 grey particle ${nearPx}`);
+  check(diff(farPx, wallPx) <= 6, `a red particle past FogEnd turns the fog colour like the wall (${farPx} vs ${wallPx})`);
+  await run('workspace.FogWall:Destroy() workspace.NearRef:Destroy() workspace.FarRed:Destroy() local L = game:GetService("Lighting") L.FogStart = 0 L.FogEnd = 100000 if _G.atmo then _G.atmo.Parent = L end');
+  await run('for _, s in ipairs(_G.saved) do s[1].Parent = s[2] end');
   // The lab, from in front, after the effects have run a while.
   await run('for _, d in ipairs(workspace:GetDescendants()) do if d:IsA("ParticleEmitter") then d.Enabled = true end end');
   await t.sim(150);

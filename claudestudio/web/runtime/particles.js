@@ -47,10 +47,11 @@ import { Light } from '@babylonjs/core/Lights/light.js';
 import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
 import { isA } from '../datamodel.js';
 import { tier } from './quality.js';
-import { useDepth } from './depth.js';
+import { useDepth, releaseDepth } from './depth.js';
 
 export const MAX_PER_EMITTER = 5000;
 const FRAME = 1 / 60; // FastForward's frame
+const MAX_FAST_FORWARD = 3600; // OURS: FastForward runs at most a minute (enough to reach steady state)
 const DEFAULT_TEXTURE = 'rbxasset://textures/particles/sparkles_main.dds';
 // NormalId -> [axis, sign] in the part's own axes (right, up, back).
 const FACE = { Right: [0, 1], Left: [0, -1], Top: [1, 1], Bottom: [1, -1], Back: [2, 1], Front: [2, -1] };
@@ -119,23 +120,23 @@ function builtinTexture(id) {
 }
 
 const VERTEX = `precision highp float;
-attribute vec3 position; attribute vec2 uv; attribute vec2 uv2; attribute vec4 color; attribute float blend;
+attribute vec3 position; attribute vec2 uv; attribute vec2 uv2; attribute vec4 color; attribute vec2 blend; // blend: frame mix, soft range
 uniform mat4 viewProjection; uniform vec2 depthValues;
-varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth;
+varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth; varying float vSoft;
 void main() {
-  vA = uv; vB = uv2; vColor = color; vBlend = blend; vPos = position; gl_Position = viewProjection * vec4(position, 1.0);
+  vA = uv; vB = uv2; vColor = color; vBlend = blend.x; vSoft = blend.y; vPos = position; gl_Position = viewProjection * vec4(position, 1.0);
   vDepth = (gl_Position.z + depthValues.x) / depthValues.y; // the depth renderer's own metric
 }`;
 const FRAGMENT = `precision highp float;
 uniform sampler2D tex; uniform float lightEmission; uniform vec3 eye; uniform vec4 fog; uniform vec3 fogColor;
 uniform vec2 depthValues; uniform vec2 screen; uniform sampler2D depthTex;
-varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth;
+varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth; varying float vSoft;
 void main() {
   vec4 t = mix(texture2D(tex, vA), texture2D(tex, vB), vBlend);
   float a = t.a * vColor.a;
 #ifdef SOFT
   float behind = (texture2D(depthTex, gl_FragCoord.xy / screen).r - vDepth) * depthValues.y; // studs to the surface behind
-  a *= clamp(behind / ${SOFT_RANGE.toFixed(3)}, 0.0, 1.0);
+  if (vSoft > 0.0) a *= clamp(behind / vSoft, 0.0, 1.0);
 #endif
   if (a <= 0.0) discard;
   vec3 rgb = pow(t.rgb, vec3(2.2)) * vColor.rgb;
@@ -151,19 +152,24 @@ export class Particles {
     this.Q = tier(quality);
     this.ray = new PhysicsRaycastResult();
     this.used = { rays: 0, lights: 0 }; // this frame's extras (tests read it)
+    this.depth = null; this.depthCam = null; // the camera's depth pass, held for soft particles
     this.emitters = new Map(); // ParticleEmitter -> state
     this.random = rng(seed);
     this.textures = new Map();
     this.dirty = true;
-    dm.watch((inst, key) => { if (!inst || inst.ClassName === 'ParticleEmitter' || key === 'Parent') this.dirty = true; });
+    dm.watch((inst, key) => {
+      if (!inst || inst.ClassName === 'ParticleEmitter' || key === 'Parent') this.dirty = true;
+      // LockedToPart changed: convert live particles now, against the part where it is at this moment.
+      if (inst && key === 'LockedToPart' && inst.ClassName === 'ParticleEmitter') { const e = this.emitters.get(inst); if (e) this.relock(e); }
+    });
     dm.onEvent((inst, ev, args) => {
       if (inst.ClassName !== 'ParticleEmitter') return;
       if (this.dirty) this.sync();
       const e = this.emitters.get(inst);
       if (!e) return;
-      if (ev === 'OnEmitRequested') for (let i = 0; i < args[0]; i++) this.spawn(e, 0);
+      if (ev === 'OnEmitRequested') { const n = Math.min(args[0], MAX_PER_EMITTER - e.ps.length); for (let i = 0; i < n; i++) this.spawn(e, 0); } // a huge count stops at the cap
       else if (ev === 'OnClearRequested') e.ps.length = 0;
-      else if (ev === 'OnFastForwardRequested') for (let i = 0; i < args[0]; i++) this.simulate(e, FRAME);
+      else if (ev === 'OnFastForwardRequested') { const n = Math.min(args[0], MAX_FAST_FORWARD); for (let i = 0; i < n; i++) this.simulate(e, FRAME); }
     });
   }
 
@@ -269,8 +275,8 @@ export class Particles {
     const p = {
       x: F.o[0] + w[0], y: F.o[1] + w[1], z: F.o[2] + w[2], vx: vel[0], vy: vel[1], vz: vel[2],
       age: 0, life, rot: P.Rotation.min + (P.Rotation.max - P.Rotation.min) * r(), rs: P.RotSpeed.min + (P.RotSpeed.max - P.RotSpeed.min) * r(),
-      size: draw(P.Size.k, r), tr: draw(P.Transparency.k, r), sq: draw(P.Squash.k, r),
-      fps: Math.min(30, P.FlipbookFramerate.min + (P.FlipbookFramerate.max - P.FlipbookFramerate.min) * r()), f0: P.FlipbookStartRandom ? r() : 0, id: ++e.seq,
+      size: draw(P.Size.k, r), tr: draw(P.Transparency.k, r), sq: draw(P.Squash.k, r), sk: P.Size, tk: P.Transparency, qk: P.Squash,
+      fps: Math.min(30, Math.max(0, P.FlipbookFramerate.min + (P.FlipbookFramerate.max - P.FlipbookFramerate.min) * r())), f0: P.FlipbookStartRandom ? r() : 0, id: ++e.seq,
     };
     if (P.LockedToPart) this.toLocal(p, F);
     e.ps.push(p);
@@ -282,6 +288,22 @@ export class Particles {
     const d = [p.x - F.o[0], p.y - F.o[1], p.z - F.o[2]], v = [p.vx, p.vy, p.vz];
     const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     [p.x, p.y, p.z] = F.ax.map(c => dot(c, d)); [p.vx, p.vy, p.vz] = F.ax.map(c => dot(c, v)); p.local = true;
+  }
+
+  // Live particles to match LockedToPart: into the part's space, or back to world space.
+  relock(e) {
+    const on = !!e.inst.props.LockedToPart;
+    if (!e.ps.some(p => !!p.local !== on)) return;
+    const F = this.frame(e.inst.parent);
+    for (const p of e.ps) if (!!p.local !== on) (on ? this.toLocal(p, F) : this.toWorld(p, F));
+  }
+  // Back to world space (LockedToPart turned off).
+  toWorld(p, F) {
+    const a = F.ax, l = [p.x, p.y, p.z], v = [p.vx, p.vy, p.vz];
+    const out = (k, w) => w[0] * a[0][k] + w[1] * a[1][k] + w[2] * a[2][k];
+    p.x = F.o[0] + out(0, l); p.y = F.o[1] + out(1, l); p.z = F.o[2] + out(2, l);
+    p.vx = out(0, v); p.vy = out(1, v); p.vz = out(2, v);
+    p.local = false;
   }
 
   advance(e, p, dt) {
@@ -303,6 +325,7 @@ export class Particles {
     e.F = null;
     const ts = Math.min(1, Math.max(0, P.TimeScale)), d = dt * ts;
     if (d <= 0) return;
+    this.relock(e); // (normally done when the property changes; this catches any missed)
     const collide = en(P.Collision), phys = collide && collide !== 'None' && this.Q.particleCollisionRays > 0 && this.scene.getPhysicsEngine && this.scene.getPhysicsEngine();
     if (phys) {
       // Rays from each particle's last position to its new one, while the frame's budget lasts.
@@ -327,8 +350,12 @@ export class Particles {
     } else for (const p of e.ps) this.advance(e, p, d);
     e.ps = e.ps.filter(p => p.age < p.life);
     if (P.Enabled && P.Rate > 0) {
+      // Spread over the frame: the i-th of n new particles is (acc - i) / Rate seconds old. Never
+      // more than the cap allows (a huge or infinite Rate fills the emitter, it doesn't hang).
       e.acc += P.Rate * d;
-      while (e.acc >= 1) { e.acc -= 1; this.spawn(e, e.acc / P.Rate); }
+      const A = e.acc, n = Number.isFinite(A) ? Math.floor(A) : Infinity, make = Math.min(n, MAX_PER_EMITTER - e.ps.length);
+      for (let j = 0; j < make; j++) this.spawn(e, Number.isFinite(A) ? (A - (n - make + 1 + j)) / P.Rate : 0); // counted: n may be Infinity
+      e.acc = Number.isFinite(A) ? A - n : 0;
     } else e.acc = 0;
   }
 
@@ -390,7 +417,7 @@ export class Particles {
 
   update(dt) {
     if (this.dirty) this.sync();
-    if (!this.emitters.size) return;
+    if (!this.emitters.size) { this.dropDepth(); return; }
     const cam = this.scene.activeCamera;
     if (!cam) return;
     const eye = cam.globalPosition, view = cam.getViewMatrix(), vm = view.m;
@@ -400,7 +427,7 @@ export class Particles {
     const fog = sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
     // Soft particles: the camera's depth (shared with the post effects), held once there are emitters.
     let depth = null;
-    if (this.Q.softParticles) { if (!this.depth || this.depthCam !== cam) { this.depth = useDepth(sc, cam, this); this.depthCam = cam; } depth = this.depth.getDepthMap(); }
+    if (this.Q.softParticles) { if (!this.depth || this.depthCam !== cam) { this.dropDepth(); this.depth = useDepth(sc, cam, this); this.depthCam = cam; } depth = this.depth.getDepthMap(); }
     const eng = sc.getEngine(), screen = { x: eng.getRenderWidth(), y: eng.getRenderHeight() }, dv = { x: cam.minZ, y: cam.minZ + cam.maxZ };
     this.used.rays = 0;
     for (const e of this.emitters.values()) {
@@ -414,8 +441,8 @@ export class Particles {
       m.setFloat('lightEmission', Math.min(1, Math.max(0, P.LightEmission)));
       m.setVector3('eye', eye);
       m.setVector4('fog', { x: fog[0], y: fog[1], z: fog[2], w: fog[3] });
-      m.setColor3('fogColor', sc.fogColor || Color3.Black());
-      if (e.texFor !== P.Texture) { e.texFor = P.Texture; m.setTexture('tex', this.texture(P.Texture)); }
+      m.setColor3('fogColor', (sc.fogColor || Color3.Black()).toLinearSpace()); // as Babylon's PBR does: the scene's fog colour is sRGB
+      if (e.texFor !== P.Texture) { e.texFor = P.Texture; m.setTexture('tex', this.texture(P.Texture)); this.evictTextures(); }
     }
     this.castLights(eye);
   }
@@ -444,10 +471,18 @@ export class Particles {
     const layout = en(P.FlipbookLayout), cols = layout === 'Custom' ? Math.max(1, P.FlipbookSizeX | 0) : GRID[layout] || 1, rows = layout === 'Custom' ? Math.max(1, P.FlipbookSizeY | 0) : cols;
     const frames = cols * rows, mode = en(P.FlipbookMode), blendOn = P.FlipbookBlendFrames;
     const pos = e.pos, uv = e.uv, uv2 = e.uv2, col = e.col, bl = e.bl, c3 = [0, 0, 0];
+    // Soft edges (tiers that have them): the fade distance is half the particle's size, at most
+    // SOFT_RANGE. Not for flat-lying quads (VelocityPerpendicular) or emitters whose particles
+    // collide (they rest on surfaces, where a fade would hide them): a tier must not hide particles.
+    const softOK = this.Q.softParticles && orient !== 'VelocityPerpendicular' && (en(P.Collision) || 'None') === 'None';
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     let i = 0;
     for (const w of W) {
       const p = w.p, t = Math.min(1, p.age / p.life);
+      // A sequence changed while the particle lives: its own values are drawn again for the new keypoints.
+      if (p.sk !== P.Size) { p.size = draw(P.Size.k, this.random); p.sk = P.Size; }
+      if (p.tk !== P.Transparency) { p.tr = draw(P.Transparency.k, this.random); p.tk = P.Transparency; }
+      if (p.qk !== P.Squash) { p.sq = draw(P.Squash.k, this.random); p.qk = P.Squash; }
       let size = Math.max(0, seqAt(P.Size.k, p.size, t)), sq = seqAt(P.Squash.k, p.sq, t);
       const tr = Math.min(1, Math.max(0, seqAt(P.Transparency.k, p.tr, t)));
       let cx = w.x, cy = w.y, cz = w.z;
@@ -456,6 +491,7 @@ export class Particles {
         const dist = Math.sqrt(w.d) || 1, zo = Math.min(P.ZOffset, dist - 0.05);
         cx += (eye.x - cx) / dist * zo; cy += (eye.y - cy) / dist * zo; cz += (eye.z - cz) / dist * zo; size *= (dist - zo) / dist;
       }
+      const softR = softOK ? Math.min(SOFT_RANGE, size / 2) : 0;
       const sw = sq >= 0 ? 1 / (1 + sq) : 1 - sq, sh = sq >= 0 ? 1 + sq : 1 / (1 - sq);
       const hw = size * sw / 2, hh = size * sh / 2;
       // The quad's axes.
@@ -496,7 +532,7 @@ export class Particles {
         uv[o * 2] = (f0 % cols + qu) / cols; uv[o * 2 + 1] = 1 - (Math.floor(f0 / cols) + 1 - qv) / rows;
         uv2[o * 2] = (f1 % cols + qu) / cols; uv2[o * 2 + 1] = 1 - (Math.floor(f1 / cols) + 1 - qv) / rows;
         col[o * 4] = lin(c3[0]) * lit[0]; col[o * 4 + 1] = lin(c3[1]) * lit[1]; col[o * 4 + 2] = lin(c3[2]) * lit[2]; col[o * 4 + 3] = alpha;
-        bl[o] = fb;
+        bl[o * 2] = fb; bl[o * 2 + 1] = softR;
       }
       i++;
     }
@@ -514,7 +550,7 @@ export class Particles {
 
   grow(e, cap) {
     e.cap = cap;
-    e.pos = new Float32Array(cap * 12); e.uv = new Float32Array(cap * 8); e.uv2 = new Float32Array(cap * 8); e.col = new Float32Array(cap * 16); e.bl = new Float32Array(cap * 4);
+    e.pos = new Float32Array(cap * 12); e.uv = new Float32Array(cap * 8); e.uv2 = new Float32Array(cap * 8); e.col = new Float32Array(cap * 16); e.bl = new Float32Array(cap * 8);
     const idx = new Uint32Array(cap * 6);
     for (let q = 0; q < cap; q++) { const b = q * 4; idx.set([b, b + 1, b + 2, b, b + 2, b + 3], q * 6); }
     const m = e.mesh;
@@ -522,8 +558,22 @@ export class Particles {
     m.setVerticesData(VertexBuffer.UVKind, e.uv, true);
     m.setVerticesData(VertexBuffer.UV2Kind, e.uv2, true);
     m.setVerticesData(VertexBuffer.ColorKind, e.col, true, 4);
-    m.setVerticesData('blend', e.bl, true, 1);
+    m.setVerticesData('blend', e.bl, true, 2);
     m.setIndices(idx);
+  }
+
+  dropDepth() { if (this.depth) { releaseDepth(this.scene, this.depthCam, this); this.depth = null; this.depthCam = null; } }
+  // Textures no emitter uses any more are freed (a script cycling Texture would otherwise keep them all).
+  evictTextures() {
+    const used = new Set([...this.emitters.values()].map(e => e.texFor).map(id => !id || (/^rbxasset:/.test(id) && !BUILTIN[id]) ? DEFAULT_TEXTURE : id));
+    for (const [key, t] of this.textures) if (!used.has(key)) { t.dispose(); this.textures.delete(key); }
+  }
+  dispose() {
+    for (const e of this.emitters.values()) { this.dropLight(e); e.mesh.dispose(); e.mat.dispose(); }
+    this.emitters.clear();
+    for (const t of this.textures.values()) t.dispose();
+    this.textures.clear();
+    this.dropDepth();
   }
 
   // Test and editor hook: how many particles an emitter has alive.

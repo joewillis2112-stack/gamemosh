@@ -18,7 +18,7 @@
 // ground free of acne stripes.
 export const TIERS = {
   low: {
-    sunShadowSize: 512, sunCascades: 1, sunShadowFilter: 'low', sunShadowBias: [0.01, 0.08], sunShadowDistance: 150, msaa: 1,
+    sunShadowSize: 512, sunCascades: 2, sunShadowFilter: 'low', sunShadowBias: [0.01, 0.08], sunShadowDistance: 150, msaa: 1,
     ssao: 0, sunRays: false, skySize: 64,
     maxLights: 4, localShadowLights: 0, localShadowSize: 512,
     particleLights: 0, particleCollisionRays: 0, softParticles: false,
