@@ -1,5 +1,6 @@
 // Script editor autocomplete (web/editor/completions.js): libraries as the Luau VM reports them,
-// classes, members, services and enums from the class table, an instance's real children, locals.
+// classes, members, services and enums from the class table, an instance's real children, locals;
+// each with its one-line summary and a method its typed signature (apidocs.json), and the hover.
 import createLuau from '../web/luau.mjs';
 import { startLuau } from '../web/luau.js';
 import { DataModel, Instance, ENUMS, allClasses, membersOf } from '../web/datamodel.js';
