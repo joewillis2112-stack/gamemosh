@@ -3,10 +3,15 @@
 // types), methods and events; Instance.new and GetService typed per class; Enum types; the VM's
 // libraries (from autocomplete's probe); and, as Roblox Studio does, the open place's own
 // instance tree, so `workspace.Baseplate` is a Part (a child that only exists at run time isn't
-// known: use WaitForChild, as in Studio). Datatypes (Vector3, CFrame...) and method signatures are
-// `any`: the engine doesn't record their member types or parameter types, and a guess would flag
-// correct code.
+// known: use WaitForChild, as in Studio). Methods and events take Roblox's own parameter and return
+// types (apidocs.json, from Roblox's API dump), with two changes so working code isn't flagged: a
+// method that returns a bare Instance (FindFirstChild, Clone, GetService by a name) or a list of
+// them returns `any`, since the script knows better than the base class what it found (Roblox's
+// checker narrows with IsA; ours can't); and a class or datatype the engine lacks is Instance (as a
+// parameter) or `any`. Datatypes (Vector3, CFrame...) are `any`: their members and operators aren't
+// declared yet.
 import { allClasses, membersOf, serviceClasses, ENUMS, DataModel } from '../datamodel.js';
+import API from './apidocs.json' with { type: 'json' };
 
 const DATATYPES = ['Vector3', 'Vector2', 'CFrame', 'Color3', 'UDim', 'UDim2', 'TweenInfo', 'BrickColor', 'Ray', 'NumberRange', 'NumberSequence', 'NumberSequenceKeypoint', 'ColorSequence', 'ColorSequenceKeypoint', 'RaycastParams', 'Rect', 'RaycastResult'];
 const LUAU_LIBS = new Set(['math', 'string', 'table', 'coroutine', 'bit32', 'utf8', 'os', 'debug', 'buffer']); // Luau's own: its checker already knows them
@@ -17,6 +22,27 @@ function luauType(t, opts) {
   if (t === 'Instance') return opts.instanceProps;
   if (t.startsWith('Enum.')) return 'EnumItem';
   return 'any'; // datatypes
+}
+// A Roblox type from the API (apidocs.json's Luau spelling) as the checker gets it. ret: a return type.
+const PLAIN = new Set(['number', 'string', 'boolean', 'any', '()', '...any', '{any}', '{[any]: any}', '(...any) -> ...any']);
+function apiType(t, ret, classes) {
+  if (PLAIN.has(t)) return t;
+  if (t === '{Instance}') return ret ? '{any}' : t;
+  if (t === 'Instance') return ret ? 'any' : t;
+  if (t.startsWith('Enum.')) return 'EnumItem';
+  if (classes.has(t)) return t;
+  if (DATATYPES.includes(t)) return t;
+  return 'any'; // a class or datatype the engine lacks (InputObject, Path...)
+}
+const IDENTISH = /^[A-Za-z_]\w*$/;
+function methodDecl(owner, name, classes) {
+  const s = API.sigs[owner + ':' + name];
+  if (!s || !IDENTISH.test(name)) return `  function ${name}(self, ...: any): ...any`;
+  return `  function ${name}(self${s[0].map(([n, t, opt]) => `, ${n}: ${apiType(t, false, classes)}${opt ? '?' : ''}`).join('')}): ${apiType(s[1], true, classes)}`;
+}
+function eventDecl(owner, name, classes) {
+  const s = API.sigs[owner + '.' + name];
+  return `  ${name}: ${s ? `RBXScriptSignal<${s[0].map(([, t]) => apiType(t, false, classes)).join(', ')}>` : 'RBXScriptSignal'}`;
 }
 
 // The place's tree as types: one per instance with children (its class, plus a field per child
@@ -44,16 +70,17 @@ export function definitions(libs = {}, opts = {}, dm = null) {
   for (const d of DATATYPES) out.push(`type ${d} = any`, `declare ${d}: any`);
   out.push('declare extern type EnumItem with', '  Name: string', '  Value: number', '  EnumType: any', 'end');
   out.push('declare extern type RBXScriptConnection with', '  Connected: boolean', '  function Disconnect(self): ()', 'end');
-  out.push('declare extern type RBXScriptSignal with', '  function Connect(self, callback: (...any) -> ...any): RBXScriptConnection', '  function Once(self, callback: (...any) -> ...any): RBXScriptConnection', '  function Wait(self): ...any', 'end');
-  const classes = allClasses();
+  // A signal passes its event's values (T...) to the handler, and Wait returns them.
+  out.push('type RBXScriptSignal<T... = ...any> = {', '  Connect: (self: any, callback: (T...) -> ...any) -> RBXScriptConnection,', '  Once: (self: any, callback: (T...) -> ...any) -> RBXScriptConnection,', '  Wait: (self: any) -> T...,', '}');
+  const classes = allClasses(), names = new Set(classes.map(c => c.name));
   for (const c of classes) {
     const own = membersOf(c.name), base = c.base && membersOf(c.base);
     const inherited = k => base && [...base.props, ...base.methods, ...base.events].some(x => x.name === k);
     out.push(`declare extern type ${c.name}${c.base ? ' extends ' + c.base : ''} with`);
     if (c.name === 'Instance') out.push('  ClassName: string', `  Parent: ${opts.instanceProps}`);
     for (const p of own.props) if (!inherited(p.name)) out.push(`  ${p.name}: ${luauType(p.type, opts)}`);
-    for (const e of own.events) if (!inherited(e.name)) out.push(`  ${e.name}: RBXScriptSignal`);
-    for (const m of own.methods) if (!inherited(m.name)) out.push(`  function ${m.name}(self, ...: any): ...any`);
+    for (const e of own.events) if (!inherited(e.name)) out.push(eventDecl(e.owner, e.name, names));
+    for (const m of own.methods) if (!inherited(m.name)) out.push(methodDecl(m.owner, m.name, names));
     out.push('end');
   }
   const creatable = classes.filter(c => c.creatable && !c.service), services = classes.filter(c => c.service);
@@ -80,7 +107,8 @@ export function definitions(libs = {}, opts = {}, dm = null) {
   return out.join('\n') + '\n';
 }
 
-/** A checker message in Studio's words: "class 'Workspace'", not our generated "external type 'Live5'". */
+/** A checker message in Studio's words: "class 'Workspace'", not our generated "external type 'Live5'" (nor "table 'RBXScriptSignal<BasePart>'"). */
 export function readable(message) {
-  return message.replace(/external type '(\w+)'/g, (_, t) => `class '${LIVE_CLASS[t] || t}'`).replace(/\bLive(\d+|Game)\b/g, t => LIVE_CLASS[t] || t);
+  return message.replace(/external type '(\w+)'/g, (_, t) => `class '${LIVE_CLASS[t] || t}'`).replace(/table 'RBXScriptSignal(?:<[^']*>)?'/g, "class 'RBXScriptSignal'")
+    .replace(/\bLive(\d+|Game)\b/g, t => LIVE_CLASS[t] || t);
 }

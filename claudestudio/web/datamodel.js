@@ -1006,8 +1006,15 @@ function sameValue(a, b) {
 function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === b) return true; return false; }
 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
-// Members that are Claude Studio's own, not Roblox's: the editor says so where it describes them.
-export const STUDIO_OWN = new Set(['ParticleEmitter.CastLight', 'ParticleEmitter.LightRange', 'ParticleEmitter.Collision', 'ParticleEmitter.Bounciness']);
+// Members that are Claude Studio's own, not Roblox's, with their one-line docs: the editor says so
+// where it describes them (Roblox's own members get theirs from web/editor/apidocs.json).
+export const STUDIO_OWN = new Map([
+  ['ParticleEmitter.CastLight', 'Whether the particles light their surroundings, in their average colour, from their centre.'],
+  ['ParticleEmitter.LightRange', 'How far, in studs, the light from CastLight reaches.'],
+  ['ParticleEmitter.Collision', 'What particles do when they hit a collidable part: pass through, bounce, stick or die.'],
+  ['ParticleEmitter.Bounciness', 'The share of a particle\'s speed kept when it bounces off a part (Collision Bounce), 0 to 1.'],
+  ['Enum.ParticleCollision', 'What a ParticleEmitter\'s particles do when they hit a part (its Collision property).'],
+]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
