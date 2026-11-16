@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { brush, dabs, image, paintStroke } from '../web/paint/brush.js';
 import { composite } from '../web/paint/blend.js';
 import { LayeredImage } from '../web/paint/layers.js';
+import { PRESETS, applyPreset } from '../web/paint/presets.js';
 
 const cases = JSON.parse(fs.readFileSync('test/fixtures/paint/cases.json', 'utf8'));
 const oracle = JSON.parse(fs.readFileSync('test/fixtures/paint/oracle.json', 'utf8'));
@@ -67,6 +68,38 @@ check(k === bo.length, `every blend result compared (${k} of ${bo.length})`);
   check(L.remove(0) && !L.remove(0) && L.layers.length === 1, `a layer can be removed, but never the last`);
   let threw = false; try { L.add('Wrong', image(2, 2)); } catch { threw = true; }
   check(threw, `a layer of another size is refused`);
+}
+// Brush presets (web/paint/presets.js) against PhotoCraft's built-in ones (presets_oracle.rs): the
+// same settings in every field brush.js reads, nothing switched on that brush.js hasn't ported, and
+// one stroke (varying pressure) painted with each covers the same pixels.
+{
+  const pc = JSON.parse(fs.readFileSync('test/fixtures/paint/preset-cases.json', 'utf8'));
+  const po = JSON.parse(fs.readFileSync('test/fixtures/paint/preset-oracle.json', 'utf8'));
+  check(PRESETS.length === pc.names.length && PRESETS.every((p, i) => p.name === pc.names[i]), `the presets are the ${pc.names.length} the oracle renders, in order`);
+  const dyn = d => [d.control, f32(d.jitter), f32(d.minimum), d.fadeSteps];
+  const f32 = Math.fround, same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  for (const p of PRESETS) {
+    const o = po.find(x => x.name === p.name), ours = brush(p.brush), R = o && o.brush;
+    if (!R) { check(false, `preset ${p.name}: in PhotoCraft's built-ins`); continue; }
+    const fields = ['size', 'hardness', 'spacing', 'opacity', 'flow', 'roundness', 'angle'].filter(k => f32(R[k]) !== ours[k]);
+    const flags = ['aliased', 'pressureSize', 'pressureOpacity', 'flipX', 'flipY'].filter(k => R[k] !== ours[k]);
+    const sd = ['size', 'angle', 'roundness'].filter(k => !same(dyn(R.shapeDynamics[k]), dyn(ours.shapeDynamics[k])));
+    const tr = ['opacity', 'flow'].filter(k => !same(dyn(R.transfer[k]), dyn(ours.transfer[k])));
+    if (R.shapeDynamics.enabled !== ours.shapeDynamics.enabled || R.shapeDynamics.flipXJitter !== ours.shapeDynamics.flipXJitter || R.shapeDynamics.flipYJitter !== ours.shapeDynamics.flipYJitter) sd.push('enabled/flips');
+    if (R.transfer.enabled !== ours.transfer.enabled) tr.push('enabled');
+    const unported = [['tip', R.tip !== 'round'], ['texture', R.texture.enabled], ['scattering', R.scattering.enabled], ['dual brush', R.dualBrush.enabled], ['colour dynamics', R.colorDynamics.enabled],
+      ['wet edges', R.wetEdges], ['build-up', R.buildUp], ['noise', R.noise], ['smoothing', R.smoothing.amount > 0], ['pose', R.pose.enabled], ['mode', R.mode !== 'Normal'],
+      ['transfer wetness/mix', R.transfer.wetness.control !== 'off' || R.transfer.mix.control !== 'off'], ['tilt scale', R.shapeDynamics.tiltScale !== 0]].filter(x => x[1]).map(x => x[0]);
+    // The stroke: coverage (alpha) per pixel, the oracle's in 16 bits.
+    const img = image(pc.w, pc.h);
+    paintStroke(img, { ...p.brush, color: [0.8, 0.2, 0.1, 1] }, pc.points);
+    let worst = 0, painted = 0;
+    for (let i = 0; i < pc.w * pc.h; i++) { const want = parseInt(o.alpha16.slice(i * 4, i * 4 + 4), 16) / 65535; worst = Math.max(worst, Math.abs(img.data[i * 4 + 3] - want)); if (want > 0) painted++; }
+    check(!fields.length && !flags.length && !sd.length && !tr.length && !unported.length && worst <= 1 / 65535 + 1e-6 && painted > 20,
+      `preset ${p.name}: PhotoCraft's settings${[...fields, ...flags, ...sd.map(k => 'shape ' + k), ...tr.map(k => 'transfer ' + k)].map(k => ' (differs: ' + k + ')').join('')}${unported.map(k => ' (needs ' + k + ')').join('')}; its stroke covers the same pixels (worst ${(worst * 65535).toFixed(2)}/65535, ${painted} painted)`);
+  }
+  const t = applyPreset({ color: [0, 0, 1, 1], erase: true, size: 99, roundness: 0.5 }, PRESETS[0]);
+  check(t.size === 30 && t.roundness === 1 && t.erase && t.color[2] === 1 && t.preset === 'Hard Round', 'applying a preset sets its brush, resets what it leaves unset, keeps colour and eraser');
 }
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);

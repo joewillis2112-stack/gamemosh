@@ -14,4 +14,6 @@ cp tools/paint-oracle/oracle.rs "$D/crates/paint/examples/studio_oracle.rs"
 (cd "$D" && cargo run -q --release -p photocraft-paint --example studio_oracle -- "$OLDPWD/test/fixtures/paint/cases.json") > test/fixtures/paint/oracle.json
 cp tools/paint-oracle/blend_oracle.rs "$D/crates/paint/examples/studio_blend_oracle.rs"
 (cd "$D" && cargo run -q --release -p photocraft-paint --example studio_blend_oracle -- "$OLDPWD/test/fixtures/paint/blend-cases.json") > test/fixtures/paint/blend-oracle.json
+cp tools/paint-oracle/presets_oracle.rs "$D/crates/paint/examples/studio_presets_oracle.rs"
+(cd "$D" && cargo run -q --release -p photocraft-paint --example studio_presets_oracle -- "$OLDPWD/test/fixtures/paint/preset-cases.json") > test/fixtures/paint/preset-oracle.json
 echo "oracle: $(wc -c < test/fixtures/paint/oracle.json) bytes, PhotoCraft $(git -C "$D" rev-parse --short HEAD)"
