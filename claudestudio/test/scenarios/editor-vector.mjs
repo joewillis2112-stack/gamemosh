@@ -7,6 +7,7 @@
 // SVG into Decal.Texture as one undo step, the sign shows it in 3D, and it opens again as the
 // same shapes; the scene's Undo takes it back.
 import { PNG } from 'pngjs';
+import * as Grad from '../../web/vector/gradient.js';
 
 export default async function (t) {
   const fail = [];
@@ -73,7 +74,7 @@ export default async function (t) {
   await drag(await at(400, 380), await at(400, 290));
   const s2 = await st(), star = s2.doc.shapes[1];
   const anchors = await E(() => window.editor.vectorEditor.art.children[1].getAttribute('d').match(/[LC]/g).length + 1);
-  check(star && star.kind === 'star' && star.live.points === 6 && Math.abs(star.live.radius - 90) < 3 && anchors === 12 && near(await pix(400, 380), [0, 0, 255]), `a Star drag draws a 6-pointed star (${anchors} anchors, radius ${star && star.live.radius.toFixed(1)}), blue on screen`);
+  check(star && star.kind === 'star' && star.live.points === 6 && Math.abs(star.live.radius - 90) < 3 && anchors === 12 && near(await pix(400, 380), [0, 0, 255]), `a Star drag draws a 6-pointed star (${anchors} anchors, radius ${star && (+star.live.radius).toFixed(1)}), blue on screen`);
   check(s2.doc.shapes[0].cornerKind === 'Chamfer' && s2.doc.shapes[0].corner === 50, `changing settings with nothing selected leaves the rectangle as it was`);
 
   // The Pen: corners at three clicks, then a click on the first anchor closes it; green, no stroke.
@@ -104,7 +105,69 @@ export default async function (t) {
   await btn('#vectoreditor [data-ve=undo]'); await btn('#vectoreditor [data-ve=undo]');
   const s5 = await st();
   check(s5.doc.shapes.length === 4 && Math.abs(s5.doc.shapes[0].live.r[0] - 60) < 3 && s5.steps === steps0, `Undo brings it back, then puts it back where it was; the scene's history is untouched`);
-  await E(() => { window.editor.vectorEditor.sel = -1; window.editor.vectorEditor.render(); });
+
+  // Gradients (VectorCraft's model, web/vector/gradient.js, checked against its Rust in
+  // test/vector-ops.test.mjs; here, that the screen shows what the model says at each point).
+  const want = (s, p) => { const g = s.grad, geo = Grad.fit(g.kind, s.box, g.angle); return Grad.sample(g.stops, Grad.paramAt(g.kind, geo, p))[0].map(v => Math.round(v * 255)); };
+  const shapeAt = async i => { const d = (await st()).doc.shapes[i]; d.box = await E(i => { const ve = window.editor.vectorEditor, b = ve.art.children[i].getBBox(); return [b.x, b.y, b.x + b.width, b.y + b.height]; }, i); return d; };
+  await tap(await at(180, 100)); // the rectangle
+  await setV('paint', 'linear'); await setV('to', '#0000ff');
+  let rs = await shapeAt(0), l = await pix(80, 140), rr = await pix(280, 140);
+  check(rs.grad && rs.grad.kind === 'linear' && near(l, want(rs, [80, 140]), 8) && near(rr, want(rs, [280, 140]), 8) && rr[2] > l[2] + 150, `Linear: red to blue across the rectangle, on screen as the model says (left ${l} ≈ ${want(rs, [80, 140])}, right ${rr} ≈ ${want(rs, [280, 140])})`);
+  await setV('angle', 90);
+  rs = await shapeAt(0); const top = await pix(180, 70), bottom = await pix(180, 210);
+  check(near(top, want(rs, [180, 70]), 8) && near(bottom, want(rs, [180, 210]), 8) && top[2] > bottom[2] + 150, `at 90° it runs bottom (red, ${bottom}) to top (blue, ${top})`);
+  await setV('paint', 'solid');
+  check(near(await pix(180, 140), [255, 0, 0]) && !(await st()).doc.shapes[0].grad, 'Solid takes the gradient off: red again');
+  await tap(await at(400, 380)); // the star: radial, blue at the centre to yellow at the tips
+  await setV('paint', 'radial'); await setV('to', '#ffff00');
+  const ss = await shapeAt(1), c0 = await pix(400, 380), c1 = await pix(400, 312), c2 = await pix(440, 380); // up the vector (the angle is still 90°), and across it
+  check(ss.grad.kind === 'radial' && near(c0, want(ss, [400, 380]), 8) && near(c1, want(ss, [400, 312]), 8) && near(c2, want(ss, [440, 380]), 8) && c1[0] > c0[0] + 100 && c2[0] > c0[0] + 60, `Radial: the star is blue at its centre (${c0}) and yellower out to its tips, up (${c1} ≈ ${want(ss, [400, 312])}) and across (${c2} ≈ ${want(ss, [440, 380])})`);
+
+  // Text: a tap places it and the text field takes the typing (one undo step for the typing).
+  await btn('#vectoreditor [data-tool=text]');
+  await setV('paint', 'solid'); await setV('fill', '#ffffff'); await setV('strokeWidth', 0); await setV('font', 'Serif'); await setV('size', 64);
+  const u0 = await E(() => window.editor.vectorEditor.undo.length);
+  await tap(await at(60, 500));
+  await t.page.keyboard.type('HUD'); await E(() => window.editor.frames(1));
+  const tx = (await st()).doc.shapes[4], u1 = await E(() => window.editor.vectorEditor.undo.length);
+  check(tx && tx.kind === 'text' && tx.text === 'HUD' && tx.font === 'Serif' && tx.size === 64 && u1 - u0 === 2, `the Text tool puts "${tx && tx.text}" where tapped, in Serif 64; placing and typing are ${u1 - u0} undo steps`);
+  await btn('#vectoreditor [data-v=bold]');
+  const tb = await E(() => { const el = window.editor.vectorEditor.art.children[4], b = el.getBBox(); return { box: [b.x, b.y, b.x + b.width, b.y + b.height], family: el.getAttribute('font-family'), weight: el.getAttribute('font-weight') }; });
+  const ours = await E(() => window.editor.vectorEditor.boundsOf(4));
+  const [ta, tbb] = [await at(tb.box[0], tb.box[1]), await at(tb.box[2], tb.box[3])];
+  const shot = PNG.sync.read(await t.page.screenshot({ clip: { x: Math.floor(ta[0]), y: Math.floor(ta[1]), width: Math.ceil(tbb[0] - ta[0]), height: Math.ceil(tbb[1] - ta[1]) } }));
+  let white = 0; for (let i = 0; i < shot.data.length; i += 4) if (shot.data[i] > 235 && shot.data[i + 1] > 235 && shot.data[i + 2] > 235) white++;
+  const share = white / (shot.width * shot.height);
+  check(/Georgia/.test(tb.family) && tb.weight === 'bold' && share > 0.15, `Bold sets it bold; it draws in white (${(share * 100).toFixed(0)}% of its box) with the family written as "${tb.family}"`);
+  check(Math.abs((ours[2] - ours[0]) - (tb.box[2] - tb.box[0])) < 0.15 * (tb.box[2] - tb.box[0]) && ours[1] < 500 && ours[3] >= 495, `its measured box (${ours.map(Math.round)}) is the browser's (${tb.box.map(Math.round)}) give or take the side bearings`);
+
+  // Pathfinder (VectorCraft's pathops in wasm): a magenta ellipse over the green triangle.
+  await btn('#vectoreditor [data-tool=ellipse]');
+  await setV('font', 'Sans'); await setV('fill', '#ff00ff');
+  await drag(await at(150, 330), await at(260, 420));
+  await btn('#vectoreditor [data-tool=select]');
+  const pick2 = async () => { // the triangle, then the ellipse added to the selection (Shift-click; Add on a phone)
+    await tap(await at(20, 20)); await tap(await at(120, 320)); // a tap on nothing drops the selection first
+    if (phone) { await btn('#vectoreditor [data-ve=add]'); await tap(await at(240, 375)); }
+    else { await t.page.keyboard.down('Shift'); await tap(await at(240, 375)); await t.page.keyboard.up('Shift'); }
+  };
+  await pick2();
+  check((await E(() => window.editor.vectorEditor.selection)).join() === '2,5', 'Shift-click (Add on a phone) selects the ellipse as well as the triangle');
+  const GREEN = [0, 255, 0], MAG = [255, 0, 255];
+  const n0 = (await st()).doc.shapes.length;
+  await btn('#vectoreditor [data-pf=minusFront]'); await t.page.waitForFunction(() => window.editor.vectorEditor.undo.length && window.editor.vectorEditor.doc.shapes.length === 5);
+  const mf = await st();
+  check(mf.doc.shapes.length === n0 - 1 && mf.doc.shapes[4].kind === 'path' && mf.doc.shapes[4].fill === '#00ff00' && near(await pix(120, 320), GREEN) && !near(await pix(170, 350), GREEN, 60) && !near(await pix(240, 375), MAG, 60), 'Minus Front: the triangle with the ellipse cut out of it, green (the back shape keeps its paint)');
+  await btn('#vectoreditor [data-ve=undo]');
+  check((await st()).doc.shapes.length === n0 && near(await pix(240, 375), MAG), 'Undo brings both back');
+  await pick2(); await btn('#vectoreditor [data-pf=intersect]'); await t.page.waitForFunction(n => window.editor.vectorEditor.doc.shapes.length === n - 1, n0);
+  check(near(await pix(170, 350), MAG) && !near(await pix(120, 320), GREEN, 60) && !near(await pix(240, 375), MAG, 60), 'Intersect: only where they overlap, magenta (the front shape\'s paint)');
+  await btn('#vectoreditor [data-ve=undo]');
+  await pick2(); await btn('#vectoreditor [data-pf=unite]'); await t.page.waitForFunction(n => window.editor.vectorEditor.doc.shapes.length === n - 1, n0);
+  const un = await st();
+  check(near(await pix(120, 320), MAG) && near(await pix(170, 350), MAG) && near(await pix(240, 375), MAG) && un.doc.shapes[4].path.length === 1, `Unite: one outline round both, magenta (${un.doc.shapes[4].path[0].anchors.length} anchors)`);
+  await E(() => { window.editor.vectorEditor.sel = -1; window.editor.vectorEditor.extra = []; window.editor.vectorEditor.addMode = false; window.editor.vectorEditor.render(); });
   await t.golden('editor-vector');
 
   // Apply: SVG into Decal.Texture, one undo step; the sign shows it; it opens again as shapes.
@@ -119,7 +182,7 @@ export default async function (t) {
   await btn('#paintbar [data-vector]');
   await t.page.waitForFunction(() => window.editor.vectorEditor.active);
   const s7 = await st();
-  check(s7.doc.shapes.length === 4 && s7.doc.shapes.map(s => s.kind).join() === 'rect,star,path,path' && s7.doc.shapes[0].corner === 50, `it opens again as the same shapes, still live (${s7.doc.shapes.map(s => s.kind)})`);
+  check(s7.doc.shapes.length === 5 && s7.doc.shapes.map(s => s.kind).join() === 'rect,star,path,text,path' && s7.doc.shapes[0].corner === 50 && s7.doc.shapes[1].grad.kind === 'radial' && s7.doc.shapes[3].text === 'HUD', `it opens again as the same shapes, still live: corners, the radial gradient, the text (${s7.doc.shapes.map(s => s.kind)})`);
   await btn('#vectoreditor [data-ve=cancel]');
   if (phone) await btn('#ui [data-act=undo]'); else { await t.page.keyboard.press('Control+z'); await E(() => window.editor.frames(1)); }
   check((await st()).tex === '', `the scene's Undo takes the drawing back (Texture empty again)`);

@@ -1,0 +1,25 @@
+# Claude Studio's binding to VectorCraft's pathops (copied into VectorCraft's workspace as
+# crates/claudestudio-pathops by build.sh; see lib.rs).
+[package]
+name = "claudestudio-pathops"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vectorcraft-geom = { workspace = true }
+vectorcraft-pathops = { workspace = true }
+
+[dev-dependencies]
+vectorcraft-color = { workspace = true }
+serde_json = { workspace = true }
+kurbo = { workspace = true }
+
+[[example]]
+name = "studio_oracle2"
+path = "oracle.rs"
