@@ -50,13 +50,13 @@ export function spatialImage() {
     const fy = y / h, fx = x / w;
     let c = mix([0.55, 0.68, 0.86], [0.88, 0.9, 0.92], fy * 1.6); // sky
     const sun = (x - 400) * (x - 400) + (y - 60) * (y - 60);
-    if (sun < 900) c = [1, 0.98, 0.9]; else if (sun < 3600) c = mix(c, [1, 0.95, 0.8], (3600 - sun) / 2700);
+    if (sun < 225) c = [1, 0.98, 0.9]; else if (sun < 2500) c = mix(c, [1, 0.95, 0.8], (2500 - sun) / 2275); // small, so the airlight's percentile lands on its glow
     // three buildings with windows (fine, hard-edged detail), one in deep shadow
     for (const [x0, x1, top, col] of [[30, 150, 120, [0.62, 0.42, 0.3]], [170, 300, 70, [0.08, 0.07, 0.09]], [320, 470, 160, [0.75, 0.75, 0.7]]]) {
       if (x >= x0 && x < x1 && y >= top) { c = col; if ((x - x0) % 20 < 9 && (y - top) % 26 < 14 && y < 300) c = mix(col, [0.95, 0.85, 0.5], (x0 === 170 ? 0.5 : 0.25)); }
     }
     if (y >= 300) { const g = 0.25 + 0.5 * noise(x, y) * (0.3 + fy * 0.7); c = [g, g * 0.95, g * 0.85]; } // road: noisy texture
-    if (y >= 330 && x > 60 && x < 200) c = mix(c, [0.02, 0.02, 0.03], 0.85); // a shadow on it
+    if (y >= 330 && x > 60 && x < 200) c = noise(y, x) > 0.985 ? [1, 1, 0.95] : mix(c, [0.02, 0.02, 0.03], 0.85); // a shadow on it, with glints (detail many EV from its surround)
     const haze = 0.45 * (1 - fy) * (1 - fy) + 0.05 * fx; // more haze higher up
     c = mix(c, [0.8, 0.82, 0.85], haze);
     for (let k = 0; k < 3; k++) px[(y * w + x) * 3 + k] = Math.round(Math.min(Math.max(c[k], 0), 1) * 255);
