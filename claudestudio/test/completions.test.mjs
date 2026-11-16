@@ -53,6 +53,17 @@ o = opts('local e = Instance.new("ParticleEmitter")\ne.');
 check(o.Rate.detail === 'number' && /particles emitted per second/.test(o.Rate.info) && o.CastLight.info === docOf('ParticleEmitter.CastLight') && /light their surroundings/.test(o.CastLight.info) && /^Fires after an object is parented/.test(o.ChildAdded.info) && /parent/i.test(o.Parent.info), 'properties, events, Parent and Claude Studio\'s own members have their summaries');
 o = opts('local x = math.');
 check(/between min and max/.test(o.clamp.info) && /Vector3/.test(opts('local v = Vector3.').new.info) && /output/.test(opts('pri').print.info) && /Materials/.test(opts('local m = Enum.').Material.info) && /connected Player/.test(opts('local s = game:GetService("').Players.info), 'libraries, datatypes, globals, enums and services too');
+// Library and datatype functions carry their typed signatures; datatype values complete with their members.
+check(opts('local x = math.').clamp.detail === '(x: number, min: number, max: number): number' && opts('local v = Vector3.').new.detail === '(x: number?, y: number?, z: number?): Vector3'
+  && opts('local c = CFrame.').new.detail === '(): CFrame +5' && opts('local v = Vector3.').zero.detail === 'Vector3' && opts('pri').print.detail === '(...: any): ()',
+  `library and datatype functions show their signatures (${opts('local c = CFrame.').new.detail}; ${opts('pri').print.detail})`);
+r = at('local v = Vector3.new(1, 2, 3)\nv.');
+check(has(r, 'X', 'Magnitude', 'Unit') && lacks(r, 'Lerp', 'new', 'Anchored') && opts('local v = Vector3.new(1, 2, 3)\nv.').Magnitude.detail === 'number' && /length/.test(opts('local v = Vector3.new(1, 2, 3)\nv.').Magnitude.info), 'a local made by Vector3.new completes with a Vector3\'s properties, typed and summarised');
+o = opts('local v = Vector3.new(1, 2, 3)\nv:');
+check(o.Lerp && o.Lerp.detail === '(goal: Vector3, alpha: number): Vector3' && !o.X, 'and its methods after a colon, with signatures');
+check(has(at('workspace.Baseplate.Position.'), 'Magnitude', 'Unit') && has(at('workspace.Baseplate.CFrame:'), 'Inverse', 'ToWorldSpace') && has(at('workspace.Baseplate.CFrame.LookVector.'), 'X', 'Magnitude')
+  && at('workspace.Baseplate.CFrame.Nope.') === null, 'a property holding a datatype completes as that datatype, through its own properties; nothing for what isn\'t one');
+check(has(at('workspace:'), 'Raycast') && opts('workspace:').Raycast.detail.startsWith('(origin: Vector3, direction: Vector3'), 'methods the VM adds outside the class table (Workspace:Raycast) are offered, with their types');
 // Every class and member the engine has gets a summary (the docs cover the class table), except
 // Roblox members whose pages have none and members that aren't Roblox's (internal ones, MeshData).
 const NO_DOC = new Set(['MeshPart.MeshData', 'ParticleEmitter:FastForward', 'ParticleEmitter.OnEmitRequested', 'ParticleEmitter.OnClearRequested', 'ParticleEmitter.OnFastForwardRequested', 'PoseBase.Weight']);
@@ -81,10 +92,18 @@ H('local c = Enum.ParticleCollision.Bounce', 'ParticleCollision', "Enum.Particle
 H('workspace.Baseplate.Touched:Connect(f)', 'Touched', 'Part.Touched: RBXScriptSignal<(otherPart: BasePart)> | Fires when a part touches another part as a result of physical movement. | event of BasePart');
 H('workspace.Baseplate', 'Baseplate', 'Baseplate: Part | A common type of BasePart that comes in different primitive shapes. | Workspace.Baseplate in this place');
 H('local n = game.Players.LocalPlayer', 'LocalPlayer', 'Players.LocalPlayer: Instance | The Player that the LocalScript is running for. | property of Players | read-only to scripts');
-H('local x = math.clamp(1, 2, 3)', 'clamp', 'math.clamp | Returns a number between min and max, inclusive. | in Luau\'s math library');
-H('local v = Vector3.new(1, 2, 3)', 'new', 'Vector3.new | Returns a new Vector3 from the given x, y, and z components. | in Luau\'s Vector3 library');
+H('local x = math.clamp(1, 2, 3)', 'clamp', 'math.clamp(x: number, min: number, max: number): number | Returns a number between min and max, inclusive. | in Luau\'s math library');
+H('local v = Vector3.new(1, 2, 3)', 'new', 'Vector3.new(x: number?, y: number?, z: number?): Vector3 | Returns a new Vector3 from the given x, y, and z components. | in the Vector3 datatype\'s library');
+H('local v = Vector3.zero', 'zero', 'Vector3.zero: Vector3 | A Vector3 with a magnitude of 0. | in the Vector3 datatype\'s library');
+check(/^CFrame\.new\(\): CFrame \| CFrame\.new\(pos: Vector3\): CFrame \|.*CFrame\.new\(x: number, y: number, z: number\): CFrame/.test(hover('local c = CFrame.new()', 'new').replace(/\n/g, ' | ')), `an overloaded constructor shows every form (${hover('local c = CFrame.new()', 'new').split('\n').length} lines)`);
+H('task.wait(1)', 'wait', 'task.wait(duration: number?): number | Yields the current thread without throttling. | in Luau\'s task library');
 H('task.wait(1)', 'task', 'task | Allows for functions and threads to be coordinated with the engine\'s scheduler. | Luau library: ' + libs.task.length + ' members');
-H('print("hi")', 'print', 'print | Prints all provided values to the output. | global');
+H('print("hi")', 'print', 'print(...: any): () | Prints all provided values to the output. | global');
+// Datatype values: a local made by a constructor, a property that is one, and their properties' own.
+H('local v = Vector3.new(1, 2, 3)\nprint(v.Magnitude)', 'Magnitude', 'Vector3.Magnitude: number | The length of the Vector3. | property of Vector3');
+H('local c = workspace.Baseplate.CFrame:Inverse()', 'Inverse', 'CFrame:Inverse(): CFrame | Returns the inverse of the CFrame. | method of CFrame');
+H('print(workspace.Baseplate.CFrame.LookVector:Cross(v))', 'Cross', 'Vector3:Cross(other: Vector3): Vector3 | Returns the cross product of the two vectors. | method of Vector3');
+H('local r = workspace:Raycast(a, b)', 'Raycast', 'Workspace:Raycast(origin: Vector3, direction: Vector3, raycastParams: RaycastParams?): RaycastResult? | Casts a ray using an origin, direction, and optional RaycastParams, then returns a RaycastResult if an eligible object or terrain intersects the ray. | method of Workspace');
 H('local m = Enum.Material.Neon', 'Neon', 'Enum.Material.Neon | enum item');
 H('local m = Enum.Material.Neon', 'Material', 'Enum.Material | Materials used for parts and/or terrain. | ' + Object.keys(ENUMS.Material).length + ' items');
 H('script.Parent', 'script', 'script: Script | A reference to the LuaSourceContainer object (Script, LocalScript, or ModuleScript) that is executing this code. | Workspace.Script, the script this code runs as');
