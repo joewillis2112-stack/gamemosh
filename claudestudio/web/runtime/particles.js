@@ -176,7 +176,7 @@ export class Particles {
   // Emitters that draw: under a BasePart in the Workspace (Attachments come with that class).
   collect() {
     const out = [];
-    const walk = inst => { for (const c of inst.children) { if (c.ClassName === 'ParticleEmitter' && isA(inst.ClassName, 'BasePart')) out.push(c); walk(c); } };
+    const walk = inst => { for (const c of inst.children) { if (c.ClassName === 'ParticleEmitter' && (isA(inst.ClassName, 'BasePart') || inst.ClassName === 'Attachment')) out.push(c); walk(c); } };
     walk(this.dm.workspace);
     return out;
   }
@@ -186,6 +186,12 @@ export class Particles {
     const want = new Set(this.collect());
     for (const [inst, e] of this.emitters) if (!want.has(inst)) { this.dropLight(e); e.mesh.dispose(); e.mat.dispose(); this.emitters.delete(inst); }
     for (const inst of want) if (!this.emitters.has(inst)) this.emitters.set(inst, this.create(inst));
+    // An emitter moved to another part (or attachment): its locked particles keep their place in the
+    // world and ride the new one from now on (OURS: Roblox's behaviour isn't documented).
+    for (const [inst, e] of this.emitters) {
+      if (e.host && e.host !== inst.parent && e.hostF && e.ps.some(p => p.local)) { const F = this.frame(inst.parent); for (const p of e.ps) if (p.local) { this.toWorld(p, e.hostF); this.toLocal(p, F); } }
+      e.host = inst.parent; e.hostF = this.frame(inst.parent);
+    }
   }
 
   create(inst) {
@@ -216,10 +222,14 @@ export class Particles {
   }
 
   // The part's frame: centre, axes (right, up, back), half sizes.
+  // An Attachment is a point with its own axes (Roblox: particles spawn from the attachment's
+  // position; its orientation turns EmissionDirection), so every shape collapses to that point.
   frame(part) {
-    const cf = part.props.CFrame, m = cf.m, s = part.props.Size;
-    return { o: [cf.x, cf.y, cf.z], ax: [0, 1, 2].map(k => [m[3 + k], m[6 + k], m[9 + k]]), h: [s.x / 2, s.y / 2, s.z / 2] };
+    const att = part.ClassName === 'Attachment', cf = att ? this.dm.attachmentWorld(part).WorldCFrame : part.props.CFrame, m = cf.m, s = att ? null : part.props.Size;
+    return { o: [cf.x, cf.y, cf.z], ax: [0, 1, 2].map(k => [m[3 + k], m[6 + k], m[9 + k]]), h: s ? [s.x / 2, s.y / 2, s.z / 2] : [0, 0, 0] };
   }
+  // The part an emitter belongs to (its parent, or its attachment's part): velocity and collisions.
+  bodyOf(host) { return host.ClassName === 'Attachment' ? (host.parent && isA(host.parent.ClassName, 'BasePart') ? host.parent : null) : host; }
 
   // One new particle, `age` seconds old already (spreads a frame's particles over the frame).
   spawn(e, age) {
@@ -270,7 +280,7 @@ export class Particles {
     const dl = Math.hypot(wd[0], wd[1], wd[2]) || 1;
     const spd = P.Speed.min + (P.Speed.max - P.Speed.min) * r();
     const vel = wd.map(x => x / dl * spd);
-    const pv = part.props.AssemblyLinearVelocity, inh = P.VelocityInheritance || 0;
+    const body = this.bodyOf(part), pv = body && body.props.AssemblyLinearVelocity, inh = P.VelocityInheritance || 0;
     if (inh && pv) { vel[0] += pv.x * inh; vel[1] += pv.y * inh; vel[2] += pv.z * inh; }
     const p = {
       x: F.o[0] + w[0], y: F.o[1] + w[1], z: F.o[2] + w[2], vx: vel[0], vy: vel[1], vz: vel[2],
@@ -306,18 +316,36 @@ export class Particles {
     p.local = false;
   }
 
-  advance(e, p, dt) {
-    const P = e.inst.props;
+  // What one step of dt needs, worked out once per emitter (not per particle): the acceleration in
+  // world space and, for locked particles, in the part's; the drag factor.
+  // (relock runs first in simulate, so every live particle is local exactly when LockedToPart is set.)
+  stepper(e, dt) {
+    const P = e.inst.props, A = P.Acceleration, s = e.step || (e.step = { aw: [0, 0, 0], al: [0, 0, 0] });
+    s.dt = dt; s.h = dt * dt / 2; s.k = P.Drag ? Math.pow(2, -dt / P.Drag) : 1;
+    s.aw[0] = A.x; s.aw[1] = A.y; s.aw[2] = A.z;
+    // WindAffectsDrag (Roblox: only with Drag > 0): drag pulls toward Workspace.GlobalWind instead of rest.
+    const W = P.WindAffectsDrag && P.Drag > 0 && this.dm.workspace.props.GlobalWind;
+    s.wind = W && (W.x || W.y || W.z) ? (s.ww || (s.ww = [0, 0, 0])) : null;
+    if (s.wind) { s.wind[0] = W.x; s.wind[1] = W.y; s.wind[2] = W.z; }
+    if (P.LockedToPart) {
+      const ax = this.frame(e.inst.parent).ax;
+      for (let r = 0; r < 3; r++) s.al[r] = ax[r][0] * A.x + ax[r][1] * A.y + ax[r][2] * A.z;
+      if (s.wind) { const wl = s.wl || (s.wl = [0, 0, 0]); for (let r = 0; r < 3; r++) wl[r] = ax[r][0] * W.x + ax[r][1] * W.y + ax[r][2] * W.z; }
+    }
+    return s;
+  }
+  advance(e, p, dt, s = this.stepper(e, dt)) {
     p.age += dt;
-    if (p.stuck) { p.rot += p.rs * dt; return; }
-    let A = P.Acceleration;
-    if (p.local) { const F = e.F || (e.F = this.frame(e.inst.parent)); const a = [A.x, A.y, A.z]; A = { x: F.ax[0][0] * a[0] + F.ax[0][1] * a[1] + F.ax[0][2] * a[2], y: F.ax[1][0] * a[0] + F.ax[1][1] * a[1] + F.ax[1][2] * a[2], z: F.ax[2][0] * a[0] + F.ax[2][1] * a[1] + F.ax[2][2] * a[2] }; }
-    // Exact for constant acceleration; drag then takes half the speed every Drag seconds (negative grows it).
-    const h = dt * dt / 2;
-    p.x += p.vx * dt + A.x * h; p.y += p.vy * dt + A.y * h; p.z += p.vz * dt + A.z * h;
-    p.vx += A.x * dt; p.vy += A.y * dt; p.vz += A.z * dt;
-    if (P.Drag) { const k = Math.pow(2, -dt / P.Drag); p.vx *= k; p.vy *= k; p.vz *= k; }
     p.rot += p.rs * dt;
+    if (p.stuck) return;
+    const A = p.local ? s.al : s.aw, h = s.h;
+    // Exact for constant acceleration; drag then takes half the speed every Drag seconds (negative grows it).
+    p.x += p.vx * dt + A[0] * h; p.y += p.vy * dt + A[1] * h; p.z += p.vz * dt + A[2] * h;
+    p.vx += A[0] * dt; p.vy += A[1] * dt; p.vz += A[2] * dt;
+    if (s.k !== 1) {
+      if (s.wind) { const w = p.local ? s.wl : s.wind; p.vx = w[0] + (p.vx - w[0]) * s.k; p.vy = w[1] + (p.vy - w[1]) * s.k; p.vz = w[2] + (p.vz - w[2]) * s.k; }
+      else { p.vx *= s.k; p.vy *= s.k; p.vz *= s.k; }
+    }
   }
 
   simulate(e, dt) {
@@ -329,11 +357,11 @@ export class Particles {
     const collide = en(P.Collision), phys = collide && collide !== 'None' && this.Q.particleCollisionRays > 0 && this.scene.getPhysicsEngine && this.scene.getPhysicsEngine();
     if (phys) {
       // Rays from each particle's last position to its new one, while the frame's budget lasts.
-      const own = this.world && this.world.parts.get(e.inst.parent), ownBody = own && own.agg && own.agg.body;
-      const from = new Vector3(), to = new Vector3(), ray = this.ray, k = Math.min(1, Math.max(0, P.Bounciness));
+      const own = this.world && this.world.parts.get(this.bodyOf(e.inst.parent)), ownBody = own && own.agg && own.agg.body;
+      const from = new Vector3(), to = new Vector3(), ray = this.ray, k = Math.min(1, Math.max(0, P.Bounciness)), s = this.stepper(e, d);
       for (const p of e.ps) {
         const x0 = p.x, y0 = p.y, z0 = p.z;
-        this.advance(e, p, d);
+        this.advance(e, p, d, s);
         if (p.local || p.stuck || this.used.rays >= this.Q.particleCollisionRays) continue;
         this.used.rays++;
         from.set(x0, y0, z0); to.set(p.x, p.y, p.z);
@@ -347,8 +375,11 @@ export class Particles {
         if (vn < 0) { p.vx -= (1 + k) * vn * n.x; p.vy -= (1 + k) * vn * n.y; p.vz -= (1 + k) * vn * n.z; }
         p.x = h.x + n.x * 0.02; p.y = h.y + n.y * 0.02; p.z = h.z + n.z * 0.02;
       }
-    } else for (const p of e.ps) this.advance(e, p, d);
-    e.ps = e.ps.filter(p => p.age < p.life);
+    } else { const s = this.stepper(e, d); for (const p of e.ps) this.advance(e, p, d, s); }
+    // The dead go, in place (no new array each frame).
+    const ps = e.ps; let live = 0;
+    for (let i = 0; i < ps.length; i++) if (ps[i].age < ps[i].life) ps[live++] = ps[i];
+    ps.length = live;
     if (P.Enabled && P.Rate > 0) {
       // Spread over the frame: the i-th of n new particles is (acc - i) / Rate seconds old. Never
       // more than the cap allows (a huge or infinite Rate fills the emitter, it doesn't hang).
@@ -433,6 +464,7 @@ export class Particles {
     for (const e of this.emitters.values()) {
       this.simulate(e, dt);
       const P = e.inst.props, F = this.frame(e.inst.parent);
+      e.host = e.inst.parent; e.hostF = F; // where its locked particles are, if it moves to another part
       const light = P.LightInfluence > 0 ? this.localLevel(base, F.o, e.light) : base;
       this.build(e, eye, R, U, light);
       const m = e.mat;
@@ -456,16 +488,20 @@ export class Particles {
     const st = P.CastLight ? (e.stats = { x: 0, y: 0, z: 0, r: 0, g: 0, b: 0, a: 0, d: 0 }) : null;
     if (n > e.cap) this.grow(e, Math.max(64, 1 << Math.ceil(Math.log2(n))));
     const F = this.frame(e.inst.parent);
-    // World positions (locked particles ride their part) and distance, back to front for normal blending.
-    const W = ps.map(p => {
-      let x = p.x, y = p.y, z = p.z, vx = p.vx, vy = p.vy, vz = p.vz;
+    // World positions and velocities (locked particles ride their part) and squared distance to the
+    // camera, into buffers kept between frames; then the drawing order, back to front for normal blending.
+    const W = e.world, D = e.dist, order = e.order, a = F.ax, ex = eye.x, ey = eye.y, ez = eye.z;
+    for (let q = 0; q < n; q++) {
+      const p = ps[q], o = q * 6;
       if (p.local) {
-        const a = F.ax; x = F.o[0] + a[0][0] * p.x + a[1][0] * p.y + a[2][0] * p.z; y = F.o[1] + a[0][1] * p.x + a[1][1] * p.y + a[2][1] * p.z; z = F.o[2] + a[0][2] * p.x + a[1][2] * p.y + a[2][2] * p.z;
-        vx = a[0][0] * p.vx + a[1][0] * p.vy + a[2][0] * p.vz; vy = a[0][1] * p.vx + a[1][1] * p.vy + a[2][1] * p.vz; vz = a[0][2] * p.vx + a[1][2] * p.vy + a[2][2] * p.vz;
-      }
-      return { p, x, y, z, vx, vy, vz, d: (x - eye.x) ** 2 + (y - eye.y) ** 2 + (z - eye.z) ** 2 };
-    });
-    if (P.LightEmission < 1) W.sort((a, b) => b.d - a.d);
+        W[o] = F.o[0] + a[0][0] * p.x + a[1][0] * p.y + a[2][0] * p.z; W[o + 1] = F.o[1] + a[0][1] * p.x + a[1][1] * p.y + a[2][1] * p.z; W[o + 2] = F.o[2] + a[0][2] * p.x + a[1][2] * p.y + a[2][2] * p.z;
+        W[o + 3] = a[0][0] * p.vx + a[1][0] * p.vy + a[2][0] * p.vz; W[o + 4] = a[0][1] * p.vx + a[1][1] * p.vy + a[2][1] * p.vz; W[o + 5] = a[0][2] * p.vx + a[1][2] * p.vy + a[2][2] * p.vz;
+      } else { W[o] = p.x; W[o + 1] = p.y; W[o + 2] = p.z; W[o + 3] = p.vx; W[o + 4] = p.vy; W[o + 5] = p.vz; }
+      D[q] = (W[o] - ex) ** 2 + (W[o + 1] - ey) ** 2 + (W[o + 2] - ez) ** 2;
+      order[q] = q;
+    }
+    const drawOrder = order.subarray(0, n);
+    if (P.LightEmission < 1) drawOrder.sort((x, y) => D[y] - D[x]);
     const orient = en(P.Orientation), li = Math.min(1, Math.max(0, P.LightInfluence)), br = Math.max(0, P.Brightness);
     const lit = [0, 1, 2].map(c => br * (1 - li) + light[c] * li);
     const layout = en(P.FlipbookLayout), cols = layout === 'Custom' ? Math.max(1, P.FlipbookSizeX | 0) : GRID[layout] || 1, rows = layout === 'Custom' ? Math.max(1, P.FlipbookSizeY | 0) : cols;
@@ -477,37 +513,49 @@ export class Particles {
     const softOK = this.Q.softParticles && orient !== 'VelocityPerpendicular' && (en(P.Collision) || 'None') === 'None';
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     let i = 0;
-    for (const w of W) {
-      const p = w.p, t = Math.min(1, p.age / p.life);
+    for (let j = 0; j < n; j++) {
+      const q = drawOrder[j], p = ps[q], o6 = q * 6, t = Math.min(1, p.age / p.life);
+      const wx = W[o6], wy = W[o6 + 1], wz = W[o6 + 2], vx = W[o6 + 3], vy = W[o6 + 4], vz = W[o6 + 5];
       // A sequence changed while the particle lives: its own values are drawn again for the new keypoints.
       if (p.sk !== P.Size) { p.size = draw(P.Size.k, this.random); p.sk = P.Size; }
       if (p.tk !== P.Transparency) { p.tr = draw(P.Transparency.k, this.random); p.tk = P.Transparency; }
       if (p.qk !== P.Squash) { p.sq = draw(P.Squash.k, this.random); p.qk = P.Squash; }
       let size = Math.max(0, seqAt(P.Size.k, p.size, t)), sq = seqAt(P.Squash.k, p.sq, t);
       const tr = Math.min(1, Math.max(0, seqAt(P.Transparency.k, p.tr, t)));
-      let cx = w.x, cy = w.y, cz = w.z;
+      let cx = wx, cy = wy, cz = wz;
       // ZOffset: toward the camera, scaled so the size on screen stays.
       if (P.ZOffset) {
-        const dist = Math.sqrt(w.d) || 1, zo = Math.min(P.ZOffset, dist - 0.05);
+        const dist = Math.sqrt(D[q]) || 1, zo = Math.min(P.ZOffset, dist - 0.05);
         cx += (eye.x - cx) / dist * zo; cy += (eye.y - cy) / dist * zo; cz += (eye.z - cz) / dist * zo; size *= (dist - zo) / dist;
       }
       const softR = softOK ? Math.min(SOFT_RANGE, size / 2) : 0;
       const sw = sq >= 0 ? 1 / (1 + sq) : 1 - sq, sh = sq >= 0 ? 1 + sq : 1 / (1 - sq);
       const hw = size * sw / 2, hh = size * sh / 2;
-      // The quad's axes.
-      let ax, ay; const th = -p.rot * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th);
-      const toCam = [eye.x - cx, eye.y - cy, eye.z - cz];
-      const vel = [w.vx, w.vy, w.vz], vl = Math.hypot(...vel);
+      // The quad's axes (ax: across, ay: up), as scalars: no arrays per particle.
+      let ax0, ax1, ax2, ay0, ay1, ay2;
+      const th = -p.rot * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th);
+      const tx = ex - cx, ty = ey - cy, tz = ez - cz, vl = Math.sqrt(vx * vx + vy * vy + vz * vz);
+      // Right and up before rotation, then turned by the particle's rotation.
+      let r0, r1, r2, u0, u1, u2, turn = true;
       if (orient === 'FacingCameraWorldUp') {
-        const r0 = norm(cross([0, 1, 0], toCam), R), u0 = [0, 1, 0];
-        ax = mix2(r0, u0, cs, sn); ay = mix2(u0, r0, cs, -sn);
+        // across = Y x toCam, normalised (falls back to the camera's right)
+        let c0 = tz, c2 = -tx; const l = Math.sqrt(c0 * c0 + c2 * c2);
+        if (l > 1e-6) { r0 = c0 / l; r1 = 0; r2 = c2 / l; } else { r0 = R[0]; r1 = R[1]; r2 = R[2]; }
+        u0 = 0; u1 = 1; u2 = 0;
       } else if (orient === 'VelocityParallel' && vl > 1e-5) {
-        ay = vel.map(x => x / vl); ax = norm(cross(ay, toCam), R);
+        u0 = vx / vl; u1 = vy / vl; u2 = vz / vl;
+        let c0 = u1 * tz - u2 * ty, c1 = u2 * tx - u0 * tz, c2 = u0 * ty - u1 * tx; const l = Math.sqrt(c0 * c0 + c1 * c1 + c2 * c2);
+        if (l > 1e-6) { r0 = c0 / l; r1 = c1 / l; r2 = c2 / l; } else { r0 = R[0]; r1 = R[1]; r2 = R[2]; }
+        turn = false; // along the velocity: not rotated
       } else if (orient === 'VelocityPerpendicular' && vl > 1e-5) {
-        const nrm = vel.map(x => x / vl), ref = Math.abs(nrm[1]) < 0.99 ? [0, 1, 0] : [1, 0, 0];
-        const r0 = norm(cross(ref, nrm), R), u0 = cross(nrm, r0);
-        ax = mix2(r0, u0, cs, sn); ay = mix2(u0, r0, cs, -sn);
-      } else { ax = mix2(R, U, cs, sn); ay = mix2(U, R, cs, -sn); }
+        const n0 = vx / vl, n1 = vy / vl, n2 = vz / vl, f0 = Math.abs(n1) < 0.99 ? 0 : 1, f1 = Math.abs(n1) < 0.99 ? 1 : 0;
+        // across = ref x n; up = n x across
+        let c0 = f1 * n2, c1 = -f0 * n2, c2 = f0 * n1 - f1 * n0; const l = Math.sqrt(c0 * c0 + c1 * c1 + c2 * c2);
+        if (l > 1e-6) { r0 = c0 / l; r1 = c1 / l; r2 = c2 / l; } else { r0 = R[0]; r1 = R[1]; r2 = R[2]; }
+        u0 = n1 * r2 - n2 * r1; u1 = n2 * r0 - n0 * r2; u2 = n0 * r1 - n1 * r0;
+      } else { r0 = R[0]; r1 = R[1]; r2 = R[2]; u0 = U[0]; u1 = U[1]; u2 = U[2]; }
+      if (turn) { ax0 = r0 * cs + u0 * sn; ax1 = r1 * cs + u1 * sn; ax2 = r2 * cs + u2 * sn; ay0 = u0 * cs - r0 * sn; ay1 = u1 * cs - r1 * sn; ay2 = u2 * cs - r2 * sn; }
+      else { ax0 = r0; ax1 = r1; ax2 = r2; ay0 = u0; ay1 = u1; ay2 = u2; }
       // Flipbook frames (Roblox: Loop, OneShot over the life, PingPong, Random), crossfaded when blended.
       let f0 = 0, f1 = 0, fb = 0;
       if (frames > 1) {
@@ -520,27 +568,27 @@ export class Particles {
         if (mode === 'OneShot' && f0 === frames - 1) fb = 0;
       }
       colorAt(P.Color.k, t, c3);
-      const alpha = 1 - tr;
-      if (st) { st.x += w.x * alpha; st.y += w.y * alpha; st.z += w.z * alpha; st.r += lin(c3[0]) * alpha; st.g += lin(c3[1]) * alpha; st.b += lin(c3[2]) * alpha; st.a += alpha; }
+      const alpha = 1 - tr, lr = lin(c3[0]), lg = lin(c3[1]), lb = lin(c3[2]); // linear once per particle
+      if (st) { st.x += wx * alpha; st.y += wy * alpha; st.z += wz * alpha; st.r += lr * alpha; st.g += lg * alpha; st.b += lb * alpha; st.a += alpha; }
+      const cr = lr * lit[0], cg = lg * lit[1], cb = lb * lit[2];
+      const u0a = f0 % cols, v0a = Math.floor(f0 / cols), u1a = f1 % cols, v1a = Math.floor(f1 / cols);
       for (let k = 0; k < 4; k++) {
         const sx = k === 0 || k === 3 ? -1 : 1, sy = k < 2 ? -1 : 1, o = (i * 4 + k);
-        const px = cx + ax[0] * hw * sx + ay[0] * hh * sy, py = cy + ax[1] * hw * sx + ay[1] * hh * sy, pz = cz + ax[2] * hw * sx + ay[2] * hh * sy;
+        const px = cx + ax0 * hw * sx + ay0 * hh * sy, py = cy + ax1 * hw * sx + ay1 * hh * sy, pz = cz + ax2 * hw * sx + ay2 * hh * sy;
         pos[o * 3] = px; pos[o * 3 + 1] = py; pos[o * 3 + 2] = pz;
         if (px < min[0]) min[0] = px; if (py < min[1]) min[1] = py; if (pz < min[2]) min[2] = pz;
         if (px > max[0]) max[0] = px; if (py > max[1]) max[1] = py; if (pz > max[2]) max[2] = pz;
         const qu = sx < 0 ? 0 : 1, qv = sy < 0 ? 0 : 1;
-        uv[o * 2] = (f0 % cols + qu) / cols; uv[o * 2 + 1] = 1 - (Math.floor(f0 / cols) + 1 - qv) / rows;
-        uv2[o * 2] = (f1 % cols + qu) / cols; uv2[o * 2 + 1] = 1 - (Math.floor(f1 / cols) + 1 - qv) / rows;
-        col[o * 4] = lin(c3[0]) * lit[0]; col[o * 4 + 1] = lin(c3[1]) * lit[1]; col[o * 4 + 2] = lin(c3[2]) * lit[2]; col[o * 4 + 3] = alpha;
+        uv[o * 2] = (u0a + qu) / cols; uv[o * 2 + 1] = 1 - (v0a + 1 - qv) / rows;
+        uv2[o * 2] = (u1a + qu) / cols; uv2[o * 2 + 1] = 1 - (v1a + 1 - qv) / rows;
+        col[o * 4] = cr; col[o * 4 + 1] = cg; col[o * 4 + 2] = cb; col[o * 4 + 3] = alpha;
         bl[o * 2] = fb; bl[o * 2 + 1] = softR;
       }
       i++;
     }
-    mesh.updateVerticesData(VertexBuffer.PositionKind, pos);
-    mesh.updateVerticesData(VertexBuffer.UVKind, uv);
-    mesh.updateVerticesData(VertexBuffer.UV2Kind, uv2);
-    mesh.updateVerticesData(VertexBuffer.ColorKind, col);
-    mesh.updateVerticesData('blend', bl);
+    // Upload only the live quads' part of each buffer.
+    const up = (kind, data, per) => { const vb = mesh.getVertexBuffer(kind); if (vb) vb.updateDirectly(data.subarray(0, n * 4 * per), 0); };
+    up(VertexBuffer.PositionKind, pos, 3); up(VertexBuffer.UVKind, uv, 2); up(VertexBuffer.UV2Kind, uv2, 2); up(VertexBuffer.ColorKind, col, 4); up('blend', bl, 2);
     // Draw only the live quads; a partial sub-mesh keeps its own bounds (the transparent sort reads them).
     const sm = mesh.subMeshes[0], box = new BoundingInfo(Vector3.FromArray(min), Vector3.FromArray(max));
     sm.indexCount = n * 6; sm.verticesCount = n * 4;
@@ -551,6 +599,7 @@ export class Particles {
   grow(e, cap) {
     e.cap = cap;
     e.pos = new Float32Array(cap * 12); e.uv = new Float32Array(cap * 8); e.uv2 = new Float32Array(cap * 8); e.col = new Float32Array(cap * 16); e.bl = new Float32Array(cap * 8);
+    e.world = new Float64Array(cap * 6); e.dist = new Float64Array(cap); e.order = new Uint32Array(cap); // build()'s per-frame scratch
     const idx = new Uint32Array(cap * 6);
     for (let q = 0; q < cap; q++) { const b = q * 4; idx.set([b, b + 1, b + 2, b, b + 2, b + 3], q * 6); }
     const m = e.mesh;
@@ -581,8 +630,6 @@ export class Particles {
 }
 
 function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
-function norm(a, fallback) { const l = Math.hypot(a[0], a[1], a[2]); return l > 1e-6 ? a.map(x => x / l) : fallback; }
-function mix2(a, b, ca, cb) { return [a[0] * ca + b[0] * cb, a[1] * ca + b[1] * cb, a[2] * ca + b[2] * cb]; }
 // Rodrigues: d rotated by ang about a unit axis.
 function rotate(d, axis, ang) {
   if (!ang) return d;

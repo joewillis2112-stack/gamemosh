@@ -12,8 +12,9 @@
 // - DepthOfField: sharp within FocusDistance +- InFocusRadius studs, blurring
 //   toward FarIntensity / NearIntensity over a ramp (ours: as long as the radius).
 // Each pass exists only while its effect does, so a place without them renders
-// exactly as before. SunRays and DepthOfField need a depth pass; on phones
-// SunRays is skipped (Roblox gates it by quality level too).
+// exactly as before. SunRays and DepthOfField need a depth pass. SunRays runs on
+// every tier (Roblox drops it on low graphics levels; a tier here never removes what
+// the creator placed): the tier sets its taps (runtime/quality.js sunRayTaps).
 import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess.js';
 import { BlurPostProcess } from '@babylonjs/core/PostProcesses/blurPostProcess.js';
 import { PassPostProcess } from '@babylonjs/core/PostProcesses/passPostProcess.js';
@@ -25,7 +26,6 @@ import { useDepth, releaseDepth } from './depth.js';
 import '@babylonjs/core/Materials/standardMaterial.js'; // the depth renderer needs its side effect
 
 const DOF_BLUR_KERNEL = 48;      // full-resolution px at 720 px tall, scaled with the render (Roblox sizes its DOF blur in screen units); ours
-const RAYS_TAPS = 12;
 const RAYS_DISPLAY_SCALE = '0.1'; // ours: Intensity 0.01 (a Baseplate's) adds ~3% at the sun, 0.25 a clear halo
 
 Effect.ShadersStore.studioColorCorrectionFragmentShader = `
@@ -39,7 +39,11 @@ void main(void) {
   gl_FragColor = vec4(clamp(ccMatrix * c.rgb + ccOffset, 0.0, 1.0), c.a);
 }`;
 
-Effect.ShadersStore.studioSunRaysFragmentShader = `
+// The sun-rays shader for a number of taps along the march (the tier sets it: fewer are cheaper
+// and a little grainier, never off).
+const sunRaysShader = taps => {
+  const name = 'studioSunRays' + taps;
+  if (!Effect.ShadersStore[name + 'FragmentShader']) Effect.ShadersStore[name + 'FragmentShader'] = `
 precision highp float;
 varying vec2 vUV;
 uniform sampler2D textureSampler;
@@ -54,14 +58,14 @@ void main(void) {
   vec4 c = texture2D(textureSampler, vUV);
   // A fixed per-pixel offset along the march (interleaved gradient noise) instead of banding.
   float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-  vec2 stp = (sunUV - vUV) / float(${RAYS_TAPS});
+  vec2 stp = (sunUV - vUV) / float(${taps});
   float sky = 0.0;
-  for (int i = 0; i < ${RAYS_TAPS}; i++) {
+  for (int i = 0; i < ${taps}; i++) {
     vec2 uv = vUV + stp * (float(i) + j);
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { sky += 1.0; continue; } // off screen: open sky (ours)
     sky += step(0.999, texture2D(depthSampler, uv).r);
   }
-  sky /= float(${RAYS_TAPS});
+  sky /= float(${taps});
   // Angle between this pixel's view ray and the sun, from screen distance.
   vec2 d = (vUV - sunUV) * vec2(aspectFov.x, 1.0);
   float cosT = cos(min(length(d) * aspectFov.y, 3.14159));
@@ -72,6 +76,8 @@ void main(void) {
   vec3 r = rays / (1.0 + rays);
   gl_FragColor = vec4(c.rgb + (1.0 - c.rgb) * r, c.a);
 }`;
+  return name;
+};
 
 // Depth of field's blur. Each tap is weighted by its own blur amount (circle of
 // confusion), so in-focus things don't bleed into the blurred background (a
@@ -157,7 +163,7 @@ export class PostEffects {
 
   update() {
     const dof = this.effects('DepthOfFieldEffect')[0];
-    const rays = !tier(this.quality).sunRays ? null : this.effects('SunRaysEffect').reduce((a, e) => (!a || e.props.Intensity > a.props.Intensity ? e : a), null);
+    const rays = this.effects('SunRaysEffect').reduce((a, e) => (!a || e.props.Intensity > a.props.Intensity ? e : a), null);
     const blurs = this.effects('BlurEffect'), blur = blurs.reduce((a, e) => (!a || e.props.Size > a.props.Size ? e : a), null);
     const ccs = this.effects('ColorCorrectionEffect');
     // Which passes, in order: depth of field, sun rays, blur, colour correction.
@@ -215,7 +221,7 @@ export class PostEffects {
         comp.onApply = e => { dofUniforms(e); e.setTextureFromPostProcess('sharpSampler', sharp); };
       } else if (w === 'rays') {
         const depth = this.depth().getDepthMap();
-        const pp = add(new PostProcess('sunRays', 'studioSunRays', ['sunUV', 'sunColor', 'intensity', 'g', 'aspectFov', 'facing'], ['depthSampler'], 1, cam));
+        const pp = add(new PostProcess('sunRays', sunRaysShader(tier(this.quality).sunRayTaps), ['sunUV', 'sunColor', 'intensity', 'g', 'aspectFov', 'facing'], ['depthSampler'], 1, cam));
         pp.onApply = e => {
           const r = this.state.rays.props, w = engine.getRenderWidth(), h = engine.getRenderHeight();
           const toSun = this.sun ? this.sun.direction.scale(-1) : new Vector3(0, 1, 0);

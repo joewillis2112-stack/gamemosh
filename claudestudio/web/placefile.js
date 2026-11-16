@@ -98,7 +98,7 @@ export function loadPlace(dm, file) {
       const ty = types.get(k);
       if (!ty) { warnings.push(`${inst.ClassName}.${k} isn't a property (skipped)`); continue; }
       if (ty === 'Instance') { refs.push([inst, k, v]); continue; }
-      inst.props[k] = decode(ty, v);
+      try { inst.props[k] = decode(ty, v); } catch (e) { warnings.push(`${inst.ClassName}.${k}: ${e.message} (skipped)`); } // a value the type refuses keeps the default
     }
     // A part's derived properties follow its CFrame.
     if (inst.props.CFrame && isA(inst.ClassName, 'BasePart')) { const cf = inst.props.CFrame; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(...cf.toOrientation()); }

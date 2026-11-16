@@ -479,6 +479,25 @@ static int task_delay(lua_State* L) {
     return 1;
 }
 
+// task.defer(f or thread, ...): runs it at the end of this resumption cycle (here: the next
+// scheduler step), with the arguments. The legacy global spawn(f) is the same, without arguments.
+static int task_defer(lua_State* L) {
+    int n = lua_gettop(L);
+    lua_State* T;
+    int tref;
+    if (lua_type(L, 1) == LUA_TTHREAD) { T = lua_tothread(L, 1); lua_pushvalue(L, 1); tref = lua_ref(L, -1); lua_pop(L, 1); lua_xmove(L, T, n - 1); }
+    else {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+        T = lua_newthread(L); tref = lua_ref(L, -1); lua_pop(L, 1);
+        for (int i = 1; i <= n; i++) lua_pushvalue(L, i);
+        lua_xmove(L, T, n); // the function and its arguments
+    }
+    waiters.push_back({ tref, now_s, -1, n - 1 });
+    lua_getref(L, tref);
+    return 1;
+}
+static int g_spawn(lua_State* L) { luaL_checktype(L, 1, LUA_TFUNCTION); lua_settop(L, 1); return task_defer(L); }
+
 // task.cancel(thread): it never runs or resumes.
 static int task_cancel(lua_State* L) {
     luaL_checktype(L, 1, LUA_TTHREAD);
@@ -1014,9 +1033,16 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setfield(L0, -2, "delay");
     lua_pushcfunction(L0, task_cancel, "cancel");
     lua_setfield(L0, -2, "cancel");
+    lua_pushcfunction(L0, task_defer, "defer");
+    lua_setfield(L0, -2, "defer");
     lua_setglobal(L0, "task");
+    // Roblox's legacy globals: wait, delay (task.delay) and spawn (deferred, no arguments).
     lua_pushcfunction(L0, task_wait, "wait");
     lua_setglobal(L0, "wait");
+    lua_pushcfunction(L0, task_delay, "delay");
+    lua_setglobal(L0, "delay");
+    lua_pushcfunction(L0, g_spawn, "spawn");
+    lua_setglobal(L0, "spawn");
 
     push_instance(L0, js_global("game"));
     lua_setglobal(L0, "game");

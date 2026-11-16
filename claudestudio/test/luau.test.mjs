@@ -120,6 +120,17 @@ local later = workspace:WaitForChild("Later")
 print("waitforchild", later and later.Name, workspace:WaitForChild("Never", 0.3))
 `);
 
+vm.run('defer', `
+-- task.defer runs after the current code, with its arguments; legacy spawn and delay exist (Roblox).
+local order = {}
+task.defer(function(x) table.insert(order, "deferred " .. x) end, "d")
+table.insert(order, "now")
+spawn(function() table.insert(order, "spawned") end)
+delay(0, function() table.insert(order, "delayed") end)
+task.wait() task.wait()
+print("defer order", table.concat(order, ","))
+`);
+
 vm.run('cframe', `
 -- Expectations are Roblox's documented behaviour, not read off this implementation.
 local function near(a, b) return (a - b).Magnitude < 1e-4 end
@@ -265,6 +276,7 @@ const expect = [
   'connected after destroy false',
   'reparent destroyed false',
   'delay args x 2',
+  'defer order now,deferred d,spawned,delayed',
   'vector Vector3 0 1 0.5 true 1 90',
   'readonly false',
   'bad parent false',

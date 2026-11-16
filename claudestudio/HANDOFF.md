@@ -31,14 +31,7 @@ Fixed in this pass:
 - **Lighting.FogColor was converted to linear twice** (an older bug, found through the review's particle-fog note): `lighting.js` passed a linear colour to Babylon's PBR, which converts again, so a 0.5 grey fog rendered at 25/255. Now sRGB in, as PBR expects; particles convert it the same way. Measured: a fully fogged wall matches an unfogged particle of the fog colour.
 - From the review: a huge Rate / Emit / FastForward hung the tab (now bounded by the 5000 cap, FastForward by a minute); soft particles hid particles resting on surfaces (no soft fade for colliding or flat-lying emitters, fade distance half the particle's size); changing a sequence's keypoint count mid-life gave NaN quads (values redrawn); the depth pass stayed on after the last emitter; textures were never freed; a negative FlipbookFramerate sampled outside the atlas; toggling LockedToPart made live particles jump; the low tier's 1 sun cascade was silently 2 (Babylon's minimum). Each has a check in `test/scenarios/particles.mjs`.
 
-Open (noted, not fixed):
-- Particle CPU cost is about 1 µs per particle per frame on desktop (4,000 particles: ~4 ms; with collisions ~9 ms); a phone may be 3-4x slower. Per-frame allocations in `build()` are the first thing to cut.
-- The Luau binding accepts NaN in NumberRange and in inner keypoint times (Roblox's own behaviour not checked).
-- Locked particles of an emitter moved to another part jump to the new part (they're stored relative to their part; Roblox's behaviour not checked).
-- Sequences set from JS (not Luau) aren't validated by the DataModel; the editor's fields validate their own input.
-- Sun rays are off on `phone` and `low` (follows Roblox, predates the "tiers never cut what the creator made" rule): asked the user.
-- `editor-animate` (phone) golden flaked once on the Undo button (RESEARCH.md).
-- A new emitter's particles appear once its shader has compiled (a frame or two); expected.
+Since fixed (2026-11-16): particle CPU cost cut about a third (no per-particle allocations, colour converted once per particle, only live quads uploaded); NaN refused in NumberRange and keypoint times (Luau and JS); locked particles keep their place when their emitter changes part; sequences validated in the JS datatypes (place files skip a bad value with a warning); SunRays on every tier; the `editor-animate` flake (Chromium's tap highlight; turned off on every page). A new emitter's particles appear once its shader has compiled (a frame or two), as with any new material.
 
 ## Stage 2: what's next
 

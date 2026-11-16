@@ -17,17 +17,34 @@ export class V2 { constructor(x = 0, y = 0) { this.x = Math.fround(x); this.y = 
 // stores them. NumberRange: min, max. NumberSequence: keypoints [time, value, envelope];
 // ColorSequence: keypoints [time, Color3]. Sequences keep Roblox's rules (the binding checks them on
 // construction): at least two keypoints, non-descending times from 0 to 1.
+// The JS constructors check the same rules with the same words, so engine code, the editor and
+// place files can't make one Luau would refuse.
 const f32 = Math.fround;
-export class NumberRange { constructor(min = 0, max = min) { this.min = f32(min); this.max = f32(max); } }
+function checkTimes(k, type) {
+  if (k.length < 2) throw new Error(`${type} requires at least 2 keypoints`);
+  if (k.length > 20) throw new Error(`${type} supports at most 20 keypoints`);
+  if (k[0][0] !== 0 || k[k.length - 1][0] !== 1) throw new Error(`${type} time must start at 0 and end at 1`);
+  for (let i = 1; i < k.length; i++) if (!(k[i][0] >= k[i - 1][0])) throw new Error(`${type} keypoints must be in non-descending time order`);
+}
+export class NumberRange {
+  constructor(min = 0, max = min) {
+    if (!(+min <= +max)) throw new Error('NumberRange: invalid range (min must be less than or equal to max)');
+    this.min = f32(min); this.max = f32(max);
+  }
+}
 export class NumberSequence {
-  constructor(k = [[0, 0, 0], [1, 0, 0]]) { this.k = k.map(([t, v, e = 0]) => [f32(t), f32(v), f32(e)]); }
+  constructor(k = [[0, 0, 0], [1, 0, 0]]) {
+    this.k = k.map(([t, v, e = 0]) => [f32(t), f32(v), f32(e)]);
+    checkTimes(this.k, 'NumberSequence');
+    if (this.k.some(x => !(x[2] >= 0))) throw new Error('NumberSequenceKeypoint envelope must be non-negative');
+  }
   static of(a, b = a) { return new NumberSequence([[0, a, 0], [1, b, 0]]); }
   /** Roblox's serialised form: "time value envelope " per keypoint. */
   toString() { return this.k.map(k => k.map(n => +n.toPrecision(9)).join(' ') + ' ').join(''); }
   static parse(s) { const n = String(s).trim().split(/\s+/).map(Number), k = []; for (let i = 0; i + 2 < n.length; i += 3) k.push([n[i], n[i + 1], n[i + 2]]); return new NumberSequence(k); }
 }
 export class ColorSequence {
-  constructor(k = [[0, new C3(1, 1, 1)], [1, new C3(1, 1, 1)]]) { this.k = k.map(([t, c]) => [f32(t), new C3(c.r, c.g, c.b)]); }
+  constructor(k = [[0, new C3(1, 1, 1)], [1, new C3(1, 1, 1)]]) { this.k = k.map(([t, c]) => [f32(t), new C3(c.r, c.g, c.b)]); checkTimes(this.k, 'ColorSequence'); }
   static of(a, b = a) { return new ColorSequence([[0, a], [1, b]]); }
   /** Roblox's serialised form: "time r g b 0 " per keypoint. */
   toString() { return this.k.map(([t, c]) => [t, c.r, c.g, c.b, 0].map(n => +f32(n).toPrecision(9)).join(' ') + ' ').join(''); }
@@ -69,6 +86,7 @@ export const ENUMS = {
   ParticleEmitterShapeStyle: { Volume: 0, Surface: 1 },
   ParticleFlipbookLayout: { None: 0, Grid2x2: 1, Grid4x4: 2, Grid8x8: 3, Custom: 4 },
   ParticleFlipbookMode: { Loop: 0, OneShot: 1, PingPong: 2, Random: 3 },
+  HighlightDepthMode: { AlwaysOnTop: 0, Occluded: 1 },
   ParticleCollision: { None: 0, Bounce: 1, Stick: 2, Die: 3 }, // Claude Studio's own (STUDIO_OWN)
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   TonemapperPreset: { Default: 0, Retro: 1 },
@@ -143,7 +161,8 @@ defineClass('Instance', null, {
 });
 defineClass('DataModel', 'Instance', { creatable: false, methods: { GetService(self, name) { return [self.dm.service(name)]; } } });
 defineClass('Workspace', 'Instance', {
-  creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500], CurrentCamera: ['Instance', null] },
+  // GlobalWind (studs/s): ParticleEmitters with WindAffectsDrag drift toward it (runtime/particles.js).
+  creatable: false, service: true, props: { Gravity: ['number', 196.2], FallenPartsDestroyHeight: ['number', -500], CurrentCamera: ['Instance', null], GlobalWind: ['Vector3', [0, 0, 0]] },
   methods: {
     // The engine half of WorldRoot:Raycast (the Luau half, with RaycastParams and
     // RaycastResult, is in luau/lib_raycast.h). Returns instance, position, normal,
@@ -438,6 +457,27 @@ defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
 defineClass('ColorGradingEffect', 'PostEffect', { props: { TonemapperPreset: ['Enum.TonemapperPreset', 'Default'] } });
 defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
 defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
+// Highlight (Roblox): a fill and an outline on its Adornee, or its Parent (a part or a model), drawn by
+// runtime/highlights.js. Defaults from the API dump.
+defineClass('Highlight', 'Instance', {
+  props: {
+    Adornee: ['Instance', null], DepthMode: ['Enum.HighlightDepthMode', 'AlwaysOnTop'], Enabled: ['bool', true],
+    FillColor: ['Color3', [1, 0, 0]], FillTransparency: ['number', 0.5], LineThickness: ['number', 1],
+    OutlineColor: ['Color3', [1, 1, 1]], OutlineTransparency: ['number', 0],
+  },
+});
+// Attachment (Roblox): a point and orientation on its parent part. CFrame, Position and Orientation
+// are relative to the part (one truth, CFrame, as for parts); the World* values are the part's CFrame
+// times it, worked out when read (physics moves parts without telling their attachments) and settable
+// (they set the local CFrame). Axis and SecondaryAxis are its X and Y directions. Under anything other
+// than a BasePart, the world frame is its own. ParticleEmitters and lights may live in one.
+defineClass('Attachment', 'Instance', {
+  props: {
+    CFrame: ['CFrame'], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Visible: ['bool', false],
+    Axis: ['Vector3', [1, 0, 0]], SecondaryAxis: ['Vector3', [0, 1, 0]],
+    WorldCFrame: ['CFrame'], WorldPosition: ['Vector3', [0, 0, 0]], WorldOrientation: ['Vector3', [0, 0, 0]], WorldAxis: ['Vector3', [1, 0, 0]], WorldSecondaryAxis: ['Vector3', [0, 1, 0]],
+  },
+});
 // Local lights: direct children of a BasePart (mashup-research/ROBLOX_LIGHTING_2026-10-09.md
 // section 7). Instance.new defaults from rbx-dom's reflection database; Range is
 // clamped to 120 studs and Angle to [0, 180] when set (Roblox clamps them). Drawn
@@ -731,6 +771,7 @@ export class DataModel {
     if (old) { old.children.splice(old.children.indexOf(inst), 1); this.fire(old, 'ChildRemoved', [inst]); }
     inst.parent = p;
     if (p) { p.children.push(inst); this.fire(p, 'ChildAdded', [inst]); }
+    if (inst.ClassName === 'Attachment') this.attachmentWorld(inst);
     this.notify(inst, 'Parent');
     this.fire(inst, 'Changed', ['Parent']);
   }
@@ -748,6 +789,12 @@ export class DataModel {
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
+    if (inst.ClassName === 'Attachment' && (key === 'WorldCFrame' || key === 'WorldPosition' || key === 'WorldOrientation')) {
+      // A world placement becomes the local one under the part.
+      const w = this.attachmentWorld(inst).WorldCFrame;
+      const world = key === 'WorldCFrame' ? value : key === 'WorldPosition' ? w.withPosition(value.x, value.y, value.z) : CF.fromOrientation(w.x, w.y, w.z, value.x, value.y, value.z);
+      return this.place(inst, 'CFrame', this.attachmentParentCF(inst).inverse().mul(world));
+    }
     if ((key === 'CFrame' || key === 'Position' || key === 'Orientation') && inst.props.CFrame) return this.place(inst, key, value);
     if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
     if (inst.ClassName === 'Lighting' && (key === 'ClockTime' || key === 'TimeOfDay')) {
@@ -787,8 +834,19 @@ export class DataModel {
     const changed = Object.keys(next).filter(k => !sameValue(P[k], next[k]));
     if (!changed.length) return;
     Object.assign(P, next);
+    if (inst.ClassName === 'Attachment') { const R = cf.m; Object.assign(P, { Axis: new V3(R[3], R[6], R[9]), SecondaryAxis: new V3(R[4], R[7], R[10]) }); this.attachmentWorld(inst); }
+    else for (const c of inst.children) if (c.ClassName === 'Attachment') this.attachmentWorld(c);
     this.notify(inst, 'CFrame');
     for (const k of changed) this.fire(inst, 'Changed', [k]);
+  }
+  // An attachment's frame in the world: its part's CFrame times its own (refreshed on every read).
+  attachmentParentCF(a) { const p = a.parent; return p && isA(p.ClassName, 'BasePart') && p.props.CFrame ? p.props.CFrame : new CF(); }
+  attachmentWorld(a) {
+    const P = a.props, w = this.attachmentParentCF(a).mul(P.CFrame), [ox, oy, oz] = w.toOrientation(), R = w.m;
+    return Object.assign(P, {
+      WorldCFrame: w, WorldPosition: new V3(w.x, w.y, w.z), WorldOrientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)),
+      WorldAxis: new V3(R[3], R[6], R[9]), WorldSecondaryAxis: new V3(R[4], R[7], R[10]),
+    });
   }
   // ---- tweens (TweenService)
   tweenPlay(tw) {
@@ -950,7 +1008,8 @@ function isDescendant(a, b) { for (let p = a.parent; p; p = p.parent) if (p === 
 // Properties scripts may read but not write (the engine sets them), as in Roblox.
 // Members that are Claude Studio's own, not Roblox's: the editor says so where it describes them.
 export const STUDIO_OWN = new Set(['ParticleEmitter.CastLight', 'ParticleEmitter.LightRange', 'ParticleEmitter.Collision', 'ParticleEmitter.Bounciness']);
-const READ_ONLY = new Set(['TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
+'TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
@@ -1066,6 +1125,7 @@ export function makeHost(dm, log = console.log) {
       if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
       if (key in inst.props) {
+        if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
         const ty = typeOf(inst.ClassName, key);
         const v = inst.props[key];
         host.ret = host.put([], ty && ty.startsWith('Enum.') && typeof v === 'string' ? enumItem(ty.slice(5), v) : v);

@@ -11,6 +11,8 @@ vm.run('seq', `
 local r = NumberRange.new(2, 5)
 print("range", r.Min, r.Max, tostring(r), typeof(r), NumberRange.new(3) == NumberRange.new(3, 3))
 print("range bad", pcall(NumberRange.new, 5, 2))
+print("range nan", pcall(NumberRange.new, 0/0))
+print("numseq nan", pcall(NumberSequence.new, { NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0/0, 1), NumberSequenceKeypoint.new(1, 1) }))
 local ns = NumberSequence.new(1, 0)
 print("numseq", tostring(ns), typeof(ns), #ns.Keypoints, ns.Keypoints[2].Time, ns.Keypoints[2].Value)
 print("numseq one", tostring(NumberSequence.new(0.5)))
@@ -52,10 +54,22 @@ const expect = [
 ];
 const fail = [];
 for (const e of expect) if (!out.includes(e)) fail.push('missing: ' + JSON.stringify(e));
-const errs = { 'range bad': /invalid range/, 'numseq one kp': /at least 2 keypoints/, 'numseq ends': /start at 0 and end at 1/, 'numseq order': /non-descending/, 'envelope': /non-negative/, 'readonly': /cannot be assigned/, 'wrong type': /NumberSequence expected/ };
+const errs = { 'range bad': /invalid range/, 'range nan': /invalid range/, 'numseq nan': /non-descending/, 'numseq one kp': /at least 2 keypoints/, 'numseq ends': /start at 0 and end at 1/, 'numseq order': /non-descending/, 'envelope': /non-negative/, 'readonly': /cannot be assigned/, 'wrong type': /NumberSequence expected/ };
 for (const [k, re] of Object.entries(errs)) { const l = out.find(x => x.startsWith(k + ' false')); if (!l || !re.test(l)) fail.push(`${k}: expected an error matching ${re} (${l})`); }
 if (!out.includes('numseq same time true NumberSequence')) { const l = out.find(x => x.startsWith('numseq same time')); if (!l || !l.startsWith('numseq same time true')) fail.push('equal times are allowed (non-descending): ' + l); }
 if (!out.find(x => x.startsWith('colorseq kps true false'))) fail.push('colorseq kps: ' + out.find(x => x.startsWith('colorseq kps')));
+// The JS constructors refuse what Luau refuses, with the same words (engine code, the editor and place files).
+{
+  const { NumberRange, NumberSequence, ColorSequence, C3 } = await import('../web/datamodel.js');
+  const refuses = (f, re, what) => { try { f(); fail.push(`JS: ${what} was accepted`); } catch (e) { if (!re.test(e.message)) fail.push(`JS: ${what}: ${e.message}`); } };
+  refuses(() => new NumberRange(5, 2), /invalid range/, 'NumberRange(5, 2)');
+  refuses(() => new NumberRange(NaN), /invalid range/, 'NumberRange(NaN)');
+  refuses(() => new NumberSequence([[0, 1, 0]]), /at least 2/, 'one keypoint');
+  refuses(() => new NumberSequence([[0, 1, 0], [0.5, 1, 0]]), /start at 0 and end at 1/, 'not ending at 1');
+  refuses(() => new NumberSequence([[0, 1, 0], [0.7, 1, 0], [0.3, 1, 0], [1, 1, 0]]), /non-descending/, 'out of order');
+  refuses(() => new NumberSequence([[0, 1, -1], [1, 1, 0]]), /non-negative/, 'a negative envelope');
+  refuses(() => new ColorSequence([[0.2, new C3(1, 1, 1)], [1, new C3(1, 1, 1)]]), /start at 0/, 'a ColorSequence not starting at 0');
+}
 for (const l of out) console.log('  ' + l);
 console.log(fail.length ? 'FAIL\n' + fail.join('\n') : 'PASS');
 process.exit(fail.length ? 1 : 0);

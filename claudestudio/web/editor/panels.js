@@ -8,7 +8,7 @@ import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSeque
 // Studio shows these services in the Explorer, in this order (others it hides).
 const SHOWN = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
 // Properties the panel doesn't offer (engine-written, or shown another way).
-const HIDDEN = new Set(['CFrame', 'AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'Focus', 'MeshData']); // MeshData: edited in Edit Mode, not as text
+const HIDDEN = new Set(['CFrame', 'WorldCFrame','AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'Focus', 'MeshData']); // MeshData: edited in Edit Mode, not as text
 
 export class Explorer {
   constructor(el, dm, commands) {
@@ -113,7 +113,7 @@ export class Properties {
         const ks = i.props[key].k.map(([kt, kc]) => [kt, kc]); ks[first ? 0 : ks.length - 1] = [ks[first ? 0 : ks.length - 1][0], c]; tx.set(i, key, new ColorSequence(ks));
       }));
       this.dirty = true; return;
-    } else if (TEXT_TYPES[ty]) { value = TEXT_TYPES[ty].parse(t.value); if (value == null) return this.dirty = true; } // not valid: shown again as it was
+    } else if (TEXT_TYPES[ty]) { try { value = TEXT_TYPES[ty].parse(t.value); } catch { value = null; } if (value == null) return this.dirty = true; } // not valid: shown again as it was
     else if (ty.startsWith('Enum.')) value = t.value;
     else return;
     this.commands.run('setProperty', { key, value });
