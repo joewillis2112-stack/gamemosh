@@ -152,6 +152,8 @@ function monotone(points) {
     return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * ms[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * ms[i + 1];
   };
 }
+/** A point curve ([{ x, y }], 0..1) as the function LightCraft draws through it (monotone cubic). */
+export const curveFunction = points => monotone(points);
 const curveIsIdentity = pts => !pts || !pts.length || pts.every(p => Math.abs(p.x - p.y) < 1e-9);
 function curveLuts(c) {
   const parametric = c.highlights || c.lights || c.darks || c.shadows, master = !curveIsIdentity(c.master), chans = [c.red, c.green, c.blue].map(p => !curveIsIdentity(p));
