@@ -76,10 +76,12 @@ export default async function (t) {
   // types) and its one-line summary (Roblox's docs). A method call is added for this, then taken out.
   const WITH_CALL = CODE + 'p:PivotTo(CFrame.new(0, 5, 0))\n';
   await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, WITH_CALL);
-  const wordAt = word => E(w => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf(w) + 3, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; }, word);
+  const wordAt = (word, at = 3) => E(([w, at]) => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf(w) + at, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; }, [word, at]);
   const tipText = () => E(() => { const h = document.querySelector('#scripteditor .se-hover'); return h ? h.innerText.replace(/\n+/g, ' | ') : null; });
   const tipFits = () => E(() => { const r = document.querySelector('#scripteditor .se-hover').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; });
   const ANCHORED = 'Part.Anchored: boolean | Determines whether a part is immovable by physics. | property of BasePart';
+  // An overloaded datatype constructor lists every form (the hover's title keeps its lines).
+  const CFNEW = /^CFrame\.new\(\): CFrame \| CFrame\.new\(pos: Vector3\): CFrame \| .*CFrame\.new\(x: number, y: number, z: number\): CFrame \| .* \| Returns a CFrame with no rotation with the position of the provided Vector3\. \| in the CFrame datatype.s library$/;
   const PIVOT = 'Part:PivotTo(targetCFrame: CFrame): () | Transforms the PVInstance along with all of its descendant PVInstances such that the pivot is now located at the specified CFrame. | method of BasePart';
   if (!phone) {
     for (const [word, want] of [['Anchored', ANCHORED], ['PivotTo', PIVOT]]) {
@@ -90,6 +92,13 @@ export default async function (t) {
       const tip = await tipText();
       check(tip === want && await tipFits(), `hovering "${word}" shows its signature and summary, on screen (${tip})`);
     }
+    await t.page.mouse.click(5, 700);
+    await t.page.waitForFunction(() => !document.querySelector('#scripteditor .se-hover'), null, { timeout: 3000 }).catch(() => {});
+    await t.page.mouse.move(...await wordAt('CFrame.new', 8), { steps: 4 });
+    await t.page.waitForSelector('#scripteditor .se-hover', { timeout: 3000 }).catch(() => {});
+    const cfTip = await tipText();
+    check(CFNEW.test(cfTip || '') && await tipFits(), `hovering CFrame.new lists its forms, one per line, typed, on screen (${(cfTip || '').slice(0, 120)}...)`);
+    await t.shot('editor-script-hover-overloads');
     await t.shot('editor-script-hover');
     await t.page.mouse.click(5, 700);
   } else {
@@ -103,6 +112,9 @@ export default async function (t) {
     await t.shot('editor-script-hold');
     await hold(await wordAt('Anchored'), 800);
     check(await tipText() === ANCHORED, `holding another word shows that one instead (${await tipText()})`);
+    await hold(await wordAt('CFrame.new', 8), 800);
+    check(CFNEW.test(await tipText() || '') && await tipFits(), `holding CFrame.new lists its forms, on screen (${(await tipText() || '').slice(0, 100)}...)`);
+    await t.shot('editor-script-hold-overloads');
     await hold(await wordAt('print'), 80);
     check(await tipText() === null, 'the next tap puts it away');
   }
