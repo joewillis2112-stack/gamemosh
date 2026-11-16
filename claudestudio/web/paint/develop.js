@@ -11,8 +11,11 @@
 //   treatment 'color' | 'bw', bw_mix { band: −100..100 }
 //   grading { shadows|midtones|highlights|global: { hue, sat, lum }, blending, balance }
 //   curve { highlights, lights, darks, shadows, split_*, master|red|green|blue: [{ x, y }], refine_saturation }
-// Left out (spatial, or of no use on a texture): highlights/shadows, clarity, texture, dehaze,
-// sharpening, noise reduction, lens and geometry, vignette, grain, Point Color, calibration, masks.
+//   light { highlights, shadows }, effects { clarity, dehaze }, process (1 | 2): the spatial tools
+//   (local.rs): an edge-aware base of log luminance (guided filter; process 2: of its fine median),
+//   a clarity band, and the dark channel with its airlight, taken of the whole image (developImage).
+// Left out (of no use on a texture, or not yet): texture, sharpening, noise reduction, lens and
+// geometry, vignette, grain, Point Color, calibration, masks.
 
 const f = Math.fround;
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
@@ -176,6 +179,123 @@ function refineSaturation(before, after, refine) {
   return after.map(v => y1 + (v - y1) * k);
 }
 
+// ---- spatial planes (local.rs; raster blur.rs, resample.rs), all in f32 as the Rust keeps them.
+// A plane is a Float32Array of w*h values.
+const F = Math.fround;
+const roundAway = x => Math.sign(x) * Math.round(Math.abs(x)); // Rust's f32::round
+/** Box radii approximating a Gaussian of `sigma` with 3 passes (blur.rs box_radii). */
+function boxRadii(sigma) {
+  const n = 3, wIdeal = F(Math.sqrt(F(F(F(F(12 * sigma) * sigma) / n) + 1)));
+  let wl = Math.floor(wIdeal); if (wl % 2 === 0) wl -= 1;
+  const wu = wl + 2;
+  const mIdeal = F(F(F(F(F(F(12 * sigma) * sigma) - F(n * (wl * wl))) - F(4 * n * wl)) - 3 * n) / F(-4 * wl - 4));
+  const m = roundAway(mIdeal);
+  return [0, 1, 2].map(i => Math.max(Math.trunc(((i < m ? wl : wu) - 1) / 2), 0));
+}
+function boxRow(row, o, w, r, tmp) { // one horizontal pass over row `o` of `row` (clamped edges)
+  if (r === 0 || w === 0) return;
+  for (let x = 0; x < w; x++) tmp[x] = row[o + x];
+  const last = w - 1, inv = F(1 / (2 * r + 1));
+  let acc = 0;
+  for (let i = 0; i <= 2 * r; i++) acc = F(acc + tmp[Math.min(Math.max(i - r, 0), last)]);
+  for (let x = 0; x < w; x++) { row[o + x] = F(acc * inv); acc = F(F(acc + tmp[Math.min(x + r + 1, last)]) - tmp[Math.max(x - r, 0)]); }
+}
+const BAND = 32; // rows per band of the vertical pass: each band re-primes its running sums
+function boxV(src, dst, w, h, r) {
+  const inv = F(1 / (2 * r + 1)), last = h - 1, acc = new Float32Array(w);
+  for (let y0 = 0; y0 < h; y0 += BAND) {
+    acc.fill(0);
+    for (let i = 0; i <= 2 * r; i++) { const yy = Math.min(Math.max(y0 + i - r, 0), last) * w; for (let x = 0; x < w; x++) acc[x] = acc[x] + src[yy + x]; }
+    for (let y = y0; y < Math.min(y0 + BAND, h); y++) {
+      const o = y * w, a = Math.min(y + r + 1, last) * w, s = Math.max(y - r, 0) * w;
+      for (let x = 0; x < w; x++) { dst[o + x] = acc[x] * inv; acc[x] = F(acc[x] + src[a + x]) - src[s + x]; }
+    }
+  }
+}
+/** Gaussian blur of `sigma` px by three box passes (blur.rs gaussian). */
+export function gaussian(p, w, h, sigma) {
+  let a = Float32Array.from(p);
+  if (sigma <= 0.3 || !p.length) return a;
+  const radii = boxRadii(sigma), tmp = new Float32Array(w);
+  for (let y = 0; y < h; y++) for (const r of radii) boxRow(a, y * w, w, r, tmp);
+  let b = new Float32Array(w * h);
+  for (const r of radii) { if (r === 0) continue; boxV(a, b, w, h, r); [a, b] = [b, a]; }
+  return a;
+}
+// Separable resampling (resample.rs): Box and Bilinear only.
+function weights(src, dst, box) {
+  const scale = F(src / dst), fscale = Math.max(scale, 1), support = F((box ? 0.5 : 1) * fscale), out = [];
+  for (let i = 0; i < dst; i++) {
+    const center = F(F(i + 0.5) * scale), lo = Math.max(Math.floor(F(center - support)), 0), hi = Math.min(Math.max(Math.ceil(F(center + support)), 0), src);
+    const ws = [];
+    for (let j = lo; j < hi; j++) { const x = Math.abs(F(F(F(j + 0.5) - center) / fscale)); ws.push(box ? (x <= 0.5 ? 1 : 0) : F(Math.max(F(1 - x), 0))); }
+    let sum = 0; for (const v of ws) sum = F(sum + v);
+    out.push([lo, Math.abs(sum) > 1e-8 ? ws.map(v => F(v / sum)) : ws.map(() => F(1 / ws.length))]);
+  }
+  return out;
+}
+function resize(p, w0, h0, w, h, box) {
+  w = Math.max(w, 1); h = Math.max(h, 1);
+  if (w === w0 && h === h0) return Float32Array.from(p);
+  const wx = weights(w0, w, box), tmp = new Float32Array(w * h0);
+  for (let y = 0; y < h0; y++) for (let x = 0; x < w; x++) { const [lo, ws] = wx[x]; let acc = 0; for (let k = 0; k < ws.length; k++) acc = F(acc + F(p[y * w0 + lo + k] * ws[k])); tmp[y * w + x] = acc; }
+  const wy = weights(h0, h, box), out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) { const [lo, ws] = wy[y]; for (let k = 0; k < ws.length; k++) { const s = (lo + k) * w, wt = ws[k]; for (let x = 0; x < w; x++) out[y * w + x] = F(out[y * w + x] + F(tmp[s + x] * wt)); } }
+  return out;
+}
+// The self-guided filter (He et al.; local.rs guided, guided_fast).
+function guidedCoeffs(p, w, h, sigma, eps) {
+  const mean = gaussian(p, w, h, sigma), corr = gaussian(p.map(v => F(v * v)), w, h, sigma), a = new Float32Array(p.length), b = new Float32Array(p.length);
+  for (let i = 0; i < p.length; i++) { const m = mean[i], v = Math.max(F(corr[i] - F(m * m)), 0); a[i] = F(v / F(v + eps)); b[i] = F(m - F(a[i] * m)); }
+  return [gaussian(a, w, h, sigma), gaussian(b, w, h, sigma)];
+}
+const guidedApply = (p, a, b) => p.map((v, i) => F(F(a[i] * v) + b[i]));
+export function guidedFast(p, w, h, sigma, eps) {
+  const s = Math.min(Math.max(Math.floor(F(sigma / 3)), 1), 16);
+  if (s <= 1) { const [a, b] = guidedCoeffs(p, w, h, sigma, eps); return guidedApply(p, a, b); }
+  const lw = Math.max(Math.ceil(w / s), 1), lh = Math.max(Math.ceil(h / s), 1), lo = resize(p, w, h, lw, lh, true);
+  const [a, b] = guidedCoeffs(lo, lw, lh, F(sigma / s), eps);
+  return guidedApply(p, resize(a, lw, lh, w, h, false), resize(b, lw, lh, w, h, false));
+}
+/** Separable median, 2r+1 taps along each row then each column, clamped edges (local.rs median_hv). */
+export function medianHV(p, w, h, r) {
+  if (!r || !p.length) return Float32Array.from(p);
+  const pass = (src, W, H) => { // along rows of a W x H plane, written transposed (H x W)
+    const out = new Float32Array(W * H), win = new Float32Array(2 * r + 1);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      for (let k = -r; k <= r; k++) win[k + r] = src[y * W + Math.min(Math.max(x + k, 0), W - 1)];
+      win.sort(); out[x * H + y] = win[r];
+    }
+    return out;
+  };
+  return pass(pass(p, w, h), h, w);
+}
+const BASE_EPS = F(0.35), CLARITY_EPS = F(0.8);
+const lum2020f = c => F(F(F(c[0] * LUMA_2020[0]) + F(c[1] * LUMA_2020[1])) + F(c[2] * LUMA_2020[2]));
+const logLum = c => F(Math.log2(F(Math.max(lum2020f(c), F(1e-7)) / F(GREY))));
+/** Airlight: the 99.5th percentile of every 7th dark-channel value (local.rs airlight). */
+function airlight(dark) {
+  const v = []; for (let i = 0; i < dark.length; i += 7) v.push(dark[i]);
+  if (!v.length) return 1;
+  v.sort((a, b) => a - b);
+  return Math.max(v[Math.min(Math.floor(F(v.length * F(0.995))), v.length - 1)], F(0.05));
+}
+/** True when `s` needs the spatial planes (Highlights, Shadows, Clarity, Dehaze). */
+export function isSpatial(s) { s = settings(s); return !!(s.light.highlights || s.light.shadows || s.effects.clarity || s.effects.dehaze); }
+/** The planes the local tools read, from the white-balanced linear image `lin` (w*h*3, f32) (local.rs prepare). */
+function planesOf(lin, w, h, s) {
+  const n = w * h, ppl = F(Math.max(w, h)), logL = new Float32Array(n), dark = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const c = [lin[i * 3], lin[i * 3 + 1], lin[i * 3 + 2]]; logL[i] = logLum(c); dark[i] = Math.min(c[0], c[1], c[2]); }
+  const P = { logL, base: logL, clarity: null, dark: null, air: 1 };
+  if (s.light.highlights || s.light.shadows) {
+    const sigma = Math.max(F(F(0.015) * ppl), 1), detail = (s.process || 1) >= 2 ? Math.min(Math.max(roundAway(0.0015 * Math.max(w, h)), 0), 24) : 0;
+    P.base = guidedFast(detail ? medianHV(logL, w, h, detail) : logL, w, h, sigma, BASE_EPS);
+  }
+  if (s.effects.clarity) P.clarity = guidedFast(logL, w, h, Math.max(F(F(0.012) * ppl), 1), CLARITY_EPS);
+  if (s.effects.dehaze) { P.dark = gaussian(dark, w, h, Math.max(F(F(0.02) * ppl), 1)); P.air = airlight(P.dark); }
+  return P;
+}
+
 // ---- settings
 const BANDS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'];
 const MIXER_HUES = [0, 30, 60, 120, 180, 225, 270, 315];
@@ -185,7 +305,9 @@ const hsl0 = { hue: 0, sat: 0, lum: 0 }, wheel0 = { hue: 0, sat: 0, lum: 0 };
 export function settings(s = {}) {
   const o = (k, d) => ({ ...d, ...(s[k] || {}) });
   return {
-    light: o('light', { exposure: 0, contrast: 0, whites: 0, blacks: 0 }),
+    process: s.process || 1, // LightCraft's rendering process (2 takes the Highlights/Shadows base of a fine median); missing = 1
+    light: o('light', { exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 }),
+    effects: o('effects', { texture: 0, clarity: 0, dehaze: 0 }),
     wb: o('wb', { mode: 'asShot', temp: 6500, tint: 0 }),
     color: o('color', { vibrance: 0, saturation: 0 }),
     mixer: Object.fromEntries(BANDS.map(b => [b, { ...hsl0, ...((s.mixer || {})[b] || {}) }])),
@@ -199,7 +321,7 @@ export function settings(s = {}) {
 export function isNeutral(s) {
   s = settings(s);
   const L = s.light, g = s.grading, c = s.curve;
-  return !L.exposure && !L.contrast && !L.whites && !L.blacks && s.wb.mode === 'asShot' && !s.color.vibrance && !s.color.saturation && s.treatment !== 'bw'
+  return !L.exposure && !L.contrast && !L.whites && !L.blacks && !L.highlights && !L.shadows && !s.effects.clarity && !s.effects.dehaze && s.wb.mode === 'asShot' && !s.color.vibrance && !s.color.saturation && s.treatment !== 'bw'
     && BANDS.every(b => !s.mixer[b].hue && !s.mixer[b].sat && !s.mixer[b].lum) && ['shadows', 'midtones', 'highlights', 'global'].every(k => !g[k].sat && !g[k].lum)
     && !c.highlights && !c.lights && !c.darks && !c.shadows && [c.master, c.red, c.green, c.blue].every(curveIsIdentity);
 }
@@ -262,10 +384,30 @@ export function developer(s0) {
     if (bw) { const w = bandWeights(h); let mix = 0; for (let i = 0; i < 8; i++) mix += w[i] * bw[i]; l = Math.max(l + mix * Math.min(c / 0.2, 1) * 0.25, 0); c = 0; }
     return grade(lchToLab([l, c, h]));
   };
-  return function develop(e) {
-    let c = mapply(SRGB_TO_2020, e.map(srgbToLinear)).map(f);
-    if (wb) c = mapply(wb, c);
-    c = c.map(v => Math.max(v, 0) * gain);
+  // sRGB-encoded → the white-balanced linear Rec.2020 the planes are taken of (before exposure)
+  const linear = e => { const c = mapply(SRGB_TO_2020, e.map(srgbToLinear)).map(f); return wb ? mapply(wb, c) : c; };
+  const develop = e => finish(linear(e).map(v => Math.max(v, 0) * gain));
+  develop.linear = linear;
+  // The local tools (finish.rs finish_with: dehaze, then Highlights/Shadows and Clarity in log
+  // luminance) on the exposed pixel `c` (f32), from the planes `P` at pixel `i`.
+  const ev = F(L.exposure), hl = F(L.highlights / 100), sh = F(L.shadows / 100), clar = F(s.effects.clarity / 100), dz = F(s.effects.dehaze / 100);
+  develop.local = (c, P, i) => {
+    const lPre = P.logL[i], l0 = F(lPre + ev);
+    if (dz && P.dark) {
+      const air = F(P.air * gain), d = clamp(F(P.dark[i] / P.air), 0, 1);
+      if (dz > 0) { const t = Math.max(F(1 - F(F(0.95 * Math.min(dz, 1)) * d)), F(0.12)); c = c.map(v => Math.max(F(F(v - F(air * F(1 - t))) / t), 0)); }
+      else { const k = F(F(Math.min(-dz, 1) * F(0.7)) * F(F(0.35) + F(F(0.65) * d))); c = c.map(v => F(v + F(F(F(air * F(0.9)) - v) * k))); }
+    }
+    const l1 = dz ? logLum(c) : l0, base = F(F(P.base[i] + ev) + F(l1 - l0));
+    let delta = 0;
+    if (hl || sh) { const ws = F(1 - smooth(-4.8, 0.3, base)), wh = smooth(-1, 2.8, base); delta = F(sh * 1.7 * ws * Math.sqrt(ws) + hl * 1.7 * wh); }
+    if (clar && P.clarity) { const det = clamp(F(lPre - P.clarity[i]), -2.5, 2.5), mid = Math.exp(-((base / 3.2) ** 2)); delta = F(delta + clar * 0.85 * det * (0.35 + 0.65 * mid)); }
+    if (delta) { const g = F(Math.pow(2, delta)); c = c.map(v => F(v * g)); }
+    return c;
+  };
+  develop.finish = finish;
+  return develop;
+  function finish(c) {
     const yl = lum2020(c), o = tone(yl);
     let d = yl > 1e-9 ? c.map(v => v * o / yl) : [0, 0, 0];
     const mx = Math.max(...d);
@@ -280,12 +422,32 @@ export function developer(s0) {
     let out = r.map(encodeSrgb);
     if (curves) { const e0 = out; out = out.map((v, k) => lutEval(curves[k], v)); if (refine < 1) out = refineSaturation(e0, out, refine); }
     return out;
-  };
+  }
 }
 
-/** Develop a straight-alpha float RGBA image (web/paint/brush.js's) in place (alpha kept). */
-export function developImage(img, s) {
-  const dev = developer(s), D = img.data;
-  for (let i = 0; i < D.length; i += 4) { if (D[i + 3] <= 0) continue; const o = dev([D[i], D[i + 1], D[i + 2]]); D[i] = clamp(o[0], 0, 1); D[i + 1] = clamp(o[1], 0, 1); D[i + 2] = clamp(o[2], 0, 1); }
+/** Develop a straight-alpha float RGBA image (web/paint/brush.js's) in place (alpha kept). With
+ *  Highlights, Shadows, Clarity or Dehaze set, the planes are taken of the whole image (transparent
+ *  pixels included, as their colour stands). `cache` (an object kept between calls on the same
+ *  pixels) keeps the planes while only per-pixel settings change. */
+export function developImage(img, s, cache = null) {
+  const dev = developer(s), D = img.data, put = (i, o) => { D[i] = clamp(o[0], 0, 1); D[i + 1] = clamp(o[1], 0, 1); D[i + 2] = clamp(o[2], 0, 1); };
+  if (!isSpatial(s)) {
+    for (let i = 0; i < D.length; i += 4) if (D[i + 3] > 0) put(i, dev([D[i], D[i + 1], D[i + 2]]));
+    return img;
+  }
+  const S = settings(s), n = img.width * img.height, gain = Math.pow(2, S.light.exposure);
+  const key = JSON.stringify([S.wb, S.process || 1, !!(S.light.highlights || S.light.shadows), !!S.effects.clarity, !!S.effects.dehaze]);
+  let lin = cache && cache.key === key ? cache.lin : null, P = lin && cache.P;
+  if (!lin) {
+    lin = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const c = dev.linear([D[i * 4], D[i * 4 + 1], D[i * 4 + 2]]); lin[i * 3] = c[0]; lin[i * 3 + 1] = c[1]; lin[i * 3 + 2] = c[2]; }
+    P = planesOf(lin, img.width, img.height, S);
+    if (cache) Object.assign(cache, { key, lin, P });
+  }
+  for (let i = 0; i < n; i++) {
+    if (D[i * 4 + 3] <= 0) continue;
+    const c = [0, 1, 2].map(k => F(Math.max(lin[i * 3 + k], 0) * gain));
+    put(i * 4, dev.finish(dev.local(c, P, i)));
+  }
   return img;
 }

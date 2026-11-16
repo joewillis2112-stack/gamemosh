@@ -11,6 +11,7 @@ git -C "$D" fetch -q --depth 1 origin "$COMMIT" 2>/dev/null || true
 git -C "$D" checkout -q "$COMMIT" 2>/dev/null || git -C "$D" checkout -q FETCH_HEAD
 mkdir -p test/fixtures/develop
 node tools/develop-oracle/cases.mjs > test/fixtures/develop/cases.json
+node tools/develop-oracle/cases.mjs --spatial-pixels > "$D/studio_spatial.json" # made again by the test, so not kept
 cp tools/develop-oracle/oracle.rs "$D/crates/pipeline/examples/studio_oracle.rs"
-(cd "$D" && cargo run -q --release -p lightcraft-pipeline --example studio_oracle -- "$OLDPWD/test/fixtures/develop/cases.json") > test/fixtures/develop/oracle.json
+(cd "$D" && cargo run -q --release -p lightcraft-pipeline --example studio_oracle -- "$OLDPWD/test/fixtures/develop/cases.json" studio_spatial.json) > test/fixtures/develop/oracle.json
 echo "oracle: $(wc -c < test/fixtures/develop/oracle.json) bytes, LightCraft $(git -C "$D" rev-parse --short HEAD)"
