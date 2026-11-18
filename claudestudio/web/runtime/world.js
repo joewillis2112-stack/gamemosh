@@ -51,6 +51,31 @@ const FACES = {
 };
 // Face size in studs for tiling: [u axis, v axis] of the part's Size.
 const FACE_UV = { Top: ['x', 'z'], Bottom: ['x', 'z'], Front: ['x', 'y'], Back: ['x', 'y'], Right: ['z', 'y'], Left: ['z', 'y'] };
+const AXIS_FACES = [['Left', 'Right'], ['Bottom', 'Top'], ['Front', 'Back']]; // by axis: [the negative side, the positive side]
+const isWedge = inst => inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge';
+
+/** The NormalId face triangle `t` of a part's unit mesh belongs to: its outward normal's largest axis
+ *  in studs (Blender's Cube Projection, on the part's Size), and on a wedge the slope is its Front.
+ *  `pos`/`idx`: the mesh's positions and indices (unit space). */
+export function triangleFace(inst, pos, idx, t) {
+  const S = inst.props.Size, v = k => [pos[idx[t * 3 + k] * 3], pos[idx[t * 3 + k] * 3 + 1], pos[idx[t * 3 + k] * 3 + 2]];
+  const a = v(0), b = v(1), c = v(2), u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+  // Outward: the part's shapes are convex, so outward points away from a point inside (the mean of the
+  // mesh's vertices; not the box's centre, which lies on a wedge's slope).
+  const o = innerPoint(pos), g = [(a[0] + b[0] + c[0]) / 3 - o[0], (a[1] + b[1] + c[1]) / 3 - o[1], (a[2] + b[2] + c[2]) / 3 - o[2]];
+  if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) n = n.map(x => -x);
+  const s = [n[0] / S.x, n[1] / S.y, n[2] / S.z], m = s.map(Math.abs), k = m.indexOf(Math.max(...m));
+  const face = AXIS_FACES[k][s[k] > 0 ? 1 : 0];
+  return isWedge(inst) && face === 'Top' ? 'Front' : face;
+}
+const inner = new WeakMap();
+function innerPoint(pos) {
+  if (!inner.has(pos)) { const m = [0, 0, 0]; for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) m[k] += pos[i + k] * 3 / pos.length; inner.set(pos, m); }
+  return inner.get(pos);
+}
+/** The face of the part mesh's triangle `faceId` (a pick's), as triangleFace. */
+export function faceOfTriangle(inst, mesh, faceId) { return triangleFace(inst, mesh.getVerticesData('position'), mesh.getIndices(), faceId); }
 
 export class World {
   constructor(scene, dm, shadows) {
@@ -159,15 +184,20 @@ export class World {
       // A built-in image, or an image by URL (a painted one is a PNG data URL); asset ids aren't loaded yet.
       const D = c.props, url = this.builtinUrl(D.Texture) || (/^(data:image\/|blob:|https?:)/.test(D.Texture) || /\.(png|jpe?g|webp)$/i.test(D.Texture) ? this.resolveUrl(D.Texture) : null);
       if (!url || D.Transparency >= 1) continue;
-      const wedgeFront = D.Face === 'Front' && (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge');
+      const wedgeFront = D.Face === 'Front' && isWedge(inst);
       const [pos, rot] = wedgeFront ? [[0, 0, 0], [Math.PI / 4, 0, 0]] : FACES[D.Face] || FACES.Front;
-      const plane = MeshBuilder.CreatePlane(inst.Name + '.' + c.Name, { size: 1 }, this.scene);
+      // A curved face (a Ball's, a Cylinder's) or a wedge's triangular side: the part's own triangles
+      // on that face, with the flat plane's UVs projected onto them, so the image lies on the surface
+      // and stops at its edges (Roblox projects decals onto the part too). Flat square faces: a plane.
+      const shape = inst.props.Shape, curved = (inst.ClassName === 'Part' && (shape === 'Ball' || shape === 'Cylinder')) || (isWedge(inst) && (D.Face === 'Left' || D.Face === 'Right'));
+      const plane = curved ? this.projectedFace(inst, e, D.Face, pos, rot) : MeshBuilder.CreatePlane(inst.Name + '.' + c.Name, { size: 1 }, this.scene);
+      if (!plane) continue; // no triangles face that way
       plane.parent = e.mesh;
-      plane.position.set(...pos); plane.rotation.set(...rot);
+      if (!curved) plane.position.set(...pos), plane.rotation.set(...rot);
       // A wedge's front face is its slope: in the unit box it runs corner to corner, sqrt(2) long.
       if (wedgeFront) plane.scaling.y = Math.SQRT2;
       plane.isPickable = false;
-      plane.metadata = { decal: c }; // which Decal this plane draws (the Paint tool paints into it)
+      plane.metadata = { decal: c, projected: curved }; // which Decal this plane draws (the Paint tool paints into it)
       plane.receiveShadows = true;
       const m = new PBRMaterial(plane.name, this.scene);
       const t = new Texture(url, this.scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
@@ -190,6 +220,28 @@ export class World {
       plane.material = m;
       e.decals.push(plane);
     }
+  }
+
+  // The part mesh's triangles on `face` (triangleFace), as a mesh in the part's unit space, UV'd as
+  // the face's plane (at `pos`, turned by `rot`; CreatePlane's UV = its local x, y + 0.5) would be.
+  projectedFace(inst, e, face, pos, rot) {
+    const src = e.mesh, P = src.getVerticesData('position'), N = src.getVerticesData('normal'), idx = src.getIndices();
+    const inv = Matrix.Compose(Vector3.One(), Quaternion.RotationYawPitchRoll(rot[1], rot[0], rot[2]), new Vector3(...pos)).invert();
+    const vd = new VertexData(), p = [], n = [], uv = [], q = new Vector3();
+    for (let t = 0; t < idx.length / 3; t++) {
+      if (triangleFace(inst, P, idx, t) !== face) continue;
+      for (let k = 0; k < 3; k++) {
+        const i = idx[t * 3 + k];
+        p.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); n.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
+        Vector3.TransformCoordinatesFromFloatsToRef(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], inv, q);
+        uv.push(q.x + 0.5, q.y + 0.5);
+      }
+    }
+    if (!p.length) return null;
+    Object.assign(vd, { positions: p, normals: n, uvs: uv, indices: p.map((_, i) => i).slice(0, p.length / 3) });
+    const m = new Mesh(inst.Name + '.' + face, this.scene);
+    vd.applyToMesh(m);
+    return m;
   }
 
   added(inst) {

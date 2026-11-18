@@ -61,6 +61,9 @@ export class ImageEditor {
     this.flat = image(doc.width, doc.height);
     this.canvas.width = doc.width; this.canvas.height = doc.height;
     this.panel.hidden = false; this.title.textContent = `${inst.ClassName} ${inst.Name}: ${prop}`;
+    // The brush is the Paint tool's (a preset or the Paint bar may have changed it since).
+    this.panel.querySelectorAll('.ie-side > label > input[data-k], .ie-row > input[data-k=color]').forEach(i => { i.value = i.dataset.k === 'color' ? hex(this.settings.color) : this.settings[i.dataset.k]; });
+    this.tools();
     this.redraw(); this.refreshLayers(); this.onState({ active: true });
     return true;
   }
@@ -99,7 +102,7 @@ export class ImageEditor {
     const l = this.doc.layers[this.doc.active]; if (!l) return;
     this.bake();
     this.snapshot('Stroke');
-    this.stroke = new Stroke(l.img, { ...this.settings, pressureSize: e.pointerType === 'pen' });
+    this.stroke = new Stroke(l.img, { ...this.settings, pressureSize: (this.settings.pressureSize ?? true) && e.pointerType === 'pen' });
     this.moveTo(e);
   }
   moveTo(e) {
@@ -273,7 +276,7 @@ export class ImageEditor {
     this.title = P.querySelector('.ie-title');
     this.canvas = P.querySelector('.ie-canvas'); this.g = this.canvas.getContext('2d');
     this.list = P.querySelector('.ie-layers'); this.blendSel = P.querySelector('[data-ie=blend]'); this.opacityIn = P.querySelector('[data-ie=opacity]');
-    const tools = () => P.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', (b.dataset.p === 'erase' && S.erase) || (b.dataset.p === 'pencil' && S.aliased) || (b.dataset.p === 'brush' && !S.erase && !S.aliased)));
+    const tools = this.tools = () => P.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', (b.dataset.p === 'erase' && S.erase) || (b.dataset.p === 'pencil' && S.aliased) || (b.dataset.p === 'brush' && !S.erase && !S.aliased)));
     tools();
     P.addEventListener('click', e => {
       const b = e.target.closest('button'), row = e.target.closest('.layer');
