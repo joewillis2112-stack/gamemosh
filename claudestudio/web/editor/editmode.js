@@ -62,6 +62,7 @@ export class EditMode {
   enter(target = this.commands.selection.primary) {
     if (!target || !isA(target.ClassName, 'BasePart')) return false;
     let part = target;
+    if (isA(part.ClassName, 'PartOperation')) return false; // a union's mesh is the result of its parts (Separate it to change them)
     if (part.ClassName !== 'MeshPart' || !part.props.MeshData) {
       if (part.ClassName === 'MeshPart') return false; // a file's mesh (MeshId) isn't editable here
       part = this.commands.history.run('Edit mesh', tx => meshFromPart(tx, this.dm, target));
@@ -271,7 +272,7 @@ export class EditMode {
     c.addEventListener('pointerup', e => { if (this.swallowUp) { this.swallowUp = false; e.stopImmediatePropagation(); } }, true);
     addEventListener('keydown', e => {
       if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
-      if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.active ? this.exit() : this.enter(); return; }
+      if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); if (this.onTab && this.onTab()) return; this.active ? this.exit() : this.enter(); return; }
       if (!this.active || e.metaKey || this.camera.flying()) return;
       const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
       if (this.modal) {

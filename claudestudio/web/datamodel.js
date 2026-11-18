@@ -403,7 +403,10 @@ function solidModel(self, op, parts, cf, rf) {
   if (!list) throw new Error('Unable to cast value to Objects');
   if (!self.dm.hooks.csg) throw new Error('Solid modelling is not available here');
   const opts = { collisionFidelity: cf == null ? 'Default' : enumName(cf), renderFidelity: rf == null ? 'Automatic' : enumName(rf) };
-  return self.dm.async(self, Promise.resolve().then(() => [self.dm.hooks.csg(op, self, list, opts)]));
+  // Worked out before yielding, so a failure is an error in the calling script (as Roblox raises one);
+  // the result comes back when the thread resumes, as a yielding call's does.
+  const result = self.dm.hooks.csg(op, self, list, opts);
+  return self.dm.async(self, Promise.resolve([result]));
 }
 defineClass('AssetService', 'Instance', {
   creatable: false, service: true,

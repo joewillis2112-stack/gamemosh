@@ -12,11 +12,12 @@ import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.js';
 import { Stroke, image } from '../paint/brush.js';
 import { faceOfTriangle } from '../runtime/world.js';
+import { isA } from '../datamodel.js';
 import { PRESETS, applyPreset } from '../paint/presets.js';
 
 const DECAL_SIZE = 512, MESH_SIZE = 1024;
 const TEX_SIZES = [0, 256, 512, 1024, 2048]; // 0: Auto
-const PAINTABLE = new Set(['Block', 'Ball', 'Cylinder', 'Wedge']); // Part shapes (and WedgePart) painted through Decals
+const PAINTABLE = new Set(['Block', 'Ball', 'Cylinder', 'Wedge', 'Union']); // Part shapes (and WedgePart) painted through Decals
 const SEAM = 0.15; // a jump of this much of the texture between two samples is a UV seam
 // A part's mesh is a unit box: the face a local normal points out of.
 const FACE_OF = n => { const a = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)], k = a.indexOf(Math.max(...a)); return [n.x > 0 ? 'Right' : 'Left', n.y > 0 ? 'Top' : 'Bottom', n.z > 0 ? 'Back' : 'Front'][k]; };
@@ -53,7 +54,7 @@ export class PaintTools {
     if (!h || !h.hit) return null;
     const inst = h.pickedMesh.metadata.instance;
     if (inst.ClassName === 'MeshPart') return { inst, prop: 'TextureID', mesh: h.pickedMesh, uv: h.getTextureCoordinates(), flipV: false };
-    const shape = inst.ClassName === 'WedgePart' ? 'Wedge' : inst.ClassName === 'Part' ? inst.props.Shape || 'Block' : null;
+    const shape = inst.ClassName === 'WedgePart' ? 'Wedge' : inst.ClassName === 'Part' ? inst.props.Shape || 'Block' : isA(inst.ClassName, 'PartOperation') ? 'Union' : null;
     if (!PAINTABLE.has(shape)) return null;
     // A block's face is where its normal points; a curved or slanted part's, the face its triangle is
     // drawn on (the same rule World uses to lay the Decal on it).
