@@ -22,7 +22,8 @@
 import { Stroke, image } from '../paint/brush.js';
 import { BLEND_MODES } from '../paint/blend.js';
 import { LayeredImage } from '../paint/layers.js';
-import { resample, canvasSize, RESAMPLE } from '../paint/resample.js';
+import { resample, resampleMask, canvasSize, canvasSizeMask, RESAMPLE } from '../paint/resample.js';
+import * as Sel from '../paint/selection.js';
 import { packLayers, unpackLayers } from '../paint/layerfile.js';
 import { imageFromUrl, toPng, toBytes } from './paint.js';
 import { developImage, isNeutral } from '../paint/develop.js';
@@ -36,19 +37,22 @@ const ADJUST = [['light.exposure', 'Exposure', -4, 4, 0.05, 0], ['light.contrast
   ['wb.temp', 'Temp', 2000, 15000, 50, 6500], ['wb.tint', 'Tint', -100, 100, 1, 0], ['color.vibrance', 'Vibrance', -100, 100, 1, 0], ['color.saturation', 'Saturation', -100, 100, 1, 0],
   ['curve.highlights', 'Highlights', -100, 100, 1, 0], ['curve.lights', 'Lights', -100, 100, 1, 0], ['curve.darks', 'Darks', -100, 100, 1, 0], ['curve.shadows', 'Shadows', -100, 100, 1, 0]];
 const ANCHORS = ['Top left', 'Top', 'Top right', 'Left', 'Centre', 'Right', 'Bottom left', 'Bottom', 'Bottom right'];
-const RESAMPLE_LABEL = { bicubic: 'Bicubic', bicubicSmoother: 'Bicubic Smoother', bicubicSharper: 'Bicubic Sharper', bilinear: 'Bilinear', nearest: 'Nearest' };
+const RESAMPLE_LABEL = { bicubic: 'Bicubic', bicubicSmoother: 'Bicubic Smoother', bicubicSharper: 'Bicubic Sharper', bilinear: 'Bilinear', nearest: 'Nearest', lanczos: 'Lanczos', preserveDetails: 'Preserve Details' };
+const SEL_MODES = [['replace', 'New', 'A new selection'], ['add', 'Add', 'Add to the selection (Shift)'], ['subtract', 'Sub', 'Subtract from the selection (Alt)'], ['intersect', 'Int', 'Intersect with the selection (Shift+Alt)']];
 const getPath = (o, p) => p.split('.').reduce((v, k) => v && v[k], o);
 const setPath = (o, p, v) => { const k = p.split('.'), last = k.pop(); let t = o; for (const x of k) t = t[x] = t[x] || {}; t[last] = v; };
 const BLEND_LABEL = m => m.replace(/([a-z])([A-Z])/g, '$1 $2');
 const hex = c => '#' + c.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
 const unhex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
 const copyImg = i => i && { width: i.width, height: i.height, data: i.data.slice() };
+const red = img => { const m = new Float32Array(img.width * img.height); for (let i = 0; i < m.length; i++) m[i] = img.data[i * 4]; return m; };
+const grey = (m, w, h) => { const d = new Float32Array(w * h * 4); for (let i = 0; i < m.length; i++) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = m[i]; d[i * 4 + 3] = 1; } return { width: w, height: h, data: d }; };
 
 export class ImageEditor {
   constructor({ dm, world, commands, settings, panel, onState = () => {} }) {
     Object.assign(this, { dm, world, commands, settings, panel, onState });
     this.doc = null; this.target = null; this.undo = []; this.stroke = null; this.adj = null; this.band = 'red';
-    this.tool = 'paint'; this.sel = null; this.editMask = false; this.view = { k: 1, x: 0, y: 0 };
+    this.tool = 'paint'; this.sel = null; this.selMode = 'replace'; this.selMove = null; this.editMask = false; this.view = { k: 1, x: 0, y: 0 };
     this.pointers = new Map(); this.gesture = null; this.pan = null; this.marquee = null; this.space = false;
     this.build();
   }
@@ -163,36 +167,49 @@ export class ImageEditor {
     }
   }
 
-  // ---- selections
-  /** Set the selection from a shape drawn on a canvas the image's size (`draw(g)` fills it white). */
-  selectShape(outline, draw) {
-    const d = this.doc, c = document.createElement('canvas'); c.width = d.width; c.height = d.height;
-    const g = c.getContext('2d'); g.fillStyle = '#fff'; draw(g);
-    const a = g.getImageData(0, 0, d.width, d.height).data, mask = new Float32Array(d.width * d.height);
-    let any = false; for (let i = 0; i < mask.length; i++) { mask[i] = a[i * 4 + 3] / 255; any = any || mask[i] > 0; }
-    this.snapshot('Select');
-    this.sel = any ? { mask, outline } : null;
-    this.drawOverlay();
+  // ---- selections (web/paint/selection.js, PhotoCraft's: 8-bit coverage, its modes and feather)
+  /** The mode a new shape combines by: Shift adds, Alt subtracts, both intersect (Photoshop's keys); else the panel's. */
+  modeFor(e) { return e.shiftKey && e.altKey ? 'intersect' : e.shiftKey ? 'add' : e.altKey ? 'subtract' : this.selMode; }
+  setSelection(mask, label) { this.snapshot(label); this.sel = mask ? { mask } : null; this.drawOverlay(); }
+  /** Finish a marquee or lasso drag `m`: its shape combined with the selection by `m.mode`. */
+  selectShape(m) {
+    const d = this.doc, W = d.width, H = d.height, old = this.sel && this.sel.mask;
+    if (m.kind === 'lasso') {
+      if (m.points.length < 3) return m.mode === 'replace' && this.deselect();
+      return this.setSelection(Sel.combine(old, Sel.polygonMask(m.points, W, H), m.mode), 'Lasso');
+    }
+    const r = this.marqueeRect(m);
+    if (r[2] - r[0] < 1 || r[3] - r[1] < 1) { if (m.mode === 'replace') this.deselect(); return; } // a click deselects, as in Photoshop
+    const shape = m.kind === 'ellipse' ? Sel.ellipseMask(r, W, H) : Sel.rectMask(r, W, H);
+    this.setSelection(Sel.combineMarquee(old, shape, m.mode), m.kind === 'ellipse' ? 'Elliptical Marquee' : 'Rectangular Marquee');
   }
-  selectAll() { const d = this.doc; this.snapshot('Select All'); this.sel = { mask: new Float32Array(d.width * d.height).fill(1), outline: `<rect x="0" y="0" width="${d.width}" height="${d.height}"/>` }; this.drawOverlay(); }
-  deselect() { if (!this.sel) return; this.snapshot('Deselect'); this.sel = null; this.drawOverlay(); }
-  invertSelection() {
-    const d = this.doc; this.snapshot('Inverse');
-    if (!this.sel) { this.sel = { mask: new Float32Array(d.width * d.height).fill(1), outline: `<rect x="0" y="0" width="${d.width}" height="${d.height}"/>` }; }
-    else { const m = this.sel.mask.map(v => 1 - v); this.sel = { mask: m, outline: this.sel.outline + `<rect x="0" y="0" width="${d.width}" height="${d.height}"/>` }; }
-    this.drawOverlay();
+  marqueeRect(m) { const [a, b] = [m.from, m.to]; return [Math.round(Math.min(a[0], b[0])), Math.round(Math.min(a[1], b[1])), Math.round(Math.max(a[0], b[0])), Math.round(Math.max(a[1], b[1]))]; }
+  selectAll() { const d = this.doc; this.setSelection(new Float32Array(d.width * d.height).fill(1), 'Select All'); }
+  deselect() { if (!this.sel) return; this.setSelection(null, 'Deselect'); }
+  invertSelection() { const d = this.doc, m = this.sel ? this.sel.mask : new Float32Array(d.width * d.height); this.setSelection(Sel.combine(null, m.map(v => 1 - v), 'replace'), 'Inverse'); }
+  /** Select › Modify › Feather: radius in pixels. */
+  featherSelection(radius) {
+    if (!this.sel) return this.flash('Make a selection to feather');
+    if (!(radius >= 0.1 && radius <= 1000)) return this.flash('Feather goes from 0.1 to 1000 px');
+    const d = this.doc; this.setSelection(Sel.combine(null, Sel.feather(this.sel.mask, d.width, d.height, radius), 'replace'), 'Feather');
   }
-  marqueeOutline(m) {
-    const [a, b] = [m.from, m.to], x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(b[0] - a[0]), h = Math.abs(b[1] - a[1]);
-    if (m.kind === 'rect') { const r = [Math.round(x), Math.round(y), Math.round(x + w), Math.round(y + h)]; return { svg: `<rect x="${r[0]}" y="${r[1]}" width="${r[2] - r[0]}" height="${r[3] - r[1]}"/>`, draw: g => g.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]), size: Math.min(r[2] - r[0], r[3] - r[1]) }; }
-    if (m.kind === 'ellipse') return { svg: `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"/>`, draw: g => { g.beginPath(); g.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI); g.fill(); }, size: Math.min(w, h) };
-    const pts = m.points; // lasso
-    return { svg: `<polygon points="${pts.map(p => p.map(v => +v.toFixed(2)).join(',')).join(' ')}"/>`, draw: g => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(...p) : g.moveTo(...p)); g.closePath(); g.fill('evenodd'); }, size: pts.length >= 3 ? 2 : 0 };
+  /** Move the selection (not its pixels) by whole pixels. */
+  moveSelection(dx, dy) {
+    if (!this.sel || (!dx && !dy)) return;
+    const d = this.doc, m = Sel.translate(this.sel.mask, d.width, d.height, dx, dy);
+    this.setSelection(Sel.any(m) ? m : null, 'Move Selection');
   }
+  inSelection(p) { const d = this.doc, x = Math.floor(p[0]), y = Math.floor(p[1]); return !!this.sel && x >= 0 && y >= 0 && x < d.width && y < d.height && this.sel.mask[y * d.width + x] >= 0.5; }
   drawOverlay() {
     if (!this.doc) return;
-    let s = this.sel ? `<g class="ie-ants">${this.sel.outline}</g><g class="ie-ants ie-ants2">${this.sel.outline}</g>` : '';
-    if (this.marquee) { const o = this.marqueeOutline(this.marquee).svg; s += `<g class="ie-ants">${o}</g><g class="ie-ants ie-ants2">${o}</g>`; }
+    const ants = (inner, move = null) => { const t = move ? ` transform="translate(${move[0]} ${move[1]})"` : ''; return `<g class="ie-ants"${t}>${inner}</g><g class="ie-ants ie-ants2"${t}>${inner}</g>`; };
+    let s = '';
+    if (this.sel) { this.sel.d = this.sel.d || Sel.outline(this.sel.mask, this.doc.width, this.doc.height); s += ants(`<path d="${this.sel.d}"/>`, this.selMove && this.selMove.by); }
+    const m = this.marquee;
+    if (m) {
+      if (m.kind === 'lasso') s += ants(`<polygon points="${m.points.map(p => p.map(v => +v.toFixed(2)).join(',')).join(' ')}"/>`);
+      else { const r = this.marqueeRect(m); s += ants(m.kind === 'ellipse' ? `<ellipse cx="${(r[0] + r[2]) / 2}" cy="${(r[1] + r[3]) / 2}" rx="${(r[2] - r[0]) / 2}" ry="${(r[3] - r[1]) / 2}"/>` : `<rect x="${r[0]}" y="${r[1]}" width="${r[2] - r[0]}" height="${r[3] - r[1]}"/>`); }
+    }
     this.overlay.innerHTML = s;
   }
 
@@ -223,7 +240,7 @@ export class ImageEditor {
     this.stage.setPointerCapture && this.stage.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, this.stagePoint(e));
     if (this.pointers.size === 2) { // a second finger: pinch and two-finger pan, whatever the first one started
-      this.cancelStroke(); this.marquee = null; this.pan = null; this.drawOverlay();
+      this.cancelStroke(); this.marquee = null; this.selMove = null; this.pan = null; this.drawOverlay();
       const [a, b] = [...this.pointers.values()];
       this.gesture = { k: this.view.k, x: this.view.x, y: this.view.y, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])) };
       return;
@@ -232,8 +249,9 @@ export class ImageEditor {
     if (e.button === 1 || (e.button === 0 && (this.tool === 'hand' || this.space))) { e.preventDefault(); this.pan = { from: this.stagePoint(e), x: this.view.x, y: this.view.y }; return; }
     if (e.button !== 0) return;
     if (this.tool === 'paint') return this.begin(e);
-    const p = this.toImage(e);
-    this.marquee = { kind: this.tool, from: p, to: p, points: [p] };
+    const p = this.toImage(e), mode = this.modeFor(e);
+    if (mode === 'replace' && this.inSelection(p)) { this.selMove = { from: p, by: [0, 0] }; return; } // dragging inside the selection moves it
+    this.marquee = { kind: this.tool, mode, from: p, to: p, points: [p] };
   }
   move(e) {
     if (!this.doc) return;
@@ -248,6 +266,7 @@ export class ImageEditor {
     }
     if (this.pan) { const p = this.stagePoint(e); this.view.x = this.pan.x + p[0] - this.pan.from[0]; this.view.y = this.pan.y + p[1] - this.pan.from[1]; this.applyView(); return; }
     if (this.stroke) return this.moveTo(e);
+    if (this.selMove) { const p = this.toImage(e); this.selMove.by = [Math.round(p[0] - this.selMove.from[0]), Math.round(p[1] - this.selMove.from[1])]; return this.drawOverlay(); }
     if (this.marquee) { const p = this.toImage(e); this.marquee.to = p; if (this.marquee.kind === 'lasso') this.marquee.points.push(p); this.drawOverlay(); }
   }
   up(e) {
@@ -255,8 +274,10 @@ export class ImageEditor {
     if (this.gesture) { if (!this.pointers.size) this.gesture = null; return; } // the gesture is over when every finger is up
     this.pan = null;
     if (this.stroke) return this.end();
+    const mv = this.selMove; this.selMove = null;
+    if (mv) { this.moveSelection(...mv.by); return this.drawOverlay(); }
     const m = this.marquee; this.marquee = null;
-    if (m) { const o = this.marqueeOutline(m); if (o.size >= 1) this.selectShape(o.svg, o.draw); else this.deselect(); this.drawOverlay(); } // a click deselects, as in Photoshop
+    if (m) { this.selectShape(m); this.drawOverlay(); }
   }
   wheel(e) {
     if (!this.doc) return;
@@ -289,14 +310,15 @@ export class ImageEditor {
     this.panel.querySelectorAll('[data-adj]').forEach(i => { const p = i.dataset.adj.replace('mixer.band', 'mixer.' + this.band), v = getPath(s, p); if (i.type === 'checkbox') i.checked = v === 'bw'; else i.value = v ?? (+i.dataset.def || 0); });
   }
 
-  // ---- image size and canvas size (every layer and mask; the selection is dropped)
+  // ---- image size and canvas size (every layer and mask, and the selection with them)
   imageSize(w, h, filter = 'bicubic') {
     w = Math.round(w); h = Math.round(h);
     if (!(w >= 1 && h >= 1 && w <= MAX_SIDE && h <= MAX_SIDE)) return this.flash(`Width and height go from 1 to ${MAX_SIDE}`);
     const d = this.doc; if (w === d.width && h === d.height) return;
     this.bake(); this.snapshot('Image Size');
-    for (const l of d.layers) { l.img = resample(l.img, w, h, filter); if (l.mask) l.mask = resample(l.mask, w, h, 'bilinear'); }
-    d.width = w; d.height = h; this.sel = null; this.resized();
+    for (const l of d.layers) { l.img = resample(l.img, w, h, filter); if (l.mask) l.mask = grey(resampleMask(red(l.mask), d.width, d.height, w, h, 1), w, h); } // masks bilinear, as PhotoCraft's Image Size
+    if (this.sel) { const m = resampleMask(this.sel.mask, d.width, d.height, w, h, 0); this.sel = Sel.any(m) ? { mask: m } : null; }
+    d.width = w; d.height = h; this.resized();
   }
   canvasSize(w, h, anchor = 4) {
     w = Math.round(w); h = Math.round(h);
@@ -304,7 +326,8 @@ export class ImageEditor {
     const d = this.doc; if (w === d.width && h === d.height) return;
     this.bake(); this.snapshot('Canvas Size');
     for (const l of d.layers) { l.img = canvasSize(l.img, w, h, anchor); if (l.mask) l.mask = canvasSize(l.mask, w, h, anchor, [1, 1, 1, 1]); } // a mask shows its new area
-    d.width = w; d.height = h; this.sel = null; this.resized();
+    if (this.sel) { const m = canvasSizeMask(this.sel.mask, d.width, d.height, w, h, anchor, 0); this.sel = Sel.any(m) ? { mask: m } : null; }
+    d.width = w; d.height = h; this.resized();
   }
   refreshSize() { const d = this.doc; this.panel.querySelector('[data-sz=w]').value = d.width; this.panel.querySelector('[data-sz=h]').value = d.height; this.sizeNote.textContent = `${d.width} × ${d.height}`; }
 
@@ -340,6 +363,7 @@ export class ImageEditor {
     const S = this.settings, P = this.panel;
     P.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', this.tool === 'paint' && ((b.dataset.p === 'erase' && S.erase) || (b.dataset.p === 'pencil' && S.aliased) || (b.dataset.p === 'brush' && !S.erase && !S.aliased))));
     P.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === this.tool));
+    P.querySelectorAll('[data-sm]').forEach(b => b.classList.toggle('on', b.dataset.sm === this.selMode));
     this.stage.style.cursor = this.tool === 'hand' || this.space ? 'grab' : this.tool === 'paint' ? 'default' : 'crosshair';
   }
 
@@ -352,7 +376,9 @@ export class ImageEditor {
       `<label>Size <input type="range" data-k="size" min="1" max="128" step="1" value="${S.size}"></label>` +
       `<label>Opacity <input type="range" data-k="opacity" min="0.05" max="1" step="0.05" value="${S.opacity}"></label>` +
       `<div class="ie-row"><b>Select</b><button data-t="rect" title="Rectangular selection">Rect</button><button data-t="ellipse" title="Elliptical selection">Ellipse</button><button data-t="lasso" title="Lasso: draw round it">Lasso</button></div>` +
+      `<div class="ie-row">${SEL_MODES.map(([k, l, t]) => `<button data-sm="${k}" title="${t}">${l}</button>`).join('')}</div>` +
       `<div class="ie-row"><button data-ie="all" title="Select all">All</button><button data-ie="none" title="Deselect">None</button><button data-ie="invert" title="Select the inverse">Invert</button></div>` +
+      `<div class="ie-row"><label>Feather <input type="number" data-feather min="0.1" max="1000" step="0.5" value="4"></label><button data-ie="feather" title="Soften the selection's edge by this many pixels">Feather</button></div>` +
       `<div class="ie-row"><b>View</b><button data-t="hand" title="Pan (or Space-drag, middle button, two fingers)">Hand</button><button data-ie="zoomout" title="Zoom out">−</button><span class="ie-zoom"></span><button data-ie="zoomin" title="Zoom in">+</button><button data-ie="fit" title="Fit the image">Fit</button><button data-ie="actual" title="Actual pixels">1:1</button></div>` +
       `<div class="ie-row"><b>Layers</b><span class="grow"></span><button data-ie="add" title="New layer">+</button><button data-ie="remove" title="Delete layer">−</button><button data-ie="up" title="Move up">▲</button><button data-ie="down" title="Move down">▼</button></div>` +
       `<div class="ie-row"><select data-ie="blend">${BLEND_MODES.map(m => `<option value="${m}">${BLEND_LABEL(m)}</option>`).join('')}</select>` +
@@ -382,6 +408,8 @@ export class ImageEditor {
       const a = b.dataset.ie, p = b.dataset.p, v = this.stage;
       if (a === 'apply') this.apply(); else if (a === 'cancel') this.close(); else if (a === 'undo') this.undoLast(); else if (a === 'reset') this.resetAdjust();
       else if (a === 'add' || a === 'remove' || a === 'up' || a === 'down' || a === 'mask') this.layerOp(a);
+      else if (a === 'feather') this.featherSelection(+P.querySelector('[data-feather]').value);
+      else if (b.dataset.sm) { this.selMode = b.dataset.sm; if (this.tool === 'paint' || this.tool === 'hand') this.setTool('rect'); else this.refreshTools(); }
       else if (a === 'all') this.selectAll(); else if (a === 'none') this.deselect(); else if (a === 'invert') this.invertSelection();
       else if (a === 'zoomin' || a === 'zoomout') this.zoomAt(v.clientWidth / 2, v.clientHeight / 2, a === 'zoomin' ? 2 : 0.5);
       else if (a === 'fit') this.fit(); else if (a === 'actual') this.setZoom(1);

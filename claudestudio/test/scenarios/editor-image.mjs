@@ -11,6 +11,7 @@
 // shows it in 3D; opening it again brings back the layers, blend, opacity and mask; Image Size
 // and Canvas Size change every layer; a part without an image says so.
 import { PNG } from 'pngjs';
+import * as Sel from '../../web/paint/selection.js';
 
 export default async function (t) {
   const fail = [];
@@ -133,6 +134,39 @@ export default async function (t) {
   check(!(await isGreen(130, 430)) && await isGreen(45, 430) && await isGreen(215, 430), 'Invert: now only outside the triangle');
   await btn('#imageeditor [data-ie=none]');
   check(!(await st()).sel, 'None drops the selection');
+
+  // Selection modes (PhotoCraft's, checked against its Rust in test/selection.test.mjs; here, the
+  // keys and the toggle): Shift adds, Alt subtracts, Shift+Alt intersects; on a phone, the mode buttons.
+  const selAt = (x, y) => E(([x, y]) => { const ie = window.editor.imageEditor; return ie.sel ? ie.sel.mask[y * ie.doc.width + x] : 0; }, [x, y]);
+  const withMode = async (mode, fn) => {
+    if (phone) { await btn(`#imageeditor [data-sm=${mode}]`); await fn(); await btn('#imageeditor [data-sm=replace]'); return; }
+    const keys = { add: ['Shift'], subtract: ['Alt'], intersect: ['Shift', 'Alt'], replace: [] }[mode];
+    for (const k of keys) await t.page.keyboard.down(k);
+    await fn();
+    for (const k of keys) await t.page.keyboard.up(k);
+  };
+  await btn('#imageeditor [data-t=rect]'); await drag(await onCanvas(100, 100), await onCanvas(199.5, 199.5));
+  await withMode('add', async () => drag(await onCanvas(150, 150), await onCanvas(249.5, 249.5)));
+  check(await selAt(120, 120) === 1 && await selAt(240, 240) === 1 && await selAt(120, 240) === 0, `${phone ? 'Add' : 'Shift'}: a second rectangle adds to the first`);
+  await withMode('subtract', async () => drag(await onCanvas(140, 140), await onCanvas(159.5, 159.5)));
+  check(await selAt(150, 150) === 0 && await selAt(120, 120) === 1, `${phone ? 'Sub' : 'Alt'}: a small one cuts a hole`);
+  await withMode('intersect', async () => drag(await onCanvas(0, 0), await onCanvas(179.5, 179.5)));
+  check(await selAt(120, 120) === 1 && await selAt(240, 240) === 0 && await selAt(150, 150) === 0, `${phone ? 'Int' : 'Shift+Alt'}: only where they overlap is left`);
+  // Moving it: a drag inside the selection with a marquee tool moves the outline, not the pixels.
+  const census = () => E(() => { const ie = window.editor.imageEditor, W = ie.doc.width; let n = 0, sx = 0, sy = 0; ie.sel.mask.forEach((v, i) => { if (v >= 0.5) { n++; sx += i % W; sy += Math.floor(i / W); } }); return [n, sx / n, sy / n]; });
+  const c0 = await census(), px0 = await pix(195, 185);
+  await drag(await onCanvas(110, 110), await onCanvas(130, 120));
+  const c1 = await census();
+  check(c1[0] === c0[0] && Math.abs(c1[1] - c0[1] - 20) <= 3 && Math.abs(c1[2] - c0[2] - 10) <= 3 && near(await pix(195, 185), px0, 0), `dragging inside it moves the selection (${(c1[1] - c0[1]).toFixed(1)}, ${(c1[2] - c0[2]).toFixed(1)}), all ${c1[0]} pixels of it, and not the picture`);
+  // Feather 4 px: PhotoCraft's Gaussian, as selection.js computes it from the same selection.
+  const before4 = await E(() => Array.from(window.editor.imageEditor.sel.mask));
+  await btn('#imageeditor [data-ie=feather]');
+  const after4 = await E(() => Array.from(window.editor.imageEditor.sel.mask)), want4 = Array.from(Sel.combine(null, Sel.feather(Float32Array.from(before4), 512, 512, 4), 'replace'));
+  const soft = after4.filter(v => v > 0 && v < 1).length;
+  check(soft > 500 && after4.every((v, i) => Math.abs(v - want4[i]) < 1e-6), `Feather 4 px softens the edge (${soft} partly selected pixels), as PhotoCraft's feather does`);
+  await btn('#imageeditor [data-ie=undo]');
+  check((await E(() => Array.from(window.editor.imageEditor.sel.mask))).every((v, i) => v === before4[i]), 'Undo takes the feather off');
+  await btn('#imageeditor [data-ie=none]');
   // Adjust inside a selection: the left half's red goes grey, the right half's stays red.
   await btn('#imageeditor [data-t=rect]'); await drag(await onCanvas(0, 0), await onCanvas(255.5, 511.5));
   await btn('#imageeditor .ie-adjust summary');
@@ -177,17 +211,21 @@ export default async function (t) {
   check(s4.layers.length === 2 && s4.layers[1][1] === 'Multiply' && s4.layers[1][2] === 0.5 && s4.layers[1][4] && s4.layers[0][0] === 'Background', `it opens again in layers: ${JSON.stringify(s4.layers)}`);
   check(Object.keys(before).every(k => near(before[k], after[k], 1)), `the same picture (${Object.values(after).map(String).join(' / ')})`);
 
-  // Image Size: every layer (and mask) resampled; Undo puts it back.
+  // Image Size: every layer (and mask, and the selection) resampled; Undo puts it back.
+  await btn('#imageeditor [data-t=rect]'); await drag(await onCanvas(100, 100), await onCanvas(199.5, 199.5));
   await btn('#imageeditor .ie-size summary');
   await setValue('#imageeditor [data-sz=w]', 256); await setValue('#imageeditor [data-sz=h]', 256);
   await btn('#imageeditor [data-ie=resize]');
   const s5 = await st();
+  check(await selAt(75, 75) === 1 && await selAt(40, 40) === 0 && await selAt(110, 75) === 0, 'the selection is resampled with the image (half size)');
   check(String(s5.size) === '256,256' && s5.layers.length === 2 && near(await pix(50, 128), [255, 0, 0, 255], 2) && near(await pix(128, 200), [128, 128, 128, 128], 4) && near(await pix(128, 50), CLEAR, 2), `Image Size 256x256: the picture at half size, mask and all (${await pix(50, 128)} / ${await pix(128, 200)})`);
   await btn('#imageeditor [data-ie=undo]');
-  check(String((await st()).size) === '512,512' && near(await pix(100, 256), before.d, 1), 'Undo brings back 512x512');
+  check(String((await st()).size) === '512,512' && near(await pix(100, 256), before.d, 1) && await selAt(150, 150) === 1, 'Undo brings back 512x512, selection and all');
   // Canvas Size: 600 wide about the centre: 44 clear pixels each side.
   await setValue('#imageeditor [data-sz=w]', 600); await setValue('#imageeditor [data-sz=h]', 512);
   await btn('#imageeditor [data-ie=canvas]');
+  check(await selAt(150, 150) === 1 && await selAt(130, 150) === 0 && await selAt(240, 150) === 1, 'the selection moves with the picture on the bigger canvas');
+  check(await E(() => ['lanczos', 'preserveDetails'].every(v => document.querySelector(`#imageeditor [data-sz=filter] option[value=${v}]`))), 'Lanczos and Preserve Details are offered');
   check(String((await st()).size) === '600,512' && near(await pix(144, 256), before.d, 1) && near(await pix(20, 256), CLEAR, 0), `Canvas Size 600x512 adds clear canvas each side (${await pix(20, 256)}), the picture moved 44 right`);
   await btn('#imageeditor [data-ie=cancel]');
 
