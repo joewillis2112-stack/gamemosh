@@ -22,10 +22,14 @@ fn main() {
                 "bilinear" => Resample::Bilinear,
                 "bicubicSmoother" => Resample::BicubicSmoother,
                 "bicubicSharper" => Resample::BicubicSharper,
+                "lanczos" => Resample::Lanczos,
+                "preserveDetails" => Resample::PreserveDetails,
                 _ => Resample::Bicubic,
             };
             let canvas = Rect::from_xywh(0, 0, w, h);
-            let mut s = Surface::new(PixelFormat::RGBA8);
+            // One channel: a selection (default 0) or a layer mask (default 1), as GRAY8.
+            let gray = c["ch"].as_u64() == Some(1);
+            let mut s = if gray { Surface::with_default(PixelFormat::GRAY8, &[c["def"].as_f64().unwrap_or(0.0) as f32]) } else { Surface::new(PixelFormat::RGBA8) };
             s.write_region(canvas, &px);
             let (sx, sy) = (nw as f64 / w as f64, nh as f64 / h as f64);
             let r = resize_surface_in_canvas(&s, sx, sy, filter, canvas);

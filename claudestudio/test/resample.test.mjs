@@ -3,7 +3,7 @@
 // regenerates the Rust side (resample-oracle.json). Every 8-bit value must match. Plus Canvas
 // Size, worked out by hand.
 import fs from 'node:fs';
-import { resample, canvasSize, canvasOffset } from '../web/paint/resample.js';
+import { resample, resampleData, canvasSize, canvasOffset } from '../web/paint/resample.js';
 
 const cases = JSON.parse(fs.readFileSync('test/fixtures/paint/resample-cases.json', 'utf8'));
 const oracle = JSON.parse(fs.readFileSync('test/fixtures/paint/resample-oracle.json', 'utf8'));
@@ -14,10 +14,11 @@ const toU8 = img => Array.from(img.data, v => Math.trunc(Math.min(Math.max(v, 0)
 
 let exact = 0;
 cases.forEach((c, i) => {
-  const ours = toU8(resample(fromU8(c.w, c.h, c.px), c.nw, c.nh, c.filter)), want = oracle[i];
+  const ours = c.ch === 1 ? toU8({ data: resampleData(Float32Array.from(c.px, v => Math.fround(v / 255)), c.w, c.h, 1, false, [c.def], c.nw, c.nh, c.filter) })
+    : toU8(resample(fromU8(c.w, c.h, c.px), c.nw, c.nh, c.filter)), want = oracle[i];
   let worst = ours.length === want.length ? 0 : Infinity, n = 0;
   for (let k = 0; k < want.length && worst < Infinity; k++) { const d = Math.abs(ours[k] - want[k]); if (d) n++; worst = Math.max(worst, d); }
-  if (worst === 0) exact++; else check(false, `${i} ${c.w}x${c.h} -> ${c.nw}x${c.nh} ${c.filter}: ${n} values differ, worst by ${worst}`);
+  if (worst === 0) exact++; else check(false, `${i} ${c.ch === 1 ? 'mask ' : ''}${c.w}x${c.h} -> ${c.nw}x${c.nh} ${c.filter}: ${n} values differ, worst by ${worst}`);
 });
 check(exact === cases.length, `${exact} of ${cases.length} resamples equal PhotoCraft's, value for value`);
 
