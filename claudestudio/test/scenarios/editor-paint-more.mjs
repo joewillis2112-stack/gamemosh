@@ -58,6 +58,15 @@ export default async function (t) {
   const b1 = await settled(onBall(-0.4, 7.2), red), b2 = await colourAt(onBall(-0.4, 4.8));
   check(red(b1) && !red(b2), `Ball: seen from an angle, red where the drag crossed the surface (${b1}), not mirrored below (${b2})`);
 
+  // An image made elsewhere lies the right way up on a ball, as on a block's face: a Decal whose top
+  // half is red, on another ball's Front, is red above the middle and clear below.
+  await insert('Part', 'Ball2', { size: [6, 6, 6], at: [0, 6, 12], shape: 'Ball' });
+  await E(() => { const ed = window.editor, c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#e01010'; g.fillRect(0, 0, 64, 32);
+    const P = ed.dm.workspace.children.find(x => x.props.Name === 'Ball2'); ed.commands.run('insert', { className: 'Decal', parent: P, props: { Face: 'Front', Texture: c.toDataURL('image/png') } }); ed.commands.run('select', { items: [] }); });
+  await look([0, 6, -2], [0, 6, 12]);
+  const up = await settled([0, 7.5, 12 - Math.sqrt(9 - 2.25) - 0.01], red), down = await colourAt([0, 4.5, 12 - Math.sqrt(9 - 2.25) - 0.01]);
+  check(red(up) && !red(down), `a Decal's own image on a Ball is the right way up: its red top half above the middle (${up}), not below (${down})`);
+
   // ---- A Cylinder (Roblox's: along X), length 6, diameter 4: its round front, then its right cap.
   await insert('Part', 'Cyl', { size: [6, 4, 4], at: [14, 6, -20], shape: 'Cylinder' });
   await look([14, 6, -34], [14, 6, -20]);
