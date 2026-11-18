@@ -16,10 +16,14 @@ export default async function (t) {
   const phone = await E(() => matchMedia('(max-width:760px)').matches);
   const btn = async sel => { if (phone) await t.page.tap(sel); else await t.page.click(sel); await E(() => window.editor.frames(1)); };
   const cdp = phone ? await t.page.context().newCDPSession(t.page) : null;
+  if (phone) await E(() => { const n = e => { window.__touches = e.touches.length; }; for (const k of ['touchstart', 'touchend', 'touchcancel']) addEventListener(k, n, true); });
   const drag = async (a, b, steps = 12) => {
     if (phone) {
       const tp = (type, p) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p[0], y: p[1], id: 1 }] : [] });
-      await tp('touchStart', a); for (let i = 1; i <= steps; i++) await tp('touchMove', [a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps]); await tp('touchEnd');
+      await tp('touchStart', a); for (let i = 1; i <= steps; i++) await tp('touchMove', [a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps]);
+      for (let i = 0; i < 2; i++) { await t.page.waitForTimeout(80); await tp('touchMove', b); } // still before lifting: a moving lift starts a fling, and the next tap would only cancel it
+      await tp('touchEnd');
+      await t.page.waitForFunction(() => !window.__touches); // landed: a tap sent before it would be a second finger
     } else {
       await t.page.mouse.move(...a); await t.page.mouse.down(); for (let i = 1; i <= steps; i++) await t.page.mouse.move(a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps); await t.page.mouse.up();
     }
