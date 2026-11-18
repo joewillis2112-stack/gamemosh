@@ -56,6 +56,12 @@ for (const [op, a] of Object.entries(want)) {
 }
 const keys = Object.keys(want).map(op => pathfinder(op, sq)[0].key);
 check(diff(keys, [1, 0, 1, 1]) === 0, `each result keeps the paint Illustrator's does: the front's, the back's for Minus Front (${keys})`);
+// Divide, Trim, Merge, Crop on the same squares: each result's area and the paint it keeps.
+const sig = r => r ? r.map(x => `${x.key}:${Math.round(area(x.path))}`).sort().join(' ') : 'null';
+check(sig(pathfinder('divide', sq)) === '0:7500 1:2500 1:7500', `Divide: three faces, the overlap the front's (${sig(pathfinder('divide', sq))})`);
+check(sig(pathfinder('trim', sq)) === '0:7500 1:10000', `Trim: the back loses what the front hides (${sig(pathfinder('trim', sq))})`);
+check(sig(pathfinder('merge', sq, [0, 0])) === '0:17500' && sig(pathfinder('merge', sq)) === '0:7500 1:10000', `Merge: one shape where the paints match, as Trim where they don't (${sig(pathfinder('merge', sq, [0, 0]))})`);
+check(sig(pathfinder('crop', sq)) === '0:2500', `Crop: the back inside the front, the front gone (${sig(pathfinder('crop', sq))})`);
 const ring = pathfinder('minusFront', [G.ellipse([0, 0, 200, 200]), G.ellipse([60, 60, 140, 140])]);
 const ra = ring && area(ring[0].path), rexact = Math.PI * (100 * 100 - 40 * 40);
 check(ring && ring[0].path.length === 2 && Math.abs(ra - rexact) / rexact < 1e-3, `a circle minus a circle inside it is a ring: 2 subpaths, area ${ra && ra.toFixed(1)} (π(100²-40²) = ${rexact.toFixed(1)}; Bézier circles are 0.03% off)`);

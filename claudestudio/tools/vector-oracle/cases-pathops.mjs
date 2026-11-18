@@ -7,8 +7,9 @@ import { encodePathfinder } from '../../web/vector/pathops.js';
 let s = 11; const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
 const r2 = (a, b) => Math.round((a + rnd() * (b - a)) * 100) / 100;
 const cases = [];
-const OPS = ['unite', 'minusFront', 'intersect', 'exclude'];
-const pf = (name, paths) => { for (const op of OPS) cases.push({ op: 'pathfinder', name: `${name} ${op}`, flat: encodePathfinder(op, paths) }); };
+const OPS = ['unite', 'minusFront', 'intersect', 'exclude', 'divide', 'trim', 'merge', 'crop'];
+// Keys name paints: shapes 0 and 2 share one, so Merge has something to join.
+const pf = (name, paths) => { const keys = paths.map((_, i) => (i === 2 ? 0 : i)); for (const op of OPS) cases.push({ op: 'pathfinder', name: `${name} ${op}`, flat: encodePathfinder(op, paths, keys) }); };
 
 const rect = (x0, y0, x1, y1) => G.rectangle([x0, y0, x1, y1]);
 pf('two overlapping squares', [rect(0, 0, 100, 100), rect(50, 50, 150, 150)]);
@@ -32,7 +33,7 @@ for (let t = 0; t < 6; t++) {
   pf(`random polygons ${t}`, [poly(), G.ellipse([r2(80, 200), r2(80, 200), r2(220, 340), r2(220, 340)]), poly()]);
 }
 // The binding's failure path: a bad op, a truncated input (non-finite input is checked in the test: JSON has no NaN).
-cases.push({ op: 'pathfinder', name: 'bad op', flat: [9, 0] }, { op: 'pathfinder', name: 'truncated', flat: [0, 2, 1, 1, 4, 0] });
+cases.push({ op: 'pathfinder', name: 'bad op', flat: [9, 0] }, { op: 'pathfinder', name: 'truncated', flat: [0, 2, 0, 1, 1, 4, 0] });
 
 // Gradients.
 for (const kind of ['linear', 'radial']) for (const r of [[0, 0, 100, 50], [20, 30, 220, 330], [10, 10, 10, 90]]) for (const angle of [0, 45, 90, 135, -30, 200]) cases.push({ op: 'gradFit', kind, r, angle });

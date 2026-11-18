@@ -10,7 +10,7 @@
 // stars stay parametric; Pen paths are anchors with handles (click for a corner, drag for a
 // smooth anchor, click the first anchor to close, Enter or another tool to finish).
 // Pathfinder (VectorCraft's pathops, compiled to wasm: web/vector/pathops.js): Unite, Minus Front,
-// Intersect and Exclude over the selected shapes (Shift-click, or the Add button on a phone, picks
+// Intersect, Exclude, and Divide, Trim, Merge (joins what shares a paint), Crop over the selected shapes (Shift-click, or the Add button on a phone, picks
 // more than one); the result is one path with the paint Illustrator keeps (the front shape's; the
 // back one's for Minus Front), in place of its inputs.
 // Gradients (VectorCraft's model, web/vector/gradient.js): linear or radial from the fill colour
@@ -27,6 +27,7 @@ import { IMAGE_PROP } from './imageeditor.js';
 const NEW_SIZE = 512, UNDO_DEPTH = 50, META = 'claudestudio-vector';
 const TOOLS = [['select', 'Select'], ['rect', 'Rect'], ['ellipse', 'Ellipse'], ['polygon', 'Polygon'], ['star', 'Star'], ['pen', 'Pen'], ['text', 'Text']];
 const PATHFINDER = [['unite', 'Unite'], ['minusFront', 'Minus Front'], ['intersect', 'Intersect'], ['exclude', 'Exclude']];
+const PATHFINDER2 = [['divide', 'Divide'], ['trim', 'Trim'], ['merge', 'Merge'], ['crop', 'Crop']];
 // Fonts: the page's own (system-ui) and the web-safe families, each with a generic fallback.
 export const FONTS = { System: 'system-ui, sans-serif', Sans: 'Arial, Helvetica, sans-serif', Serif: "Georgia, 'Times New Roman', serif", Mono: "'Courier New', monospace", Verdana: 'Verdana, sans-serif', Trebuchet: "'Trebuchet MS', sans-serif", Impact: 'Impact, sans-serif' };
 const NS = 'http://www.w3.org/2000/svg';
@@ -183,14 +184,16 @@ export class VectorEditor {
     if (idx.length < 2) return this.say('Select two or more shapes (Shift-click, or Add) to combine them');
     if (idx.some(i => this.doc.shapes[i].kind === 'text')) return this.say("Text can't be combined: it has no outlines");
     if (!pathopsReady()) { try { await loadPathops(); } catch { return this.say('The path operations failed to load'); } }
-    const shapes = idx.map(i => this.doc.shapes[i]), res = pathfinder(op, shapes.map(shapePath));
+    const shapes = idx.map(i => this.doc.shapes[i]), paint = s => JSON.stringify([s.fill, s.grad, s.stroke, s.strokeWidth]);
+    const keys = shapes.map(s => shapes.findIndex(t => paint(t) === paint(s))); // Merge joins shapes of one paint
+    const res = pathfinder(op, shapes.map(shapePath), keys);
     if (!res) return this.say("Those shapes couldn't be combined");
     this.snapshot();
     const out = res.map(r => { const k = shapes[r.key]; return { kind: 'path', live: null, path: r.path, fill: k.fill, stroke: k.stroke, strokeWidth: k.strokeWidth, corner: 0, cornerKind: k.cornerKind, grad: k.grad ? JSON.parse(JSON.stringify(k.grad)) : null }; });
     const at = idx[idx.length - 1] - (idx.length - 1); // where the front one sits once the others are gone
     for (const i of [...idx].reverse()) this.doc.shapes.splice(i, 1);
     this.doc.shapes.splice(at, 0, ...out);
-    this.sel = out.length ? at : -1; this.extra = []; this.addMode = false;
+    this.sel = out.length ? at + out.length - 1 : -1; this.extra = out.length > 1 ? out.slice(0, -1).map((_, k) => at + k) : []; this.addMode = false;
     this.say(out.length ? '' : 'Nothing was left'); this.render();
   }
   say(text) { this.note = text; if (this.doc) this.refreshSide(); }
@@ -358,6 +361,7 @@ export class VectorEditor {
       `<label>Inner <input type="range" data-v="inner" min="0.1" max="0.95" step="0.05"></label>` +
       `<div class="ie-row"><b>Pathfinder</b><span class="grow"></span><button data-ve="add" title="Add to the selection (or Shift-click)">Add</button></div>` +
       `<div class="ie-row">${PATHFINDER.map(([k, l]) => `<button data-pf="${k}">${l}</button>`).join('')}</div>` +
+      `<div class="ie-row">${PATHFINDER2.map(([k, l]) => `<button data-pf="${k}">${l}</button>`).join('')}</div>` +
       `<div class="ie-row"><button data-ve="up" title="Bring forward">▲</button><button data-ve="down" title="Send backward">▼</button><button data-ve="delete">Delete</button><span class="grow"></span><span class="ve-info"></span></div></div></div>`;
     this.title = P.querySelector('.ie-title'); this.info = P.querySelector('.ve-info');
     this.svg = P.querySelector('.ve-svg'); this.defs = P.querySelector('.ve-defs'); this.bg = P.querySelector('.ve-bg'); this.art = P.querySelector('.ve-art'); this.ui = P.querySelector('.ve-ui');

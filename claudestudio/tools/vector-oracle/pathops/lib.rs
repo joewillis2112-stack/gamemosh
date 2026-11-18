@@ -2,8 +2,9 @@
 //! shape modes on linesweeper's sweep), compiled to wasm for web/vector/pathops.js. No wasm-bindgen:
 //! paths go in and out as flat f64 arrays in the module's memory.
 //!
-//! Input:  [op, shapes, (subpaths, (closed, anchors, (px, py, inx, iny, outx, outy, smooth)*)*)*]
-//!         op: 0 Unite, 1 Minus Front, 2 Intersect, 3 Exclude; shapes back to front.
+//! Input:  [op, shapes, (key, subpaths, (closed, anchors, (px, py, inx, iny, outx, outy, smooth)*)*)*]
+//!         op: 0 Unite, 1 Minus Front, 2 Intersect, 3 Exclude, 4 Divide, 5 Trim, 6 Merge, 7 Crop;
+//!         shapes back to front; key names the shape's paint (Merge joins shapes of one key).
 //! Output: [shapes, (key, subpaths, (closed, anchors, (px, py, inx, iny, outx, outy, smooth)*)*)*]
 //!         key: the input whose paint the result keeps; [-1] on bad input.
 use vectorcraft_geom::{Anchor, AnchorKind, FillRule, PathData, Point, SubPath};
@@ -26,11 +27,16 @@ fn decode(v: &[f64]) -> Option<(PathfinderOp, Vec<Shape>)> {
         1 => PathfinderOp::MinusFront,
         2 => PathfinderOp::Intersect,
         3 => PathfinderOp::Exclude,
+        4 => PathfinderOp::Divide,
+        5 => PathfinderOp::Trim,
+        6 => PathfinderOp::Merge,
+        7 => PathfinderOp::Crop,
         _ => return None,
     };
     let n = next()? as usize;
     let mut shapes = Vec::with_capacity(n.min(1024));
-    for key in 0..n {
+    for _ in 0..n {
+        let key = next()? as u64;
         let ns = next()? as usize;
         let mut subs = Vec::with_capacity(ns.min(1024));
         for _ in 0..ns {
@@ -46,7 +52,7 @@ fn decode(v: &[f64]) -> Option<(PathfinderOp, Vec<Shape>)> {
             }
             subs.push(SubPath::new(anchors, closed));
         }
-        shapes.push(Shape::new(PathData::new(subs), FillRule::NonZero, key as u64));
+        shapes.push(Shape::new(PathData::new(subs), FillRule::NonZero, key));
     }
     Some((op, shapes))
 }

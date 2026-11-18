@@ -168,6 +168,17 @@ export default async function (t) {
   await pick2(); await btn('#vectoreditor [data-pf=intersect]'); await t.page.waitForFunction(n => window.editor.vectorEditor.doc.shapes.length === n - 1, n0);
   check(near(await pix(170, 350), MAG) && !near(await pix(120, 320), GREEN, 60) && !near(await pix(240, 375), MAG, 60), 'Intersect: only where they overlap, magenta (the front shape\'s paint)');
   await btn('#vectoreditor [data-ve=undo]');
+  // Divide, Trim, Crop: the same pair, each result kept by its paint (VectorCraft's rules).
+  const runPf = async (op, n) => { await pick2(); await btn(`#vectoreditor [data-pf=${op}]`); await t.page.waitForFunction(n => window.editor.vectorEditor.doc.shapes.length === n, n); return st(); };
+  const dv = await runPf('divide', n0 + 1);
+  check(dv.doc.shapes.length === n0 + 1 && near(await pix(120, 320), GREEN) && near(await pix(170, 350), MAG) && near(await pix(240, 375), MAG) && dv.doc.shapes.slice(4, 7).map(s => s.fill).sort().join() === '#00ff00,#ff00ff,#ff00ff', 'Divide: three pieces, the overlap magenta (the front covers it), all three selected');
+  await btn('#vectoreditor [data-ve=undo]');
+  const tr = await runPf('trim', n0);
+  check(near(await pix(120, 320), GREEN) && near(await pix(170, 350), MAG) && tr.doc.shapes.slice(4, 6).map(s => s.fill).join() === '#00ff00,#ff00ff', 'Trim: the triangle loses what the ellipse hides, two pieces');
+  await btn('#vectoreditor [data-ve=undo]');
+  const cr = await runPf('crop', n0 - 1);
+  check(near(await pix(170, 350), GREEN) && !near(await pix(120, 320), GREEN, 60) && !near(await pix(240, 375), MAG, 60) && cr.doc.shapes[4].fill === '#00ff00', 'Crop: only the triangle inside the ellipse is left, green; the ellipse is gone');
+  await btn('#vectoreditor [data-ve=undo]');
   await pick2(); await btn('#vectoreditor [data-pf=unite]'); await t.page.waitForFunction(n => window.editor.vectorEditor.doc.shapes.length === n - 1, n0);
   const un = await st();
   check(near(await pix(120, 320), MAG) && near(await pix(170, 350), MAG) && near(await pix(240, 375), MAG) && un.doc.shapes[4].path.length === 1, `Unite: one outline round both, magenta (${un.doc.shapes[4].path[0].anchors.length} anchors)`);
