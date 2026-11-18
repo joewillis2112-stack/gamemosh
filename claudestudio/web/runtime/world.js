@@ -17,6 +17,7 @@ import { loadGltfContainer } from './gltf.js';
 import { loadMesh, renderArrays, extent } from '../modeling/editable.js';
 import { TerrainView } from './terrain.js';
 import { cubeProjectUVs } from './cubeuv.js';
+import { operate, faceColors } from '../modeling/csg.js';
 
 const STUD = 0.28; // metres (Roblox's conversion); glTF files are in metres
 
@@ -57,15 +58,20 @@ const isWedge = inst => inst.ClassName === 'WedgePart' || inst.props.Shape === '
 /** The NormalId face triangle `t` of a part's unit mesh belongs to: its outward normal's largest axis
  *  in studs (Blender's Cube Projection, on the part's Size), and on a wedge the slope is its Front.
  *  `pos`/`idx`: the mesh's positions and indices (unit space). */
-export function triangleFace(inst, pos, idx, t) {
+//  A solid-modelling result (not convex) is a mesh in studs (MeshSize, stretched to Size): its
+//  outward side is the one its own vertex normals `nrm` point to.
+export function triangleFace(inst, pos, idx, t, nrm = null) {
   const S = inst.props.Size, v = k => [pos[idx[t * 3 + k] * 3], pos[idx[t * 3 + k] * 3 + 1], pos[idx[t * 3 + k] * 3 + 2]];
   const a = v(0), b = v(1), c = v(2), u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-  let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-  // Outward: the part's shapes are convex, so outward points away from a point inside (the mean of the
-  // mesh's vertices; not the box's centre, which lies on a wedge's slope).
-  const o = innerPoint(pos), g = [(a[0] + b[0] + c[0]) / 3 - o[0], (a[1] + b[1] + c[1]) / 3 - o[1], (a[2] + b[2] + c[2]) / 3 - o[2]];
+  let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]], g;
+  if (nrm) g = [0, 1, 2].map(j => nrm[idx[t * 3] * 3 + j] + nrm[idx[t * 3 + 1] * 3 + j] + nrm[idx[t * 3 + 2] * 3 + j]);
+  else { // the part's shapes are convex: outward points away from a point inside (the mean of the mesh's vertices; not the box's centre, which lies on a wedge's slope)
+    const o = innerPoint(pos); g = [(a[0] + b[0] + c[0]) / 3 - o[0], (a[1] + b[1] + c[1]) / 3 - o[1], (a[2] + b[2] + c[2]) / 3 - o[2]];
+  }
   if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) n = n.map(x => -x);
-  const s = [n[0] / S.x, n[1] / S.y, n[2] / S.z], m = s.map(Math.abs), k = m.indexOf(Math.max(...m));
+  // In studs: a part's mesh is the unit shape (stretched by Size); a mesh in studs is stretched by Size/MeshSize.
+  const M = nrm && inst.props.MeshSize && inst.props.MeshSize.x > 0 ? inst.props.MeshSize : new V3(1, 1, 1);
+  const s = [n[0] * M.x / S.x, n[1] * M.y / S.y, n[2] * M.z / S.z], m = s.map(Math.abs), k = m.indexOf(Math.max(...m));
   const face = AXIS_FACES[k][s[k] > 0 ? 1 : 0];
   return isWedge(inst) && face === 'Top' ? 'Front' : face;
 }
@@ -75,7 +81,7 @@ function innerPoint(pos) {
   return inner.get(pos);
 }
 /** The face of the part mesh's triangle `faceId` (a pick's), as triangleFace. */
-export function faceOfTriangle(inst, mesh, faceId) { return triangleFace(inst, mesh.getVerticesData('position'), mesh.getIndices(), faceId); }
+export function faceOfTriangle(inst, mesh, faceId) { return triangleFace(inst, mesh.getVerticesData('position'), mesh.getIndices(), faceId, isA(inst.ClassName, 'PartOperation') ? mesh.getVerticesData('normal') : null); }
 
 export class World {
   constructor(scene, dm, shadows) {
@@ -85,6 +91,7 @@ export class World {
     this.parts = new Map(); // Instance -> { mesh, mat, agg, shape, decals, meshPart }
     this.meshCache = new Map(); // URL -> Promise of { container, size, center } (metres)
     dm.hooks.loadMesh = url => this.meshAsset(url).then(a => ({ size: a.size.map(v => v / STUD) }));
+    dm.hooks.csg = (op, part, parts, opts) => operate(dm, op, part, parts, opts); // BasePart:UnionAsync and the rest (modeling/csg.js)
     dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
     this.terrain = new TerrainView(scene, dm, shadows); // workspace.Terrain (runtime/terrain.js)
@@ -114,6 +121,11 @@ export class World {
       m.metallic = r.metallic;
       m.emissiveColor = r.emissive ? color.scale(r.emissive) : Color3.Black();
     }
+    // A union showing its parts' own colours: they're in the vertex colours, the material stays white.
+    if (target !== e.mesh && e.meshPart.colored) { m.albedoColor = Color3.White(); if (r.emissive) m.emissiveColor = Color3.White().scale(r.emissive * 0.5); }
+    // A negated part shows as Studio shows it: pink and see-through.
+    if (inst.ClassName === 'NegateOperation') { m.albedoColor = new Color3(1, 0.4, 0.75).toLinearSpace(); m.alpha = 0.5; m.transparencyMode = PBRMaterial.MATERIAL_ALPHABLEND; }
+    else if (m.alpha !== 1) { m.alpha = 1; m.transparencyMode = null; }
     // An editable mesh can have bent (non-planar) faces whose triangles face either way: draw both sides, lit as such.
     if (target !== e.mesh) { m.backFaceCulling = false; m.twoSidedLighting = true; }
     // An editable mesh with a TextureID (painted in the editor) shows the image as it is.
@@ -178,7 +190,8 @@ export class World {
   decals(inst, e) {
     for (const d of e.decals || []) { d.material && d.material.dispose(true, true); d.dispose(); }
     e.decals = [];
-    if (e.meshPart) return; // faces of a box; a mesh has none (not yet supported on MeshParts)
+    const opMesh = e.meshPart && e.meshPart.editable && isA(inst.ClassName, 'PartOperation'); // a union's faces: its triangles, projected
+    if (e.meshPart && !opMesh) return; // faces of a box; a MeshPart's mesh has none (it is painted through its UVs)
     for (const c of inst.children) {
       if (c.ClassName !== 'Decal' && c.ClassName !== 'Texture') continue;
       // A built-in image, or an image by URL (a painted one is a PNG data URL); asset ids aren't loaded yet.
@@ -189,7 +202,7 @@ export class World {
       // A curved face (a Ball's, a Cylinder's) or a wedge's triangular side: the part's own triangles
       // on that face, with the flat plane's UVs projected onto them, so the image lies on the surface
       // and stops at its edges (Roblox projects decals onto the part too). Flat square faces: a plane.
-      const shape = inst.props.Shape, curved = (inst.ClassName === 'Part' && (shape === 'Ball' || shape === 'Cylinder')) || (isWedge(inst) && (D.Face === 'Left' || D.Face === 'Right'));
+      const shape = inst.props.Shape, curved = opMesh || (inst.ClassName === 'Part' && (shape === 'Ball' || shape === 'Cylinder')) || (isWedge(inst) && (D.Face === 'Left' || D.Face === 'Right'));
       const plane = curved ? this.projectedFace(inst, e, D.Face, pos, rot) : MeshBuilder.CreatePlane(inst.Name + '.' + c.Name, { size: 1 }, this.scene);
       if (!plane) continue; // no triangles face that way
       plane.parent = e.mesh;
@@ -225,15 +238,18 @@ export class World {
   // The part mesh's triangles on `face` (triangleFace), as a mesh in the part's unit space, UV'd as
   // the face's plane (at `pos`, turned by `rot`; CreatePlane's UV = its local x, y + 0.5) would be.
   projectedFace(inst, e, face, pos, rot) {
-    const src = e.mesh, P = src.getVerticesData('position'), N = src.getVerticesData('normal'), idx = src.getIndices();
+    // A solid-modelling result: its drawn mesh, in studs about its centre, brought into the part's unit space.
+    const op = e.meshPart && e.meshPart.editable, src = op ? e.meshPart.render[0] : e.mesh, P = src.getVerticesData('position'), N = src.getVerticesData('normal'), idx = src.getIndices();
+    const fit = op ? [e.meshPart.centre, [0, 1, 2].map(k => 1 / [inst.props.MeshSize.x, inst.props.MeshSize.y, inst.props.MeshSize.z][k])] : null;
+    const unit = (i, k) => fit ? (P[i * 3 + k] - fit[0][k]) * fit[1][k] : P[i * 3 + k];
     const inv = Matrix.Compose(Vector3.One(), Quaternion.RotationYawPitchRoll(rot[1], rot[0], rot[2]), new Vector3(...pos)).invert();
     const vd = new VertexData(), p = [], n = [], uv = [], q = new Vector3();
     for (let t = 0; t < idx.length / 3; t++) {
-      if (triangleFace(inst, P, idx, t) !== face) continue;
+      if (triangleFace(inst, P, idx, t, op ? N : null) !== face) continue;
       for (let k = 0; k < 3; k++) {
-        const i = idx[t * 3 + k];
-        p.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); n.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
-        Vector3.TransformCoordinatesFromFloatsToRef(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], inv, q);
+        const i = idx[t * 3 + k], x = unit(i, 0), y = unit(i, 1), z = unit(i, 2);
+        p.push(x, y, z); n.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
+        Vector3.TransformCoordinatesFromFloatsToRef(x, y, z, inv, q);
         uv.push(q.x + 0.5, q.y + 0.5);
       }
     }
@@ -257,7 +273,7 @@ export class World {
   inWorkspace(inst) { for (let p = inst; p; p = p.parent) if (p === this.dm.workspace) return true; return false; }
 
   build(inst) {
-    if (inst.ClassName === 'MeshPart') return this.buildMeshPart(inst);
+    if (isA(inst.ClassName, 'TriangleMeshPart')) return this.buildMeshPart(inst); // MeshParts and solid-modelling results
     this.removed(inst);
     const P = inst.props;
     const shape = inst.ClassName === 'WedgePart' ? 'Wedge' : (P.Shape || 'Block');
@@ -317,9 +333,13 @@ export class World {
     const r = new Mesh(inst.Name + '/mesh', this.scene), vd = new VertexData();
     vd.positions = a.positions; vd.normals = a.normals; vd.indices = a.indices;
     vd.uvs = a.uvs.some(v => v !== 0) ? a.uvs : cubeProjectUVs(a.positions, a.normals); // no UVs: Cube Projection, so it can be painted
+    // A union's parts' own colours, per triangle (unless UsePartColor), as vertex colours (linear).
+    const fc = faceColors(inst, mesh, Array.from(a.faceIds));
+    if (fc) { const col = new Float32Array(a.positions.length / 3 * 4); fc.forEach((c3, t) => { const l = new Color3(c3.r, c3.g, c3.b).toLinearSpace(); for (let k = 0; k < 3; k++) col.set([l.r, l.g, l.b, 1], (t * 3 + k) * 4); }); vd.colors = col; }
     vd.applyToMesh(r);
     const mp = e.meshPart;
-    mp.editable = true; mp.faceIds = a.faceIds; mp.centre = c;
+    mp.editable = true; mp.faceIds = a.faceIds; mp.centre = c; mp.colored = !!fc;
+    if (isA(inst.ClassName, 'PartOperation')) inst.props.TriangleCount = a.positions.length / 9;
     mp.fit = new TransformNode(inst.Name + '/fit', this.scene);
     mp.fit.parent = e.mesh;
     mp.fit.scaling.set(1 / s[0], 1 / s[1], 1 / s[2]);
@@ -333,6 +353,7 @@ export class World {
     this.updateMaterial(inst, e);
     this.visibility(inst, e);
     this.body(inst, e);
+    if (isA(inst.ClassName, 'PartOperation')) this.decals(inst, e); // a union takes Decals (projected onto its triangles), as in Roblox
   }
   attachMesh(inst, e, a) {
     const mp = e.meshPart, s = a.size, c = a.center;
@@ -512,7 +533,7 @@ export class World {
           return;
         }
         return this.body(inst, e); // teleporting an unanchored part
-      case 'MeshId': case 'MeshData': return this.build(inst);
+      case 'MeshId': case 'MeshData': case 'UsePartColor': case 'PartColors': return this.build(inst);
       case 'DoubleSided': case 'TextureID': return e.meshPart && e.meshPart.editable ? this.updateMaterial(inst, e) : this.meshLook(inst, e);
       case 'CollisionFidelity': return this.body(inst, e);
       case 'Size':

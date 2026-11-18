@@ -336,6 +336,11 @@ defineClass('BasePart', 'Instance', {
   methods: {
     GetPivot(self) { return [self.props.CFrame]; },
     PivotTo(self, cf) { if (!(cf instanceof CF)) throw new Error('Unable to cast value to CFrame'); self.dm.set(self, 'CFrame', cf); return []; },
+    // Solid modelling (web/modeling/csg.js, through dm.hooks.csg): yields, and returns the new
+    // operation with no Parent, as Roblox's do.
+    UnionAsync(self, parts, cf, rf) { return solidModel(self, 'union', parts, cf, rf); },
+    SubtractAsync(self, parts, cf, rf) { return solidModel(self, 'subtract', parts, cf, rf); },
+    IntersectAsync(self, parts, cf, rf) { return solidModel(self, 'intersect', parts, cf, rf); },
   },
   events: ['Touched', 'TouchEnded'],
 });
@@ -385,6 +390,21 @@ defineClass('TriangleMeshPart', 'BasePart', { creatable: false, props: { Collisi
 // MeshData is the studio's own (Roblox's nearest is EditableMesh): an editable
 // mesh from the modeling kernel (web/modeling/), drawn instead of MeshId's file.
 defineClass('MeshPart', 'TriangleMeshPart', { props: { MeshId: ['string', ''], TextureID: ['string', ''], DoubleSided: ['bool', false], RenderFidelity: ['Enum.RenderFidelity', 'Automatic'], MeshData: ['string', ''] } });
+// Solid modelling's results (web/modeling/csg.js): drawn and collided like an editable MeshPart
+// from MeshData (the result in studs, about its extent's centre; Roblox keeps its own MeshData and
+// ChildData hidden too). ChildData holds the source parts, for Studio's Separate; PartColors (ours)
+// each source part's colour, shown unless UsePartColor.
+defineClass('PartOperation', 'TriangleMeshPart', { creatable: false, props: { UsePartColor: ['bool', false], RenderFidelity: ['Enum.RenderFidelity', 'Automatic'], SmoothingAngle: ['number', 0], TriangleCount: ['number', 0], MeshData: ['string', ''], ChildData: ['string', ''], PartColors: ['string', ''] } });
+defineClass('UnionOperation', 'PartOperation');
+defineClass('NegateOperation', 'PartOperation');
+defineClass('IntersectOperation', 'PartOperation');
+function solidModel(self, op, parts, cf, rf) {
+  const list = parts instanceof LuaTable ? parts.list() : Array.isArray(parts) ? parts : null;
+  if (!list) throw new Error('Unable to cast value to Objects');
+  if (!self.dm.hooks.csg) throw new Error('Solid modelling is not available here');
+  const opts = { collisionFidelity: cf == null ? 'Default' : enumName(cf), renderFidelity: rf == null ? 'Automatic' : enumName(rf) };
+  return self.dm.async(self, Promise.resolve().then(() => [self.dm.hooks.csg(op, self, list, opts)]));
+}
 defineClass('AssetService', 'Instance', {
   creatable: false, service: true,
   methods: {
@@ -977,7 +997,7 @@ export class DataModel {
     const walk = inst => {
       for (const c of inst.children) {
         if (isA(c.ClassName, 'BasePart') && c.ClassName !== 'Terrain' && c.props.CFrame && c.props.CanQuery !== false && !(respectCanCollide && !c.props.CanCollide) && inList(c) === include) {
-          const shape = c.ClassName === 'WedgePart' ? 'Wedge' : c.ClassName === 'MeshPart' ? 'Mesh' : (c.props.Shape || 'Block');
+          const shape = c.ClassName === 'WedgePart' ? 'Wedge' : isA(c.ClassName, 'TriangleMeshPart') ? 'Mesh' : (c.props.Shape || 'Block');
           cands.push({ inst: c, cf: c.props.CFrame, size: c.props.Size, shape, mesh: shape === 'Mesh' });
         }
         walk(c);
@@ -1013,10 +1033,11 @@ export const STUDIO_OWN = new Map([
   ['ParticleEmitter.LightRange', 'How far, in studs, the light from CastLight reaches.'],
   ['ParticleEmitter.Collision', 'What particles do when they hit a collidable part: pass through, bounce, stick or die.'],
   ['ParticleEmitter.Bounciness', 'The share of a particle\'s speed kept when it bounces off a part (Collision Bounce), 0 to 1.'],
-  ['Enum.ParticleCollision', 'What a ParticleEmitter\'s particles do when they hit a part (its Collision property).'],
+  ['PartOperation.PartColors', 'The colour of each part a solid-modelling operation was made from, shown on its faces unless UsePartColor is set.'],
+  ['Enum.ParticleCollision','What a ParticleEmitter\'s particles do when they hit a part (its Collision property).'],
 ]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
-'TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
