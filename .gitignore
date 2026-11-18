@@ -8,3 +8,4 @@ tests/_qa_*
 /build/
 
 .claude/settings.local.json
+.claude/worktrees/

@@ -151,7 +151,10 @@ export default async function (t) {
 
   // Sun rays: aim at the sun.
   {
-    await t.eval(() => { const S = window.studio, sun = S.R.sun.direction.scale(-1); S.camera.saved = [S.camera.yaw, S.camera.pitch]; S.camera.yaw = Math.atan2(-sun.x, -sun.z); S.camera.pitch = -0.35; S.camera.update(0); });
+    // A Scriptable camera, as a game would aim one: the follow camera on a phone keeps its own yaw.
+    await run(`local cam = workspace.CurrentCamera cam.CameraType = Enum.CameraType.Scriptable
+      local sun = game.Lighting:GetSunDirection() local flat = Vector3.new(sun.X, 0, sun.Z).Unit
+      local from = Vector3.new(0, 6, 20) cam.CFrame = CFrame.lookAt(from, from + (flat + Vector3.new(0, math.tan(math.rad(25)), 0)))`);
     await t.frames(1); // the camera's matrices update when it renders
     const sunPt = await t.eval(() => { const S = window.studio, c = document.getElementById('c'), cam = S.cam, V = cam.position.constructor; const p = V.Project(cam.globalPosition.add(S.R.sun.direction.scale(-500)), S.scene.getTransformMatrix().constructor.Identity(), S.scene.getTransformMatrix(), cam.viewport.toGlobal(c.width, c.height)); return [p.x / c.width, p.y / c.height]; });
     const probe = [[sunPt[0] + 0.12, sunPt[1] + 0.05], [0.02, 0.95]];
@@ -159,11 +162,15 @@ export default async function (t) {
     const r0 = (await read(probe)).pts;
     await run(`game.Lighting.SunRays.Intensity = 0.25 game.Lighting.SunRays.Spread = 0.5`);
     const r1 = (await read(probe)).pts;
-    const sum = v => v[0] + v[1] + v[2];
-    check(sum(r1[0]) - sum(r0[0]) > 20 && Math.abs(sum(r1[1]) - sum(r0[1])) < sum(r1[0]) - sum(r0[0]), `SunRays brighten toward the sun (+${(sum(r1[0]) - sum(r0[0])).toFixed(0)}) far more than away from it (+${(sum(r1[1]) - sum(r0[1])).toFixed(0)})`);
+    // Rays are a screen blend (out = c + (1 - c) r), so (after - before) / (255 - before) is the rays
+    // term itself, whatever was under it (near the sun the sky is nearly white: little visible headroom).
+    const ray = (b, a) => [0, 1, 2].reduce((t, k) => t + (a[k] - b[k]) / Math.max(1, 255 - b[k]), 0) / 3;
+    const near = ray(r0[0], r1[0]), far = ray(r0[1], r1[1]);
+    check(near > 0.1 && near > 2 * far, `SunRays: the rays term is ${near.toFixed(2)} near the sun, ${far.toFixed(2)} away from it`);
     await t.frames(3); await t.shot('post-rays'); await t.golden('post-rays');
     // The sun behind the camera: no rays.
-    await t.eval(() => { const S = window.studio; S.camera.yaw += Math.PI; S.camera.pitch = 0.2; S.camera.update(0); });
+    await run(`local cam = workspace.CurrentCamera local sun = game.Lighting:GetSunDirection() local from = Vector3.new(0, 6, 20)
+      cam.CFrame = CFrame.lookAt(from, from - Vector3.new(sun.X, 0, sun.Z).Unit + Vector3.new(0, -0.2, 0))`);
     await run(`game.Lighting.SunRays.Intensity = 0`); const b0 = (await read([[0.5, 0.3]])).pts[0];
     await run(`game.Lighting.SunRays.Intensity = 0.25`); const b1 = (await read([[0.5, 0.3]])).pts[0];
     check(b0.every((v, k) => v === b1[k]), `with the sun behind the camera, sun rays add nothing (${b0.map(v => v.toFixed(0))} vs ${b1.map(v => v.toFixed(0))})`);
