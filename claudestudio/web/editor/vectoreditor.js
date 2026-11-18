@@ -13,8 +13,9 @@
 // Intersect, Exclude, and Divide, Trim, Merge (joins what shares a paint), Crop over the selected shapes (Shift-click, or the Add button on a phone, picks
 // more than one); the result is one path with the paint Illustrator keeps (the front shape's; the
 // back one's for Minus Front), in place of its inputs.
-// Gradients (VectorCraft's model, web/vector/gradient.js): linear or radial from the fill colour
-// to a second colour, at an angle, fitted to the shape's bounds on each render.
+// Gradients (VectorCraft's model, web/vector/gradient.js): linear or radial, any number of stops
+// (tap the bar to add one, its colour sampled there; pick one to colour it, move it or remove it),
+// fitted to the shape's bounds at an angle, until the annotator's handles on the canvas place it.
 // Text: point text at a click, in a font the page has or a web-safe one (the SVG names the family
 // with a generic fallback, so any device draws it). It isn't outlined, so it can't be combined.
 // The view is an <svg> of the document itself, so what's shown is what's written. Apply is one
@@ -85,7 +86,7 @@ export function fromDataUrl(url) {
 export class VectorEditor {
   constructor({ dm, world, commands, panel, onState = () => {} }) {
     Object.assign(this, { dm, world, commands, panel, onState });
-    this.doc = null; this.sel = -1; this.extra = []; this.addMode = false; this.tool = 'select'; this.undo = []; this.drag = null; this.pen = null; this.lastEdit = null; this.note = '';
+    this.doc = null; this.sel = -1; this.stop = 0; this.extra = []; this.addMode = false; this.tool = 'select'; this.undo = []; this.drag = null; this.pen = null; this.lastEdit = null; this.note = '';
     this.style = { fill: '#3fa9f5', stroke: '#1b1b1f', strokeWidth: 0, corner: 0, cornerKind: 'Round', sides: 6, points: 5, inner: 0.5, paint: 'solid', to: '#1b1b1f', angle: 0, text: 'Text', font: 'Sans', size: 48, bold: false, italic: false };
     this.build();
   }
@@ -163,12 +164,27 @@ export class VectorEditor {
       if (k === 'sides' && s.kind === 'polygon') s.live.sides = v;
       else if ((k === 'points' || k === 'inner') && s.kind === 'star') s.live[k] = v;
       else if (k === 'paint') s.grad = v === 'solid' ? null : s.grad ? { ...s.grad, kind: v } : this.gradFor({ ...this.style, fill: s.fill });
-      else if (k === 'to' || k === 'angle') { if (s.grad) { if (k === 'angle') s.grad.angle = v; else s.grad.stops[s.grad.stops.length - 1].color = Grad.fromHex(v); } }
+      else if (k === 'to' || k === 'angle') { if (s.grad) { if (k === 'angle') { s.grad.angle = v; delete s.grad.geom; } else s.grad.stops[s.grad.stops.length - 1].color = Grad.fromHex(v); } }
+      else if (k === 'stopColor' || k === 'stopAt') { if (s.grad && s === this.shape) {
+        const i = Math.min(this.stop, s.grad.stops.length - 1);
+        if (k === 'stopColor') s.grad.stops[i].color = Grad.fromHex(v); else { const [st, ni] = Grad.moveStop(s.grad.stops, i, v / 100); s.grad.stops = st; this.stop = ni; }
+        if (k === 'stopColor' && i === 0) s.fill = v;
+      } }
       else if (k === 'fill') { s.fill = v; if (s.grad && v !== 'none') s.grad.stops[0].color = Grad.fromHex(v); }
       else if (['text', 'font', 'size', 'bold', 'italic'].includes(k)) { if (s.kind === 'text') s[k] = v; }
       else if (k in s) s[k] = v;
     }
     this.render();
+  }
+  /** Add a stop to the selected shape's gradient at `offset` (0..1), coloured as the gradient is there; or remove the selected stop. */
+  addStop(offset) {
+    const s = this.shape; if (!s || !s.grad) return;
+    this.snapshot(); const [st, i] = Grad.insertStop(s.grad.stops, offset); s.grad.stops = st; this.stop = i; this.render();
+  }
+  removeStop() {
+    const s = this.shape; if (!s || !s.grad) return;
+    const st = Grad.removeStop(s.grad.stops, this.stop); if (!st) return this.say('A gradient keeps at least two stops');
+    this.snapshot(); s.grad.stops = st; this.stop = Math.min(this.stop, st.length - 1); this.render();
   }
   order(by) {
     const S = this.doc.shapes, j = this.sel + by; if (!this.shape || j < 0 || j >= S.length) return;
@@ -237,6 +253,11 @@ export class VectorEditor {
       return;
     }
     if (this.tool === 'select') {
+      if (h.gh) { // a gradient annotator handle: the gradient is placed from now on
+        const s = this.shape; this.snapshot();
+        if (!s.grad.geom) s.grad.geom = JSON.parse(JSON.stringify(Grad.resolve(s.grad, shapeBounds(s))));
+        this.drag = { mode: 'grad', end: h.gh, from: p, moved: false }; return;
+      }
       if (h.anchor !== undefined) { this.snapshot(); this.drag = { mode: 'anchor', si: +h.sp, ai: +h.anchor, handle: h.handle || null, from: p, moved: false }; return; }
       const i = this.hit(p), add = e.shiftKey || this.addMode;
       if (!(i >= 0 && !add && this.selection.includes(i))) this.select(i, add); // pressing on a selected shape keeps the selection, to drag it all
@@ -264,11 +285,14 @@ export class VectorEditor {
       const dv = [p[0] - d.last[0], p[1] - d.last[1]]; d.last = p;
       for (const i of this.selection) {
         const s = this.doc.shapes[i];
+        if (s.grad && s.grad.geom) for (const k of ['start', 'end']) s.grad.geom[k] = [s.grad.geom[k][0] + dv[0], s.grad.geom[k][1] + dv[1]];
         if (s.kind === 'text') s.at = [s.at[0] + dv[0], s.at[1] + dv[1]];
         else if (s.live && s.live.r) s.live.r = [s.live.r[0] + dv[0], s.live.r[1] + dv[1], s.live.r[2] + dv[0], s.live.r[3] + dv[1]];
         else if (s.live) s.live.c = [s.live.c[0] + dv[0], s.live.c[1] + dv[1]];
         else G.translate(s.path, dv);
       }
+    } else if (d.mode === 'grad') {
+      s.grad.geom[d.end] = p;
     } else if (d.mode === 'anchor') {
       const a = s.path[d.si].anchors[d.ai];
       if (d.handle) G.setHandle(a, d.handle === 'out', p, e.altKey);
@@ -306,6 +330,11 @@ export class VectorEditor {
       const b = shapeBounds(d.shapes[i]);
       if (b) ui += `<rect class="ve-box" x="${b[0]}" y="${b[1]}" width="${b[2] - b[0]}" height="${b[3] - b[1]}"/>`;
     }
+    if (s && s.grad && !this.extra.length && this.tool === 'select') { // the gradient annotator: start and end of the vector
+      const g = Grad.resolve(s.grad, shapeBounds(s)), [a, b] = [g.start, g.end];
+      ui += `<line class="ve-gline" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>` +
+        [['start', a], ['end', b]].map(([n, q]) => `<circle class="ve-ghandle${n === 'end' ? ' end' : ''}" cx="${q[0]}" cy="${q[1]}" r="${7 * k}"/><circle class="ve-ghit" cx="${q[0]}" cy="${q[1]}" r="${22 * k}" data-gh="${n}"/>`).join(''); // a finger-sized target round each
+    }
     if (s && s.kind === 'path' && !this.extra.length) s.path.forEach((sp, si) => sp.anchors.forEach((a, ai) => {
       for (const h of ['in', 'out']) if (G[h === 'in' ? 'hasIn' : 'hasOut'](a)) ui += `<line class="ve-arm" x1="${a.p[0]}" y1="${a.p[1]}" x2="${a[h][0]}" y2="${a[h][1]}"/><circle class="ve-handle" cx="${a[h][0]}" cy="${a[h][1]}" r="${5 * k}" data-sp="${si}" data-anchor="${ai}" data-handle="${h}"/>`;
       ui += dot(a.p[0], a.p[1], `class="ve-anchor" data-sp="${si}" data-anchor="${ai}"`);
@@ -330,7 +359,15 @@ export class VectorEditor {
     const g = s ? s.grad : (S.paint === 'solid' ? null : { kind: S.paint, angle: S.angle }), paint = g ? g.kind : 'solid';
     set('paint', paint); set('angle', g ? g.angle : S.angle);
     set('to', s && s.grad ? Grad.toHex(s.grad.stops[s.grad.stops.length - 1].color) : S.to);
-    P.querySelector('.ve-grad').hidden = paint === 'solid';
+    P.querySelectorAll('.ve-grad').forEach(el => { el.hidden = paint === 'solid'; });
+    const bar = P.querySelector('.ve-stops'), gs = s && s.grad;
+    if (gs) {
+      this.stop = Math.min(this.stop, gs.stops.length - 1);
+      bar.style.background = `linear-gradient(to right, ${Grad.expanded(gs.stops).map(([t, c, o]) => `rgba(${c.map(v => Math.round(v * 255)).join(',')},${o}) ${(t * 100).toFixed(2)}%`).join(', ')})`;
+      bar.innerHTML = gs.stops.map((st, i) => `<button class="ve-stop${i === this.stop ? ' on' : ''}" data-stop="${i}" style="left:${st.offset * 100}%;background:${Grad.toHex(st.color)}" title="Stop ${i + 1}"></button>`).join('');
+      set('stopColor', Grad.toHex(gs.stops[this.stop].color)); set('stopAt', Math.round(gs.stops[this.stop].offset * 100));
+    } else bar.innerHTML = '';
+    P.querySelector('.ve-stoprow').hidden = !gs;
     const text = s ? s.kind === 'text' : this.tool === 'text', tv = s && s.kind === 'text' ? s : S;
     P.querySelector('.ve-text').hidden = !text;
     set('text', tv.text); set('font', tv.font); set('size', tv.size);
@@ -350,6 +387,8 @@ export class VectorEditor {
       `<div class="ie-row"><label>Fill <input type="color" data-v="fill"></label><label><input type="checkbox" data-v="nofill"> None</label>` +
       `<select data-v="paint" title="Paint"><option value="solid">Solid</option><option value="linear">Linear</option><option value="radial">Radial</option></select></div>` +
       `<div class="ie-row ve-grad"><label>To <input type="color" data-v="to"></label><label class="grow">Angle <input type="range" data-v="angle" min="-180" max="180" step="5"></label></div>` +
+      `<div class="ve-grad ve-stoprow"><div class="ve-stops" title="Tap to add a stop"></div>` +
+      `<div class="ie-row"><label>Stop <input type="color" data-v="stopColor"></label><label class="grow">At <input type="range" data-v="stopAt" min="0" max="100" step="1"></label><button data-ve="delstop" title="Remove the stop">−</button></div></div>` +
       `<div class="ie-row"><label>Stroke <input type="color" data-v="stroke"></label><label class="grow">Width <input type="range" data-v="strokeWidth" min="0" max="40" step="1"></label></div>` +
       `<div class="ve-text"><div class="ie-row"><input type="text" data-v="text" class="grow" placeholder="Text" aria-label="Text"></div>` +
       `<div class="ie-row"><select data-v="font" title="Font">${Object.keys(FONTS).map(f => `<option value="${f}">${f}</option>`).join('')}</select><button data-v="bold" title="Bold"><b>B</b></button><button data-v="italic" title="Italic"><i>I</i></button></div>` +
@@ -366,10 +405,13 @@ export class VectorEditor {
     this.title = P.querySelector('.ie-title'); this.info = P.querySelector('.ve-info');
     this.svg = P.querySelector('.ve-svg'); this.defs = P.querySelector('.ve-defs'); this.bg = P.querySelector('.ve-bg'); this.art = P.querySelector('.ve-art'); this.ui = P.querySelector('.ve-ui');
     P.addEventListener('click', e => {
+      if (e.target.classList.contains('ve-stops') && this.doc) { const r = e.target.getBoundingClientRect(); return this.addStop((e.clientX - r.left) / r.width); } // a tap on the bar adds a stop there
       const b = e.target.closest('button'); if (!b || !this.doc) return;
       const a = b.dataset.ve;
       this.note = '';
-      if (b.dataset.tool) this.setTool(b.dataset.tool);
+      if (b.dataset.stop !== undefined) { this.stop = +b.dataset.stop; this.render(); }
+      else if (a === 'delstop') this.removeStop();
+      else if (b.dataset.tool) this.setTool(b.dataset.tool);
       else if (b.dataset.pf) this.combine(b.dataset.pf);
       else if (b.dataset.v === 'bold' || b.dataset.v === 'italic') { const s = this.shape, k = b.dataset.v; this.setProp(k, !(s && s.kind === 'text' ? s[k] : this.style[k])); }
       else if (a === 'add') { this.addMode = !this.addMode; this.render(); }

@@ -21,7 +21,7 @@ export default async function (t) {
   const btn = async sel => { if (phone) await t.page.tap(sel); else await t.page.click(sel); await E(() => window.editor.frames(1)); };
   const cdp = phone ? await t.page.context().newCDPSession(t.page) : null;
   // CDP touches can land late; a tap sent before the last touchend landed is a second finger (no click). Wait for it.
-  if (phone) await E(() => { const n = e => { window.__touches = e.touches.length; }; for (const k of ['touchstart', 'touchend', 'touchcancel']) addEventListener(k, n, true); });
+  if (phone) await E(() => { const down = new Set(), n = e => { if (e.pointerType !== 'touch') return; if (e.type === 'pointerdown') down.add(e.pointerId); else down.delete(e.pointerId); window.__touches = down.size; }; for (const k of ['pointerdown', 'pointerup', 'pointercancel']) addEventListener(k, n, true); }); // pointers, not touches: a touch whose element is re-rendered away never tells the window it ended
   const tp = async (type, pts) => { await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p[0], y: p[1], id: i + 1 })) }); if (type === 'touchEnd') await t.page.waitForFunction(() => !window.__touches); };
   // A finger that lifts while moving starts a fling, and Chrome drops the next tap as the fling's cancel (no click): hold still first.
   const rest = async p => { await t.page.waitForTimeout(80); await tp('touchMove', [p]); await t.page.waitForTimeout(80); await tp('touchMove', [p]); };

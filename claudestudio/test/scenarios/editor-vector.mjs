@@ -16,7 +16,7 @@ export default async function (t) {
   const phone = await E(() => matchMedia('(max-width:760px)').matches);
   const btn = async sel => { if (phone) await t.page.tap(sel); else await t.page.click(sel); await E(() => window.editor.frames(1)); };
   const cdp = phone ? await t.page.context().newCDPSession(t.page) : null;
-  if (phone) await E(() => { const n = e => { window.__touches = e.touches.length; }; for (const k of ['touchstart', 'touchend', 'touchcancel']) addEventListener(k, n, true); });
+  if (phone) await E(() => { const down = new Set(), n = e => { if (e.pointerType !== 'touch') return; if (e.type === 'pointerdown') down.add(e.pointerId); else down.delete(e.pointerId); window.__touches = down.size; }; for (const k of ['pointerdown', 'pointerup', 'pointercancel']) addEventListener(k, n, true); }); // pointers, not touches: a touch whose element is re-rendered away never tells the window it ended
   const drag = async (a, b, steps = 12) => {
     if (phone) {
       const tp = (type, p) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p[0], y: p[1], id: 1 }] : [] });
@@ -112,21 +112,46 @@ export default async function (t) {
 
   // Gradients (VectorCraft's model, web/vector/gradient.js, checked against its Rust in
   // test/vector-ops.test.mjs; here, that the screen shows what the model says at each point).
-  const want = (s, p) => { const g = s.grad, geo = Grad.fit(g.kind, s.box, g.angle); return Grad.sample(g.stops, Grad.paramAt(g.kind, geo, p))[0].map(v => Math.round(v * 255)); };
+  const want = (s, p) => { const g = s.grad, geo = Grad.resolve(g, s.box); return Grad.sample(g.stops, Grad.paramAt(g.kind, geo, p))[0].map(v => Math.round(v * 255)); };
   const shapeAt = async i => { const d = (await st()).doc.shapes[i]; d.box = await E(i => { const ve = window.editor.vectorEditor, b = ve.art.children[i].getBBox(); return [b.x, b.y, b.x + b.width, b.y + b.height]; }, i); return d; };
   await tap(await at(180, 100)); // the rectangle
   await setV('paint', 'linear'); await setV('to', '#0000ff');
-  let rs = await shapeAt(0), l = await pix(80, 140), rr = await pix(280, 140);
-  check(rs.grad && rs.grad.kind === 'linear' && near(l, want(rs, [80, 140]), 8) && near(rr, want(rs, [280, 140]), 8) && rr[2] > l[2] + 150, `Linear: red to blue across the rectangle, on screen as the model says (left ${l} ≈ ${want(rs, [80, 140])}, right ${rr} ≈ ${want(rs, [280, 140])})`);
+  let rs = await shapeAt(0), l = await pix(80, 120), rr = await pix(280, 120); // off the annotator's line (y 140)
+  check(rs.grad && rs.grad.kind === 'linear' && near(l, want(rs, [80, 120]), 8) && near(rr, want(rs, [280, 120]), 8) && rr[2] > l[2] + 150, `Linear: red to blue across the rectangle, on screen as the model says (left ${l} ≈ ${want(rs, [80, 120])}, right ${rr} ≈ ${want(rs, [280, 120])})`);
   await setV('angle', 90);
-  rs = await shapeAt(0); const top = await pix(180, 70), bottom = await pix(180, 210);
-  check(near(top, want(rs, [180, 70]), 8) && near(bottom, want(rs, [180, 210]), 8) && top[2] > bottom[2] + 150, `at 90° it runs bottom (red, ${bottom}) to top (blue, ${top})`);
+  rs = await shapeAt(0); const top = await pix(200, 70), bottom = await pix(200, 210);
+  check(near(top, want(rs, [200, 70]), 8) && near(bottom, want(rs, [200, 210]), 8) && top[2] > bottom[2] + 150, `at 90° it runs bottom (red, ${bottom}) to top (blue, ${top})`);
   await setV('paint', 'solid');
   check(near(await pix(180, 140), [255, 0, 0]) && !(await st()).doc.shapes[0].grad, 'Solid takes the gradient off: red again');
   await tap(await at(400, 380)); // the star: radial, blue at the centre to yellow at the tips
   await setV('paint', 'radial'); await setV('to', '#ffff00');
-  const ss = await shapeAt(1), c0 = await pix(400, 380), c1 = await pix(400, 312), c2 = await pix(440, 380); // up the vector (the angle is still 90°), and across it
-  check(ss.grad.kind === 'radial' && near(c0, want(ss, [400, 380]), 8) && near(c1, want(ss, [400, 312]), 8) && near(c2, want(ss, [440, 380]), 8) && c1[0] > c0[0] + 100 && c2[0] > c0[0] + 60, `Radial: the star is blue at its centre (${c0}) and yellower out to its tips, up (${c1} ≈ ${want(ss, [400, 312])}) and across (${c2} ≈ ${want(ss, [440, 380])})`);
+  const ss = await shapeAt(1), c0 = await pix(410, 385), c1 = await pix(405, 312), c2 = await pix(440, 380); // beside the annotator's line and centre handle // up the vector (the angle is still 90°), and across it
+  check(ss.grad.kind === 'radial' && near(c0, want(ss, [410, 385]), 8) && near(c1, want(ss, [405, 312]), 8) && near(c2, want(ss, [440, 380]), 8) && c1[0] > c0[0] + 100 && c2[0] > c0[0] + 60, `Radial: the star is blue at its centre (${c0}) and yellower out to its tips, up (${c1} ≈ ${want(ss, [405, 312])}) and across (${c2} ≈ ${want(ss, [440, 380])})`);
+  // More stops: a tap on the bar adds one, coloured as the gradient is there; recolour, move, remove it.
+  const tapBar = async t01 => { const p = await E(t01 => { const r = document.querySelector('#vectoreditor .ve-stops').getBoundingClientRect(); return [r.left + r.width * t01, r.top + r.height / 2]; }, t01); await tap(p); };
+  await E(() => document.querySelector('#vectoreditor .ve-stops').scrollIntoView({ block: 'center' }));
+  await tapBar(0.5);
+  let gs = (await shapeAt(1)).grad.stops;
+  check(gs.length === 3 && Math.abs(gs[1].offset - 0.5) < 0.02 && Math.abs(gs[1].color[0] - 0.5) < 0.03 && Math.abs(gs[1].color[2] - 0.5) < 0.03, `a tap half way along the bar adds a third stop there, grey as the blue-to-yellow ramp is half way (${gs[1].color.map(v => v.toFixed(2))})`);
+  await setV('stopColor', '#ff0000');
+  let gs3 = await shapeAt(1), gmid = await pix(408, 335);
+  check(near(gmid, want(gs3, [408, 335]), 8) && gmid[0] > 200 && gmid[1] < 60, `its colour, red: half way out the star is red on screen (${gmid} ≈ ${want(gs3, [408, 335])})`);
+  await setV('stopAt', 70);
+  const tolSteep = phone ? 20 : 8; // red to yellow over 27 units: on a phone a screen pixel spans more of it
+  gs3 = await shapeAt(1); const at70 = await pix(406, 317), at50 = await pix(408, 335);
+  check(Math.abs(gs3.grad.stops[1].offset - 0.7) < 1e-6 && near(at70, want(gs3, [406, 317]), tolSteep) && at70[0] > 200 && near(at50, want(gs3, [408, 335]), tolSteep), `moved to 70%: red is now 70% out (${at70} ≈ ${want(gs3, [406, 317])}), half way is between (${at50} ≈ ${want(gs3, [408, 335])}; offset ${gs3.grad.stops[1].offset})`);
+  await btn('#vectoreditor [data-ve=delstop]'); await btn('#vectoreditor [data-ve=delstop]');
+  check((await shapeAt(1)).grad.stops.length === 2, 'removing stops stops at two');
+  // The annotator: drag the radial gradient's centre handle; the gradient is placed there.
+  gs3 = await shapeAt(1); const g0 = Grad.resolve(gs3.grad, gs3.box);
+  await drag(await at(...g0.start), await at(g0.start[0] - 30, g0.start[1] + 20));
+  const gs4 = await shapeAt(1), cAt = await pix(370, 412);
+  check(gs4.grad.geom && Math.hypot(gs4.grad.geom.start[0] - (g0.start[0] - 30), gs4.grad.geom.start[1] - (g0.start[1] + 20)) < 3 && near(cAt, want(gs4, [370, 412]), tolSteep) && cAt[2] > 200, `dragging the centre handle moves the radial's centre (${gs4.grad.geom.start.map(Math.round)}): blue where it now is (${cAt} ≈ ${want(gs4, [370, 412])})`);
+  await drag(await at(400, 380), await at(410, 380)); // moving the star carries the placed gradient with it
+  const s5g = (await shapeAt(1)).grad.geom;
+  check(Math.abs(s5g.start[0] - gs4.grad.geom.start[0] - 10) < 2, `moving the shape moves its placed gradient too (${s5g.start.map(Math.round)})`);
+  await btn('#vectoreditor [data-ve=undo]'); await btn('#vectoreditor [data-ve=undo]');
+  check(!(await shapeAt(1)).grad.geom, 'Undo takes the placement back (fitted to the shape again)');
 
   // Text: a tap places it and the text field takes the typing (one undo step for the typing).
   await btn('#vectoreditor [data-tool=text]');

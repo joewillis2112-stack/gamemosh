@@ -20,6 +20,7 @@ function diff(a, b) { // worst numeric difference between two JSON values; Infin
   if (a && b && typeof a === 'object' && typeof b === 'object') { const k = Object.keys(b); return k.length !== Object.keys(a).length ? Infinity : k.reduce((w, x) => Math.max(w, diff(a[x], b[x])), 0); }
   return a === b ? 0 : Infinity;
 }
+const stopsOut = st => st.map(s => [Math.fround(s.offset), ...s.color.map(Math.fround), Math.fround(s.opacity), Math.fround(s.midpoint)]);
 await loadPathops(fs.readFileSync('web/vector/pathops.wasm'));
 
 let worstPf = 0, nPf = 0;
@@ -30,9 +31,11 @@ cases.forEach((c, i) => {
     case 'gradFit': ours = Grad.fit(c.kind, c.r, c.angle); ours = { start: ours.start, end: ours.end }; tol = 0; break;
     case 'gradSample': ours = c.t.map(t => { const [col, o] = Grad.sample(c.stops, t); return [...col, o]; }); tol = 0; break;
     case 'gradExpanded': ours = Grad.expanded(c.stops).map(([t, col, o]) => [t, ...col, o]); tol = 0; break;
+    case 'gradInsert': case 'gradMove': { const [st, i] = c.op === 'gradInsert' ? Grad.insertStop(c.stops, c.offset) : Grad.moveStop(c.stops, c.i, c.offset); ours = { stops: stopsOut(st), i }; tol = 0; break; }
+    case 'gradRemove': { const st = Grad.removeStop(c.stops, c.i); ours = st && stopsOut(st); tol = 0; break; }
     case 'gradParam': ours = c.points.map(p => Grad.paramAt(c.kind, { start: c.start, end: c.end, aspect: c.aspect }, p)); tol = 1e-12; break;
   }
-  const d = diff(ours, oracle[i]);
+  const d = ours === null && oracle[i] === null ? 0 : diff(ours, oracle[i]);
   if (c.op === 'pathfinder') { nPf++; worstPf = Math.max(worstPf, d); if (d > tol) check(false, `${i} pathfinder ${c.name}: worst difference ${d}`); return; }
   check(d <= tol, `${i} ${c.op}${c.kind ? ' ' + c.kind : ''}: worst difference ${d.toExponential(1)} (tolerance ${tol})`);
 });

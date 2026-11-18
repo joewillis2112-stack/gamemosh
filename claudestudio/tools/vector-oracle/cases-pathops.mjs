@@ -48,6 +48,12 @@ const stopsSets = [
 ];
 const ts = [-0.5, 0, 0.05, 0.1, 0.2, 0.25, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.75, 0.9, 0.99, 1, 1.5];
 for (const stops of stopsSets) { cases.push({ op: 'gradSample', stops, t: ts }); cases.push({ op: 'gradExpanded', stops }); }
+// Stop editing: insert (sampled colour), remove (never below two), move (kept in order).
+for (const stops of stopsSets) {
+  for (const offset of [-0.2, 0, 0.1, 0.33, 0.5, 0.77, 1, 1.4]) cases.push({ op: 'gradInsert', stops, offset });
+  for (let i = 0; i <= stops.length; i++) cases.push({ op: 'gradRemove', stops, i });
+  for (let i = 0; i < stops.length; i++) for (const offset of [0, 0.45, 0.5, 0.95, 2]) cases.push({ op: 'gradMove', stops, i, offset });
+}
 const pts = Array.from({ length: 12 }, () => [r2(-50, 250), r2(-50, 250)]);
 for (const kind of ['linear', 'radial']) for (const [start, end, aspect] of [[[0, 50], [100, 50], 1], [[50, 50], [80, 10], 1], [[30, 40], [80, 55], 0.6], [[5, 5], [5, 5], 1]]) cases.push({ op: 'gradParam', kind, start, end, aspect, points: pts });
 console.log(JSON.stringify(cases));

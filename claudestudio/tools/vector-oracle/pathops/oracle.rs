@@ -6,7 +6,7 @@
 use claudestudio_pathops::run;
 use kurbo::{Point, Rect};
 use serde_json::{Value, json};
-use vectorcraft_color::gradient::{Gradient, GradientGeom, GradientKind, GradientStop};
+use vectorcraft_color::gradient::{Gradient, GradientGeom, GradientKind, GradientStop, insert_stop, move_stop, remove_stop};
 use vectorcraft_color::Color;
 
 fn f(v: &Value) -> f64 {
@@ -25,6 +25,9 @@ fn gradient(v: &Value) -> Gradient {
         }
     });
     Gradient { kind: GradientKind::Linear, stops: stops.collect() }
+}
+fn stops_out(v: &[GradientStop]) -> Value {
+    json!(v.iter().map(|s| { let [r, g, b] = s.color.to_rgb(); json!([s.offset, r, g, b, s.opacity, s.midpoint]) }).collect::<Vec<_>>())
 }
 fn pt(p: Point) -> Value {
     json!([p.x, p.y])
@@ -65,6 +68,15 @@ fn main() {
                 let g = GradientGeom { start: Point::new(f(&s[0]), f(&s[1])), end: Point::new(f(&e[0]), f(&e[1])), aspect: f(&c["aspect"]), focal: None };
                 let k = kind(&c["kind"]);
                 json!(c["points"].as_array().unwrap().iter().map(|p| g.param_at(k, Point::new(f(&p[0]), f(&p[1])))).collect::<Vec<_>>())
+            }
+            "gradInsert" => {
+                let (v, i) = insert_stop(&gradient(&c["stops"]), f(&c["offset"]) as f32);
+                json!({ "stops": stops_out(&v), "i": i })
+            }
+            "gradRemove" => json!(remove_stop(&gradient(&c["stops"]).stops, c["i"].as_u64().unwrap() as usize).map(|v| stops_out(&v))),
+            "gradMove" => {
+                let (v, i) = move_stop(&gradient(&c["stops"]).stops, c["i"].as_u64().unwrap() as usize, f(&c["offset"]) as f32);
+                json!({ "stops": stops_out(&v), "i": i })
             }
             op => panic!("unknown op {op}"),
         })

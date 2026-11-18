@@ -5,8 +5,9 @@
 // bounds at an angle, and the gradient parameter at a point. Engine-free. Coordinates are y-down.
 //
 // A stop is { offset, color: [r, g, b] (0..1), opacity, midpoint }; a gradient paint is
-// { kind: 'linear' | 'radial', stops, angle } placed on its object's bounds at each render, as a
-// fresh gradient is in VectorCraft (GradientPaint with no geom).
+// { kind: 'linear' | 'radial', stops, angle, geom? }: placed on its object's bounds at each render,
+// as a fresh gradient is in VectorCraft (GradientPaint with no geom), until the annotator's handles
+// place it (geom: { start, end, aspect }). Stops are added, moved and removed as gradient.rs does.
 const f = Math.fround;
 
 export const stop = (offset, color, opacity = 1, midpoint = 0.5) => ({ offset, color, opacity, midpoint });
@@ -67,13 +68,37 @@ export function paramAt(kind, g, p) {
   return Math.hypot(m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]);
 }
 
+// ---- stop editing (gradient.rs: the Gradient panel and annotator share these)
+export const MIN_STOPS = 2;
+const placeStop = (stops, st) => { let i = stops.findIndex(o => f(o.offset) > f(st.offset)); if (i < 0) i = stops.length; stops.splice(i, 0, st); return i; };
+const copyStop = st => ({ ...st, color: [...st.color] });
+/** A stop at `offset`, coloured by sampling the gradient there (insert_stop): [stops, its index]. */
+export function insertStop(stops, offset) {
+  offset = Math.min(Math.max(f(offset), 0), 1);
+  const [color, opacity] = sample(stops, offset), out = stops.map(copyStop);
+  return [out, placeStop(out, { offset, color, opacity, midpoint: 0.5 })];
+}
+/** Stop i taken out (remove_stop); null if that would leave fewer than two. */
+export function removeStop(stops, i) {
+  if (stops.length <= MIN_STOPS || i < 0 || i >= stops.length) return null;
+  const out = stops.map(copyStop); out.splice(i, 1); return out;
+}
+/** Stop i moved to `offset`, the list kept in order (move_stop): [stops, its new index]. */
+export function moveStop(stops, i, offset) {
+  const out = stops.map(copyStop); if (i < 0 || i >= out.length) return [out, i];
+  const [st] = out.splice(i, 1); st.offset = Math.min(Math.max(f(offset), 0), 1);
+  return [out, placeStop(out, st)];
+}
+/** Where paint `g` sits on bounds b: its own placement (moved by the annotator), else fitted at its angle (GradientPaint::resolve). */
+export const resolve = (g, b) => g.geom || fit(g.kind, b, g.angle || 0);
+
 const hex2 = v => Math.round(Math.min(Math.max(v, 0), 1) * 255).toString(16).padStart(2, '0');
 export const toHex = c => '#' + c.map(hex2).join('');
 export const fromHex = h => [1, 3, 5].map(i => f(parseInt(h.slice(i, i + 2), 16) / 255));
 
 /** An SVG <linearGradient>/<radialGradient> element for paint `g` on bounds `b`, with id `id`. */
 export function toSvgDef(id, g, b) {
-  const geo = fit(g.kind, b, g.angle || 0), n = v => +v.toFixed(4);
+  const geo = resolve(g, b), n = v => +v.toFixed(4);
   const stops = expanded(g.stops).map(([t, c, o]) => `<stop offset="${n(t)}" stop-color="${toHex(c)}"${o < 1 ? ` stop-opacity="${n(o)}"` : ''}/>`).join('');
   if (g.kind === 'radial') {
     const r = Math.hypot(geo.end[0] - geo.start[0], geo.end[1] - geo.start[1]);
