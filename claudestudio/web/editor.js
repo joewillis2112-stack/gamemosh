@@ -30,6 +30,7 @@ import { EditMode, MESH_OPS } from './editor/editmode.js';
 import { AnimateMode } from './editor/animate.js';
 import { TerrainTools } from './editor/terrain.js';
 import { PaintTools } from './editor/paint.js';
+import { SOLID_COMMANDS } from './editor/solid.js';
 import { ImageEditor } from './editor/imageeditor.js';
 import { VectorEditor } from './editor/vectoreditor.js';
 import { ScriptEditor } from './editor/scripteditor.js';
@@ -98,9 +99,23 @@ async function main() {
     if (L) lastOp.innerHTML = `<b>${L.name}</b> ` + Object.entries(L.params).filter(([, v]) => typeof v === 'number').map(([k, v]) => `<label>${k} <input type="number" step="${k === 'segments' || k === 'cuts' ? 1 : 0.1}" data-p="${k}" value="${v}"></label>`).join(' ') + `<span class="st">${L.status}</span>`;
   } });
   modal.blocked = () => edit.active;
+  // Solid modelling (Studio's Model tab: Union, Intersect, Negate, Separate; web/editor/solid.js) shares
+  // the Edit Mesh bar: Edit Mesh (or Tab) with several parts selected, or a union, a negation, or a
+  // part that isn't a block, opens the bar's solid-modelling buttons instead of mesh editing.
+  for (const [name, fn] of Object.entries(SOLID_COMMANDS)) commands.register(name, fn);
+  const solid = {
+    active: false,
+    want() { const s = commands.selection.items.filter(i => isA(i.ClassName, 'BasePart')); return s.length > 1 || s.some(i => isA(i.ClassName, 'PartOperation') || i.ClassName === 'WedgePart' || (i.ClassName === 'Part' && i.props.Shape && i.props.Shape !== 'Block')); },
+    enter() { this.active = true; document.body.classList.add('solid'); document.querySelector('#ui [data-act=editmesh]').classList.add('on'); },
+    exit() { this.active = false; document.body.classList.remove('solid'); document.querySelector('#ui [data-act=editmesh]').classList.remove('on'); },
+  };
+  // Edit Mesh / Tab: leave whichever mode is on, else solid modelling or mesh editing by the selection.
+  const editOrSolid = () => { if (solid.active) solid.exit(); else if (edit.active) edit.exit(); else if (solid.want()) solid.enter(); else if (!edit.enter() && commands.selection.items.length) toast('Select a block, a MeshPart, or several parts to edit'); return true; };
+  edit.onTab = editOrSolid;
   editBar.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.mode) edit.setMode(b.dataset.mode); else if (b.dataset.op) edit.op(b.dataset.op); else if (b.dataset.done !== undefined) edit.exit();
+    if (b.dataset.solid) commands.run(b.dataset.solid);
+    else if (b.dataset.mode) edit.setMode(b.dataset.mode); else if (b.dataset.op) edit.op(b.dataset.op); else if (b.dataset.done !== undefined) { if (solid.active) solid.exit(); else edit.exit(); }
   });
   lastOp.addEventListener('change', e => { const k = e.target.dataset.p, v = parseFloat(e.target.value); if (k && isFinite(v)) edit.adjust({ [k]: v }); });
   commands.register('editMesh', function () { return edit.enter(); });
@@ -147,6 +162,7 @@ async function main() {
   // The Image Editor: a Decal's, ImageLabel's or MeshPart's image, painted flat in layers (web/editor/imageeditor.js).
   const toastEl = document.getElementById('toast'); let toastT = 0;
   const toast = t => { toastEl.textContent = t; toastEl.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 2500); };
+  commands.onMessage = toast; // a command that can't run says why (solid modelling)
   const imageEditor = new ImageEditor({ dm, world, commands, settings: paintTools.settings, panel: document.getElementById('imageeditor'), onState: s => {
     document.body.classList.toggle('imaging', s.active);
     if (s.message) toast(s.message);
@@ -195,7 +211,7 @@ async function main() {
     group: () => commands.run('group'), ungroup: () => commands.run('ungroup'), undo: () => commands.run('undo'), redo: () => commands.run('redo'),
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
-    editmesh: () => edit.active ? edit.exit() : edit.enter(),
+    editmesh: editOrSolid,
     rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), image: () => imageEditor.active ? imageEditor.close() : imageEditor.open(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { scriptEditor.close(); sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
@@ -254,7 +270,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, solid, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.

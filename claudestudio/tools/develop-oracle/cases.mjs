@@ -35,4 +35,44 @@ const cases = [
   ['exposure -5', { light: { exposure: -5 } }],
   ['together', { light: { exposure: 0.4, contrast: 25, whites: -20, blacks: 15 }, wb: { mode: 'custom', temp: 5600, tint: 8 }, color: { vibrance: 30, saturation: -10 }, mixer: { aqua: { hue: 30, sat: 40 } }, grading: { shadows: { hue: 200, sat: 30 } }, curve: { lights: 20, master: [{ x: 0, y: 0 }, { x: 0.5, y: 0.55 }, { x: 1, y: 1 }] } }],
 ].map(([name, settings]) => ({ name, settings: S(settings) }));
-console.log(JSON.stringify({ w: W, h: H, pixels: Buffer.from(px).toString('hex'), cases }));
+
+// The spatial tools (Highlights/Shadows, Clarity, Dehaze) read blurs of the whole image whose radii
+// follow its size, so they're checked on a scene big enough for the paths a texture takes (at 512 px
+// the guided filters subsample by 2 and process 2's median has radius 1): a hazy street, 512x384,
+// made with exact arithmetic only (no Math.sin: the same bytes on any engine), not stored (the test
+// makes it again). The oracle returns every SAMPLE-th pixel.
+export const SPATIAL = { w: 512, h: 384, sample: 61 };
+export function spatialImage() {
+  const { w, h } = SPATIAL, px = new Uint8Array(w * h * 3);
+  const noise = (x, y) => { let n = Math.imul(x, 374761393) + Math.imul(y, 668265263) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+  const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const fy = y / h, fx = x / w;
+    let c = mix([0.55, 0.68, 0.86], [0.88, 0.9, 0.92], fy * 1.6); // sky
+    const sun = (x - 400) * (x - 400) + (y - 60) * (y - 60);
+    if (sun < 225) c = [1, 0.98, 0.9]; else if (sun < 2500) c = mix(c, [1, 0.95, 0.8], (2500 - sun) / 2275); // small, so the airlight's percentile lands on its glow
+    // three buildings with windows (fine, hard-edged detail), one in deep shadow
+    for (const [x0, x1, top, col] of [[30, 150, 120, [0.62, 0.42, 0.3]], [170, 300, 70, [0.08, 0.07, 0.09]], [320, 470, 160, [0.75, 0.75, 0.7]]]) {
+      if (x >= x0 && x < x1 && y >= top) { c = col; if ((x - x0) % 20 < 9 && (y - top) % 26 < 14 && y < 300) c = mix(col, [0.95, 0.85, 0.5], (x0 === 170 ? 0.5 : 0.25)); }
+    }
+    if (y >= 300) { const g = 0.25 + 0.5 * noise(x, y) * (0.3 + fy * 0.7); c = [g, g * 0.95, g * 0.85]; } // road: noisy texture
+    if (y >= 330 && x > 60 && x < 200) c = noise(y, x) > 0.985 ? [1, 1, 0.95] : mix(c, [0.02, 0.02, 0.03], 0.85); // a shadow on it, with glints (detail many EV from its surround)
+    const haze = 0.45 * (1 - fy) * (1 - fy) + 0.05 * fx; // more haze higher up
+    c = mix(c, [0.8, 0.82, 0.85], haze);
+    for (let k = 0; k < 3; k++) px[(y * w + x) * 3 + k] = Math.round(Math.min(Math.max(c[k], 0), 1) * 255);
+  }
+  return px;
+}
+const spatialCases = [
+  ['shadows +70', { light: { shadows: 70 } }], ['highlights -80', { light: { highlights: -80 } }],
+  ['highlights +50 shadows -60', { light: { highlights: 50, shadows: -60 } }],
+  ['highlights -70 shadows +70 (process 2)', { process: 2, light: { highlights: -70, shadows: 70 } }],
+  ['clarity +80', { effects: { clarity: 80 } }], ['clarity -60', { effects: { clarity: -60 } }],
+  ['dehaze +70', { effects: { dehaze: 70 } }], ['dehaze -50', { effects: { dehaze: -50 } }], ['dehaze +100', { effects: { dehaze: 100 } }],
+  ['spatial together', { process: 2, light: { exposure: 0.5, contrast: 20, highlights: -40, shadows: 30 }, wb: { mode: 'custom', temp: 5800, tint: 5 }, effects: { clarity: 40, dehaze: 30 }, color: { vibrance: 20 } }],
+].map(([name, settings]) => ({ name, settings }));
+
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) {
+  if (process.argv[2] === '--spatial-pixels') console.log(JSON.stringify({ w: SPATIAL.w, h: SPATIAL.h, pixels: Buffer.from(spatialImage()).toString('hex') }));
+  else console.log(JSON.stringify({ w: W, h: H, pixels: Buffer.from(px).toString('hex'), cases, spatial: { ...SPATIAL, cases: spatialCases } }));
+}
