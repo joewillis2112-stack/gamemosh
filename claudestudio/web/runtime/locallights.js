@@ -49,7 +49,8 @@ export class LocalLights {
   // The lights that should exist: Light instances directly under a part in the Workspace.
   collect() {
     const out = [];
-    const walk = inst => { for (const c of inst.children) { if (isA(c.ClassName, 'Light') && inst !== this.dm.workspace && isA(inst.ClassName, 'BasePart')) out.push(c); walk(c); } };
+    // Under a part, or (Point and Spot, as in Roblox) under an Attachment: from its point, along its axes.
+    const walk = inst => { for (const c of inst.children) { if (isA(c.ClassName, 'Light') && inst !== this.dm.workspace && (isA(inst.ClassName, 'BasePart') || (inst.ClassName === 'Attachment' && c.ClassName !== 'SurfaceLight'))) out.push(c); walk(c); } };
     walk(this.dm.workspace);
     return out;
   }
@@ -60,7 +61,8 @@ export class LocalLights {
     const realistic = this.dm.service('Lighting').props.LightingStyle === 'Realistic';
     let shadowsLeft = realistic ? tier(this.quality).localShadowLights : 0;
     for (const [inst, e] of this.lights) {
-      const P = inst.props, part = inst.parent, cf = part.props.CFrame, size = part.props.Size;
+      const P = inst.props, host = inst.parent, att = host.ClassName === 'Attachment';
+      const part = att ? host.parent : host, cf = att ? this.dm.attachmentWorld(host).WorldCFrame : host.props.CFrame, size = att ? { x: 0, y: 0, z: 0 } : host.props.Size;
       const on = P.Enabled && P.Brightness > 0 && P.Range > 0;
       if (on !== e.on) { e.on = on; this.reassign = true; } // a light turned on or off: choose again now
       if (!on) { e.light.setEnabled(false); this.dropShadow(e); continue; }

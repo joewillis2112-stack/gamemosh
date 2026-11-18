@@ -48,6 +48,8 @@ run --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --phone --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --quality low --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --quality ultra --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
+run --scenario test/scenarios/highlights.mjs
+run --phone --scenario test/scenarios/highlights.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs

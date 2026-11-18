@@ -4,7 +4,8 @@
 //   several compose; a disabled one does nothing;
 // - Blur: the largest Size wins;
 // - DepthOfField: far things blur, things at the focus stay sharp;
-// - SunRays: a halo toward the sun, nothing with the sun behind the camera; off on phones;
+// - SunRays: a halo toward the sun, nothing with the sun behind the camera; on every tier
+//   (phones too: fewer taps, never off);
 // - ColorGrading: Retro lowers contrast and saturation; only under Lighting, the latest wins;
 // - our passes stay after the tonemap when the pipeline rebuilds (bloom toggled).
 // Goldens: colour correction, depth of field, retro grading, sun rays.
@@ -43,7 +44,7 @@ export default async function (t) {
   }, [pts, region || null]);
   const passes = () => t.eval(() => window.studio.lighting.post.key);
 
-  check(await passes() === (phone ? '' : 'rays'), `a Baseplate's SunRays (Intensity 0.01) adds the sun-rays pass${phone ? ' (off on phones)' : ''}: "${await passes()}"`);
+  check(await passes() === 'rays', `a Baseplate's SunRays (Intensity 0.01) adds the sun-rays pass, on phones too: "${await passes()}"`);
   await run(`game.Lighting.SunRays.Enabled = false`);
   check(await passes() === '' && await t.eval(() => !window.studio.lighting.post.depthRenderer), 'with no effects there are no passes and no depth pass');
 
@@ -149,7 +150,7 @@ export default async function (t) {
   await run(`workspace.CurrentCamera:FindFirstChildOfClass("ColorGradingEffect"):Destroy()`);
 
   // Sun rays: aim at the sun.
-  if (!phone) {
+  {
     await t.eval(() => { const S = window.studio, sun = S.R.sun.direction.scale(-1); S.camera.saved = [S.camera.yaw, S.camera.pitch]; S.camera.yaw = Math.atan2(-sun.x, -sun.z); S.camera.pitch = -0.35; S.camera.update(0); });
     await t.frames(1); // the camera's matrices update when it renders
     const sunPt = await t.eval(() => { const S = window.studio, c = document.getElementById('c'), cam = S.cam, V = cam.position.constructor; const p = V.Project(cam.globalPosition.add(S.R.sun.direction.scale(-500)), S.scene.getTransformMatrix().constructor.Identity(), S.scene.getTransformMatrix(), cam.viewport.toGlobal(c.width, c.height)); return [p.x / c.width, p.y / c.height]; });
@@ -166,9 +167,6 @@ export default async function (t) {
     await run(`game.Lighting.SunRays.Intensity = 0`); const b0 = (await read([[0.5, 0.3]])).pts[0];
     await run(`game.Lighting.SunRays.Intensity = 0.25`); const b1 = (await read([[0.5, 0.3]])).pts[0];
     check(b0.every((v, k) => v === b1[k]), `with the sun behind the camera, sun rays add nothing (${b0.map(v => v.toFixed(0))} vs ${b1.map(v => v.toFixed(0))})`);
-  } else {
-    await run(`game.Lighting.SunRays.Enabled = true game.Lighting.SunRays.Intensity = 0.25`);
-    check(await passes() === '', 'phones skip sun rays');
   }
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }

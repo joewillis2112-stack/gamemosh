@@ -70,6 +70,11 @@ try { loadPlace(new DataModel(), { format: 'something else' }); } catch (e) { th
 check(/not a Claude Studio place/.test(threw), 'a file that isn\'t a place is refused');
 const unknown = loadPlace(new DataModel(), { format: 'claudestudio-place', version: 1, services: [{ class: 'Workspace', id: 0, props: { Nope: 1 }, children: [{ class: 'NotAClass', id: 1 }] }] });
 check(unknown.length === 2, `unknown properties and classes are skipped with a warning (${unknown.join('; ')})`);
+// A value its type refuses (here a sequence ending before time 1): skipped with a warning, the default kept.
+const dm3 = new DataModel();
+const broken = loadPlace(dm3, { format: 'claudestudio-place', version: 1, services: [{ class: 'Workspace', id: 0, children: [{ class: 'Part', id: 1, children: [{ class: 'ParticleEmitter', id: 2, props: { Size: '0 1 0 0.5 2 0 ', Rate: 7 } }] }] }] });
+const pe3 = dm3.workspace.children.find(c => c.ClassName === 'Part')?.children[0];
+check(broken.length === 1 && /time must start at 0 and end at 1/.test(broken[0]) && pe3 && pe3.props.Size.toString() === '0 1 0 1 1 0 ' && pe3.props.Rate === 7, `a refused value is skipped with a warning, the rest loads (${broken.join('; ')})`);
 
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);

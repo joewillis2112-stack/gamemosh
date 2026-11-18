@@ -38,13 +38,14 @@ template <class K> static void check_times(lua_State* L, const K* k, int n, cons
     if (n < 2) luaL_error(L, "%s requires at least 2 keypoints", type);
     if (n > MAX_KP) luaL_error(L, "%s supports at most %d keypoints", type, MAX_KP);
     if (k[0].t != 0.f || k[n - 1].t != 1.f) luaL_error(L, "%s time must start at 0 and end at 1", type);
-    for (int i = 1; i < n; i++) if (k[i].t < k[i - 1].t) luaL_error(L, "%s keypoints must be in non-descending time order", type);
+    // (!(a >= b) also refuses NaN, which every ordered comparison fails; OURS: Roblox's handling isn't documented.)
+    for (int i = 1; i < n; i++) if (!(k[i].t >= k[i - 1].t)) luaL_error(L, "%s keypoints must be in non-descending time order", type);
 }
 
 // ---- NumberRange
 static int numrange_new(lua_State* L) {
     double a = luaL_checknumber(L, 1), b = lua_isnoneornil(L, 2) ? a : luaL_checknumber(L, 2);
-    if (a > b) luaL_error(L, "NumberRange: invalid range (min must be less than or equal to max)");
+    if (!(a <= b)) luaL_error(L, "NumberRange: invalid range (min must be less than or equal to max)"); // NaN too (OURS)
     push_numrange(L, a, b); return 1;
 }
 static int numrange_index(lua_State* L) {
