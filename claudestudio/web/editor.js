@@ -19,6 +19,7 @@ import { World } from './runtime/world.js';
 import { LocalLights } from './runtime/locallights.js';
 import { Particles } from './runtime/particles.js';
 import { Highlights } from './runtime/highlights.js';
+import { Styles } from './runtime/styles.js';
 import { LightingController } from './runtime/lighting.js';
 import { Sky } from './runtime/sky.js';
 import { Commands, allParts, centre } from './editor/commands.js';
@@ -79,6 +80,7 @@ async function main() {
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality, localLights }); // Studio runs emitters while editing too
   const highlights = new Highlights(scene, dm, world, { rigs }); // and shows Highlights
+  const styles = new Styles(scene, dm, camera.cam, { sun: R.sun }); // and the place's look (ToonEffect, OutlineEffect, PixelEffect)
   await lighting.settled();
 
   const commands = new Commands(dm, { view: () => { const f = camera.forward(); return { origin: camera.pos, dir: f }; } });
@@ -249,12 +251,12 @@ async function main() {
   explorer.onOpen = inst => { if (ScriptEditor.isScript(inst)) scriptEditor.open(inst); };
   properties.onEdit = inst => scriptEditor.open(inst);
   const fixed = !!q.get('test');
-  const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); particles.update(dt); highlights.update(); explorer.update(); properties.update(); };
+  const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); particles.update(dt); styles.update(); highlights.update(); explorer.update(); properties.update(); };
   scene.onBeforeRenderObservable.add(() => step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)));
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, styles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.

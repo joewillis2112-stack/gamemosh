@@ -454,6 +454,11 @@ defineClass('DepthOfFieldEffect', 'PostEffect', { props: { FarIntensity: ['numbe
 defineClass('SunRaysEffect', 'PostEffect', { props: { Intensity: ['number', 0.25], Spread: ['number', 1] } });
 defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
 // Only under Lighting, and only the most recently parented one counts (Roblox's docs).
+// Claude Studio's own looks (STUDIO_OWN), placed like Roblox's effects (children of Lighting or the
+// camera) and drawn by runtime/styles.js: cel shading, ink outlines, and a pixel look.
+defineClass('ToonEffect', 'PostEffect', { props: { Bands: ['number', 3], Softness: ['number', 0.05] } });
+defineClass('OutlineEffect', 'PostEffect', { props: { Color: ['Color3', [0, 0, 0]], Transparency: ['number', 0], Thickness: ['number', 1], DepthSensitivity: ['number', 0.5], NormalSensitivity: ['number', 0.5] } });
+defineClass('PixelEffect', 'PostEffect', { props: { PixelSize: ['number', 4], Colors: ['number', 0], Dither: ['bool', false] } });
 defineClass('ColorGradingEffect', 'PostEffect', { props: { TonemapperPreset: ['Enum.TonemapperPreset', 'Default'] } });
 defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
 defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
@@ -1014,6 +1019,19 @@ export const STUDIO_OWN = new Map([
   ['ParticleEmitter.Collision', 'What particles do when they hit a collidable part: pass through, bounce, stick or die.'],
   ['ParticleEmitter.Bounciness', 'The share of a particle\'s speed kept when it bounces off a part (Collision Bounce), 0 to 1.'],
   ['Enum.ParticleCollision', 'What a ParticleEmitter\'s particles do when they hit a part (its Collision property).'],
+  ['ToonEffect', 'Cel shading for the whole scene: direct light falls into a few flat bands.'],
+  ['ToonEffect.Bands', 'How many steps of light a lit surface shows (2 to 8).'],
+  ['ToonEffect.Softness', 'How soft the step between two bands is, as a share of a band (0 hard, 0.5 smooth).'],
+  ['OutlineEffect', 'Ink lines on the whole scene: around silhouettes and along creases.'],
+  ['OutlineEffect.Color', 'The colour of the lines.'],
+  ['OutlineEffect.Transparency', 'How see-through the lines are (0 solid, 1 invisible).'],
+  ['OutlineEffect.Thickness', 'The width of the lines in pixels (1 to 4).'],
+  ['OutlineEffect.DepthSensitivity', 'How small a jump in distance draws a line (0 only big gaps, 1 every step).'],
+  ['OutlineEffect.NormalSensitivity', 'How shallow a crease draws a line (0 only sharp corners, 1 gentle bends).'],
+  ['PixelEffect', 'A low-resolution, pixel-art look for the whole screen.'],
+  ['PixelEffect.PixelSize', 'How many screen pixels make one big pixel (1 to 16).'],
+  ['PixelEffect.Colors', 'Levels per colour channel (2 to 32) for a limited palette; 0 keeps every colour.'],
+  ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
 ]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
