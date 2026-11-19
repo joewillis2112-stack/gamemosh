@@ -23,6 +23,7 @@ import { Vector2, Vector3, Matrix } from '@babylonjs/core/Maths/math.js';
 import '@babylonjs/core/Rendering/depthRendererSceneComponent.js';
 import { tier } from './quality.js';
 import { useDepth, releaseDepth } from './depth.js';
+import { keepLast } from './postorder.js';
 import '@babylonjs/core/Materials/standardMaterial.js'; // the depth renderer needs its side effect
 
 const DOF_BLUR_KERNEL = 48;      // full-resolution px at 720 px tall, scaled with the render (Roblox sizes its DOF blur in screen units); ours
@@ -184,12 +185,7 @@ export class PostEffects {
   // Ours come after Babylon's pipeline (bloom, tonemap). The pipeline re-attaches
   // its passes when it rebuilds (bloom toggled, SSAO added), which would put them
   // after ours: move ours back to the end.
-  ensureLast() {
-    const list = (this.camera._postProcesses || []).filter(Boolean), n = this.order.length;
-    if (!n || this.order.every((pp, i) => list[list.length - n + i] === pp)) return;
-    for (const pp of this.order) this.camera.detachPostProcess(pp);
-    for (const pp of this.order) this.camera.attachPostProcess(pp);
-  }
+  ensureLast() { keepLast(this.camera, this, 10, this.order); } // runtime/postorder.js
 
   depth() {
     if (!this.depthRenderer) this.depthRenderer = useDepth(this.scene, this.camera, this);
