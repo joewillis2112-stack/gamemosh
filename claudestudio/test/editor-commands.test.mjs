@@ -1,7 +1,7 @@
 // The editor's commands and undo history (web/editor/commands.js, history.js),
 // engine-free: each command's effect on the DataModel, then undo back to the
 // exact starting state and redo forward to the exact end state.
-import { DataModel, V3, C3 } from '../web/datamodel.js';
+import { DataModel, V3, C3, BrickColor } from '../web/datamodel.js';
 import { CF } from '../web/cframe.js';
 import { Commands } from '../web/editor/commands.js';
 
@@ -86,6 +86,26 @@ C.run('undo');
 check(a.props.CFrame.equals(cf0), 'a committed drag undoes to where it started');
 C.run('redo');
 check(a.props.CFrame.equals(cf1), 'and redoes to where it ended');
+// A part's BrickColor (a view of its Color): the Properties panel sets it as one step that changes
+// Color; undo gives back the custom Color exactly; naming the BrickColor it already is changes nothing.
+{
+  const p = C.run('insert', { className: 'Part' }), custom = new C3(0.9, 0.1, 0.15), steps = () => C.history.past.length;
+  C.run('setProperty', { items: [p], key: 'Color', value: custom });
+  const n0 = steps(), nearest = p.props.BrickColor;
+  check(nearest === BrickColor.nearest(0.9, 0.1, 0.15) && nearest.name === 'Bright red' && p.props.Color === custom, `a custom Color reads as its nearest BrickColor (${nearest.name})`);
+  C.run('setProperty', { items: [p], key: 'BrickColor', value: nearest });
+  check(steps() === n0 && p.props.Color === custom, 'setting the BrickColor it already is changes nothing (a custom Color stays exact)');
+  C.run('setProperty', { items: [p], key: 'BrickColor', value: BrickColor.byName('Pastel Blue') });
+  const pb = p.props.Color;
+  check(steps() === n0 + 1 && p.props.BrickColor.name === 'Pastel Blue' && Math.round(pb.r * 255) === 128 && Math.round(pb.g * 255) === 187 && Math.round(pb.b * 255) === 219, 'setting a BrickColor sets Color to its colour, one undo step');
+  C.run('undo');
+  check(p.props.Color === custom && p.props.BrickColor === nearest, 'undo gives back the custom Color exactly');
+  C.run('redo');
+  check(p.props.BrickColor.name === 'Pastel Blue', 'redo sets it again');
+  C.run('setProperty', { items: [p], key: 'Color', value: custom });
+  const copy = dm.clone(p);
+  check(copy.props.Color.r === custom.r && copy.props.Color.g === custom.g && copy.props.Color.b === custom.b && copy.props.BrickColor === nearest, 'a clone keeps the custom Color exactly (not snapped to its BrickColor)');
+}
 check(C.list().length >= 12, `commands are listed (${C.list().join(', ')})`);
 
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');

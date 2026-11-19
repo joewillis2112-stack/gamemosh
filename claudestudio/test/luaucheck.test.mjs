@@ -41,6 +41,11 @@ pvm.run('place', 'local b = Instance.new("Part") b.Name = "Baseplate" b.Parent =
 initFor(dm);
 // 2. Everyday patterns that are right.
 const EVERYDAY = [
+  // BrickColor (a part's view of its Color), Rect, Region3, Color3's contrast, Vector3.FromNormalId, CFrame's rotation orders.
+  'workspace.Baseplate.BrickColor = BrickColor.new("Bright red")\nprint(workspace.Baseplate.BrickColor.Name, BrickColor.palette(70).Color.R, BrickColor.Red() == BrickColor.new(21), tostring(BrickColor.random()), BrickColor.new(0.5, 0.7, 0.9).Number)',
+  'local r = Rect.new(Vector2.new(0, 0), Vector2.new(10, 5))\nprint(r.Width * r.Height, r.Min.X, Rect.new(0, 0, 1, 1).Max)\nlocal g = Region3.new(Vector3.zero, Vector3.one * 3):ExpandToGrid(4)\nprint(g.Size.X, g.CFrame.Position)',
+  'local c = Color3.fromRGB(255, 165, 0)\nprint(c:GetLuminance() + 1, c:GetContrastRatio(Color3.new()), c:GetContrastingColor().R, c:GetContrastingColor(Color3.new(0.1, 0.1, 0.1), Color3.new(0.9, 0.9, 0.9)))\nprint(Vector3.FromNormalId(Enum.NormalId.Top) + Vector3.FromAxis(Enum.Axis.X))',
+  'local cf = CFrame.fromEulerAngles(0.1, 0.2, 0.3, Enum.RotationOrder.YXZ)\nlocal x, y, z = cf:ToEulerAngles(Enum.RotationOrder.YXZ)\nprint(x + y + z, cf:AngleBetween(CFrame.new()), CFrame.lookAlong(Vector3.zero, Vector3.xAxis).LookVector, CFrame.fromRotationBetweenVectors(Vector3.yAxis, Vector3.xAxis) * Vector3.yAxis)',
   'local Players = game:GetService("Players")\nPlayers.PlayerAdded:Connect(function(player) print(player.Name) end)',
   'workspace.Baseplate.Touched:Connect(function(hit)\n  local h = hit.Parent:FindFirstChild("Humanoid")\n  if h then h.Health = 0 end\nend)',
   'local p = Instance.new("Part", workspace)\np.Anchored = true\np.Size = Vector3.new(4, 1, 2)\np.Color = Color3.fromRGB(255, 0, 0)\np.Material = Enum.Material.Neon',
@@ -120,9 +125,16 @@ for (const [code, line, re] of [
   ['print(tick():upper())', 1, /'number' does not have key 'upper'/],
   ['local e = Instance.new("ParticleEmitter")\nlocal c = CFrame.new("x")', 2, /Expected this to be 'Vector3', but got 'string'/],
   // Only what the VM has: Roblox members, functions and datatypes this engine lacks are flagged (they'd fail at run time).
-  ['print(Color3.new(1, 0, 0):GetLuminance())', 1, /Key 'GetLuminance' not found in .*'Color3'/],
-  ['local up = Vector3.FromNormalId(Enum.NormalId.Top)', 1, /FromNormalId/],
-  ['local c = BrickColor.new("Bright red")', 1, /Unknown global 'BrickColor'/],
+  ['RaycastParams.new().Margin = 1', 1, /Key 'Margin' not found in .*'RaycastParams'/],
+  ['local r16 = Region3int16.new()', 1, /Unknown global 'Region3int16'/],
+  // BrickColor, Rect, Region3 and the members added with them.
+  ['workspace.Baseplate.BrickColor = Color3.new(1, 0, 0)', 1, /Expected this to be 'BrickColor', but got 'Color3'/],
+  ['local bc = BrickColor.new("Bright red") + 1', 1, /Binary operator '\+' not supported by types 'BrickColor' and 'number'/],
+  ['print(BrickColor.Red().Nmae)', 1, /Key 'Nmae' not found in .*'BrickColor'/],
+  ['local box = Rect.new(1, 2)', 1, /Expected this to be 'Vector2', but got 'number'/],
+  ['print(Region3.new(Vector3.zero, Vector3.one):ExpandToGrid("4"))', 1, /Expected this to be 'number', but got 'string'/],
+  ['print(Color3.new():GetContrastRatio(5))', 1, /Expected this to be 'Color3', but got 'number'/],
+  ['local cf = CFrame.fromEulerAngles(0, 1, 0, "YXZ")', 1, /EnumItem/],
 ]) {
   const p = problems(code);
   check(p.some(x => x.line === line && re.test(x.msg)), `caught on line ${line}: ${JSON.stringify(code.split('\n').pop())} (${p.map(x => x.msg).join('; ').slice(0, 120)})`);

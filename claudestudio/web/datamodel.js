@@ -7,8 +7,9 @@ import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
-export { CF };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20 };
+import { BrickColor, defineBrickColor } from './brickcolor.js';
+export { CF, BrickColor };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
 export class UDim { constructor(s = 0, o = 0) { this.s = Math.fround(s); this.o = Math.trunc(o); } }
 export class UDim2 { constructor(xs = 0, xo = 0, ys = 0, yo = 0) { this.xs = Math.fround(xs); this.xo = Math.trunc(xo); this.ys = Math.fround(ys); this.yo = Math.trunc(yo); } }
@@ -79,6 +80,8 @@ export const ENUMS = {
   },
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+  Axis: { X: 0, Y: 1, Z: 2 }, // Vector3.FromAxis
+  RotationOrder: { XYZ: 0, XZY: 1, YZX: 2, YXZ: 3, ZXY: 4, ZYX: 5 }, // CFrame.fromEulerAngles, :ToEulerAngles (values: Roblox's API dump)
   // ParticleEmitter's (API dump, mashup-research/ROBLOX_PARTICLES_2026-11-13.md).
   ParticleOrientation: { FacingCamera: 0, FacingCameraWorldUp: 1, VelocityParallel: 2, VelocityPerpendicular: 3 },
   ParticleEmitterShape: { Box: 0, Sphere: 1, Cylinder: 2, Disc: 3 },
@@ -327,7 +330,8 @@ defineClass('BasePart', 'Instance', {
   props: {
     CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], CanQuery: ['bool', true], Transparency: ['number', 0],
-    Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
+    // BrickColor: a view of Color (brickcolor.js), the nearest named colour; setting it sets Color.
+    BrickColor: ['BrickColor', null], Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
     // Studio only: a locked part can't be clicked to select it (it still shows in the Explorer).
     Locked: ['bool', false],
     // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
@@ -698,6 +702,7 @@ export class Instance {
       for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : d;
     }
     this.props.Name = cls;
+    if (isA(cls, 'BasePart')) defineBrickColor(this.props);
     if (cls === 'Terrain') this.voxels = new Voxels();
     this.handle = dm.register(this);
   }
@@ -812,6 +817,9 @@ export class DataModel {
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
+    // A part's BrickColor sets its Color; naming the BrickColor its Color is already nearest changes
+    // nothing, so a custom Color survives props copied one by one (scripts always set: host.newindex).
+    if (key === 'BrickColor' && 'Color' in inst.props) { if (!(value instanceof BrickColor) || value === inst.props.BrickColor) return; key = 'Color'; value = value.color; }
     if (inst.ClassName === 'Attachment' && (key === 'WorldCFrame' || key === 'WorldPosition' || key === 'WorldOrientation')) {
       // A world placement becomes the local one under the part.
       const w = this.attachmentWorld(inst).WorldCFrame;
@@ -1104,6 +1112,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof ColorSequence) o.push({ t: T.COLORSEQ, n: v.k.length, s: v.toString() });
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
+      else if (v instanceof BrickColor) o.push({ t: T.BRICKCOLOR, n: v.number });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
@@ -1141,6 +1150,7 @@ export function makeHost(dm, log = console.log) {
         case T.COLORSEQ: return ColorSequence.parse(a.s);
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
+        case T.BRICKCOLOR: return BrickColor.byNumber(a.n);
       }
       return null;
     },
@@ -1188,6 +1198,10 @@ export function makeHost(dm, log = console.log) {
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
+      if (ty === 'BrickColor') { // as in Roblox, a script's BrickColor always sets Color to its colour
+        if (!(v instanceof BrickColor)) return host.err(`Unable to assign property ${key}. BrickColor expected`);
+        return dm.set(inst, 'Color', v.color);
+      }
       if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
       for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2], ['NumberRange', NumberRange], ['NumberSequence', NumberSequence], ['ColorSequence', ColorSequence]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
       if (ty.startsWith('Enum.')) {

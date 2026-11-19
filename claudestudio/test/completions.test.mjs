@@ -64,9 +64,11 @@ check(o.Lerp && o.Lerp.detail === '(goal: Vector3, alpha: number): Vector3' && !
 check(has(at('workspace.Baseplate.Position.'), 'Magnitude', 'Unit') && has(at('workspace.Baseplate.CFrame:'), 'Inverse', 'ToWorldSpace') && has(at('workspace.Baseplate.CFrame.LookVector.'), 'X', 'Magnitude')
   && at('workspace.Baseplate.CFrame.Nope.') === null, 'a property holding a datatype completes as that datatype, through its own properties; nothing for what isn\'t one');
 check(has(at('workspace:'), 'Raycast') && opts('workspace:').Raycast.detail.startsWith('(origin: Vector3, direction: Vector3'), 'methods the VM adds outside the class table (Workspace:Raycast) are offered, with their types');
+check(has(at('local c = BrickColor.'), 'new', 'palette', 'random', 'Red') && has(at('workspace.Baseplate.BrickColor.'), 'Name', 'Number', 'Color') && opts('local c = BrickColor.').palette.detail === '(paletteValue: number): BrickColor' && has(at('local r = Rect.new(0, 0, 1, 1)\nr.'), 'Width', 'Min') && has(at('local g = Region3.new(a, b)\ng:'), 'ExpandToGrid'),
+  'BrickColor, Rect and Region3 complete: their libraries, a part\'s BrickColor, values made by their constructors');
 // Every class and member the engine has gets a summary (the docs cover the class table), except
 // Roblox members whose pages have none and members that aren't Roblox's (internal ones, MeshData).
-const NO_DOC = new Set(['MeshPart.MeshData', 'ParticleEmitter:FastForward', 'ParticleEmitter.OnEmitRequested', 'ParticleEmitter.OnClearRequested', 'ParticleEmitter.OnFastForwardRequested', 'PoseBase.Weight', 'Highlight.LineThickness']);
+const NO_DOC = new Set(['MeshPart.MeshData', 'PartOperation.MeshData', 'PartOperation.ChildData', 'ParticleEmitter:FastForward', 'ParticleEmitter.OnEmitRequested', 'ParticleEmitter.OnClearRequested', 'ParticleEmitter.OnFastForwardRequested', 'PoseBase.Weight', 'Highlight.LineThickness']);
 const undocumented = [];
 for (const c of allClasses()) {
   if (!docOf(c.name)) undocumented.push(c.name);
