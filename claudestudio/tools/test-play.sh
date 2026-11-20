@@ -50,6 +50,9 @@ run --quality low --place places/particles-lab.luau --scenario test/scenarios/pa
 run --quality ultra --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --scenario test/scenarios/highlights.mjs
 run --phone --scenario test/scenarios/highlights.mjs
+run --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --phone --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --quality low --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs
@@ -68,6 +71,8 @@ run --page editor --scenario test/scenarios/editor-terrain.mjs
 run --page editor --phone --scenario test/scenarios/editor-terrain.mjs
 run --page editor --scenario test/scenarios/editor-paint.mjs
 run --page editor --phone --scenario test/scenarios/editor-paint.mjs
+run --page editor --scenario test/scenarios/editor-paint-more.mjs
+run --page editor --phone --scenario test/scenarios/editor-paint-more.mjs
 run --page editor --scenario test/scenarios/editor-image.mjs
 run --page editor --phone --scenario test/scenarios/editor-image.mjs
 run --page editor --scenario test/scenarios/editor-vector.mjs
