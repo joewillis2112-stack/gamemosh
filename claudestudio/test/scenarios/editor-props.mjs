@@ -3,7 +3,8 @@
 // Roblox's serialised form; a broken one is refused), ColorSequence (the first and last colour,
 // inner keypoints kept), Vector2 (SpreadAngle); a Frame's UDim2 (Size, in Studio's
 // "{scale, offset},{scale, offset}") and Vector2 (AnchorPoint); a UICorner's UDim. Each edit is
-// one undo step; the read-only AbsoluteSize is shown but disabled.
+// one undo step; the read-only AbsoluteSize is shown but disabled. A part's BrickColor is picked from
+// Roblox's named colours and sets its Color; a custom Color shows as its nearest.
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -63,5 +64,19 @@ export default async function (t) {
   await select('Fx');
   await E(() => window.editor.frames(3));
   await t.golden('editor-props');
+  // A part's BrickColor (after the golden, which shows the part's colour): its named colour, picked
+  // from a list; picking one sets Color as one undo step; a custom Color shows as its nearest.
+  await select('Host');
+  const bc = () => E(() => { const el = document.querySelector('#properties [data-k="BrickColor"]'); return el && { v: el.value, text: el.selectedOptions[0] && el.selectedOptions[0].textContent, n: el.options.length }; });
+  let b = await bc();
+  check(b && b.v === '194' && b.text === 'Medium stone grey' && b.n === 208, `BrickColor shows the part's (${JSON.stringify(b)}), all 208 to pick from`);
+  s0 = await steps();
+  await t.page.selectOption('#properties [data-k="BrickColor"]', '11'); await E(() => window.editor.properties.update());
+  const col = () => E(() => { const ed = window.editor, x = ed.dm.workspace.children.find(c => c.props.Name === 'Host'); return [x.props.Color.r, x.props.Color.g, x.props.Color.b].map(v => Math.round(v * 255)).join(','); });
+  check(await col() === '128,187,219' && (await bc()).text === 'Pastel Blue' && await shown('Color') === '#80bbdb' && await steps() === s0 + 1, `picking Pastel Blue sets Color to it (${await col()}), one undo step`);
+  await E(() => { const el = document.querySelector('#properties [data-k="Color"]'); el.value = '#fa0a0a'; el.dispatchEvent(new Event('change', { bubbles: true })); window.editor.properties.update(); });
+  check(await col() === '250,10,10' && (await bc()).text === 'Really red', `a custom Color shows as its nearest BrickColor (${(await bc()).text}), the Color kept`);
+  await E(() => { window.editor.commands.run('undo'); window.editor.commands.run('undo'); window.editor.properties.update(); });
+  check(await col() === '163,162,165' && (await bc()).text === 'Medium stone grey', 'undo puts the colour back');
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }
