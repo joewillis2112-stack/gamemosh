@@ -11,8 +11,13 @@
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.js';
 import { Stroke, image } from '../paint/brush.js';
+import { faceOfTriangle } from '../runtime/world.js';
+import { isA } from '../datamodel.js';
+import { PRESETS, applyPreset } from '../paint/presets.js';
 
 const DECAL_SIZE = 512, MESH_SIZE = 1024;
+const TEX_SIZES = [0, 256, 512, 1024, 2048]; // 0: Auto
+const PAINTABLE = new Set(['Block', 'Ball', 'Cylinder', 'Wedge', 'Union']); // Part shapes (and WedgePart) painted through Decals
 const SEAM = 0.15; // a jump of this much of the texture between two samples is a UV seam
 // A part's mesh is a unit box: the face a local normal points out of.
 const FACE_OF = n => { const a = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)], k = a.indexOf(Math.max(...a)); return [n.x > 0 ? 'Right' : 'Left', n.y > 0 ? 'Top' : 'Bottom', n.z > 0 ? 'Back' : 'Front'][k]; };
@@ -31,7 +36,9 @@ export class PaintTools {
   }
   toggle(on = !this.active) { this.active = on; if (!on) this.end(); this.bar.hidden = !on; this.state(); }
   state() {
-    this.bar.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', (b.dataset.p === 'erase' && this.settings.erase) || (b.dataset.p === 'pencil' && this.settings.aliased) || (b.dataset.p === 'brush' && !this.settings.erase && !this.settings.aliased)));
+    const S = this.settings;
+    this.bar.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', S.pick ? b.dataset.p === 'pick' : (b.dataset.p === 'erase' && S.erase) || (b.dataset.p === 'pencil' && S.aliased && !S.erase) || (b.dataset.p === 'brush' && !S.erase && !S.aliased)));
+    const ps = this.bar.querySelector('[data-k=preset]'); if (ps) ps.value = S.preset || '';
     this.onState({ active: this.active, ...this.settings });
   }
   get painting() { return !!this.stroke; }
@@ -47,9 +54,13 @@ export class PaintTools {
     if (!h || !h.hit) return null;
     const inst = h.pickedMesh.metadata.instance;
     if (inst.ClassName === 'MeshPart') return { inst, prop: 'TextureID', mesh: h.pickedMesh, uv: h.getTextureCoordinates(), flipV: false };
-    if (inst.ClassName !== 'Part' || (inst.props.Shape && inst.props.Shape !== 'Block')) return null; // blocks only: their faces are flat
-    const n = h.getNormal(true, true), inv = Matrix.Invert(h.pickedMesh.getWorldMatrix().getRotationMatrix());
-    const face = FACE_OF(Vector3.TransformNormal(n, inv));
+    const shape = inst.ClassName === 'WedgePart' ? 'Wedge' : inst.ClassName === 'Part' ? inst.props.Shape || 'Block' : isA(inst.ClassName, 'PartOperation') ? 'Union' : null;
+    if (!PAINTABLE.has(shape)) return null;
+    // A block's face is where its normal points; a curved or slanted part's, the face its triangle is
+    // drawn on (the same rule World uses to lay the Decal on it).
+    let face;
+    if (shape === 'Block') { const n = h.getNormal(true, true), inv = Matrix.Invert(h.pickedMesh.getWorldMatrix().getRotationMatrix()); face = FACE_OF(Vector3.TransformNormal(n, inv)); }
+    else face = faceOfTriangle(inst, h.pickedMesh, h.faceId);
     return { inst, face, point: h.pickedPoint };
   }
   // A Part face's Decal and its plane (made when the stroke starts, if the face has none).
@@ -57,7 +68,7 @@ export class PaintTools {
     let decal = hit.inst.children.find(c => c.ClassName === 'Decal' && c.props.Face === hit.face), added = false;
     if (!decal) {
       decal = this.dm.create('Decal');
-      this.dm.set(decal, 'Face', hit.face); this.dm.set(decal, 'Texture', blankPng(DECAL_SIZE)); this.dm.set(decal, 'Name', 'Paint');
+      this.dm.set(decal, 'Face', hit.face); this.dm.set(decal, 'Texture', blankPng(this.settings.texSize || DECAL_SIZE)); this.dm.set(decal, 'Name', 'Paint');
       this.dm.setParent(decal, hit.inst); added = true;
     }
     const e = this.world.parts.get(hit.inst), mesh = e && (e.decals || []).find(p => p.metadata && p.metadata.decal === decal);
@@ -71,10 +82,11 @@ export class PaintTools {
       if (url) return imageFromUrl(this.world.resolveUrl(url));
       // An editable mesh is drawn in its part's Color until it has a texture: start from that.
       const e = this.world.parts.get(target.owner);
-      if (e && e.meshPart && e.meshPart.editable) { const C = target.owner.props.Color; return { img: image(MESH_SIZE, MESH_SIZE, [C.r, C.g, C.b, 1]) }; }
+      const N = this.settings.texSize || MESH_SIZE;
+      if (e && e.meshPart && e.meshPart.editable) { const C = target.owner.props.Color; return { img: image(N, N, [C.r, C.g, C.b, 1]) }; }
       const base = target.mesh.material && (target.mesh.material.albedoTexture || (target.mesh.material.subMaterials || [])[0]?.albedoTexture);
       if (base && base.readPixels) { const s = base.getSize(), px = await base.readPixels(); if (px) return fromBytes(px, s.width, s.height); }
-      return { img: image(MESH_SIZE, MESH_SIZE, [1, 1, 1, 1]) };
+      return { img: image(N, N, [1, 1, 1, 1]) };
     })());
     return cache.get(key);
   }
@@ -110,7 +122,7 @@ export class PaintTools {
     // UVs beyond 0..1 (a model tiling its texture, one tile per face) wrap as the texture does.
     const W = s.img.width, H = s.img.height, u = wrap(h.uv.x, s.wrapU), v0 = wrap(h.uv.y, s.wrapV), v = s.target.flipV ? 1 - v0 : v0;
     // Across a UV seam: finish this piece and start a new one from the far side.
-    if (!s.cur || (s.last && Math.hypot(u - s.last[0], v - s.last[1]) > SEAM)) { if (s.cur) s.cur.finish(); s.cur = new Stroke(s.img, { ...this.settings, pressureSize: pressure !== null, seed: s.segments.length + 1 }); s.segments.push(s.cur); }
+    if (!s.cur || (s.last && Math.hypot(u - s.last[0], v - s.last[1]) > SEAM)) { if (s.cur) s.cur.finish(); s.cur = new Stroke(s.img, { ...this.settings, pressureSize: (this.settings.pressureSize ?? true) && pressure !== null, seed: s.segments.length + 1 }); s.segments.push(s.cur); }
     s.last = [u, v];
     s.cur.push([[u * W, v * H, pressure ?? 1]]);
     s.cur.composite();
@@ -136,6 +148,36 @@ export class PaintTools {
     s.preview.dispose();
   }
 
+  // ---- the eyedropper: the colour of the painted texture under the pointer (over the part's own
+  // Color where the Decal is see-through, as it shows), or the part's Color where nothing is painted.
+  async sampleAt(x, y) {
+    const hit = this.pick(x, y); if (!hit) return null;
+    let owner, prop, mesh, uv, flipV = false, under = null;
+    if (hit.prop) ({ inst: owner, prop, mesh, uv } = hit);
+    else {
+      const C = hit.inst.props.Color; under = [C.r, C.g, C.b];
+      const decal = hit.inst.children.find(c => c.ClassName === 'Decal' && c.props.Face === hit.face), e = this.world.parts.get(hit.inst);
+      mesh = decal && e && (e.decals || []).find(p => p.metadata && p.metadata.decal === decal);
+      const h = mesh && this.scene.pick(x, y, m => m === mesh, false, this.camera.cam);
+      if (!h || !h.hit) return under;
+      owner = decal; prop = 'Texture'; uv = h.getTextureCoordinates(); flipV = true;
+    }
+    if (!uv) return under;
+    let img; try { img = (await this.loadImage({ owner, prop, mesh })).img; } catch { return under; }
+    const tex = materialsOf(mesh).map(m => m.albedoTexture).find(Boolean);
+    const u = wrap(uv.x, tex ? tex.wrapU : 1), v0 = wrap(uv.y, tex ? tex.wrapV : 1), v = flipV ? 1 - v0 : v0;
+    const px = Math.min(Math.floor(u * img.width), img.width - 1), py = Math.min(Math.floor(v * img.height), img.height - 1), i = (py * img.width + px) * 4, D = img.data;
+    const a = under ? D[i + 3] : 1;
+    return [0, 1, 2].map(k => D[i + k] * a + (under ? under[k] * (1 - a) : 0));
+  }
+  async eyedrop(x, y) {
+    const c = await this.sampleAt(x, y);
+    this.settings.pick = false;
+    if (c) { this.settings.color = [...c.map(v => Math.min(Math.max(v, 0), 1)), 1]; this.bar.querySelector('[data-k=color]').value = hex(this.settings.color); }
+    this.state();
+    return c;
+  }
+
   attachInput() {
     const c = this.canvas, local = e => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     const pres = e => e.pointerType === 'pen' ? Math.max(0.01, e.pressure) : null;
@@ -145,6 +187,8 @@ export class PaintTools {
       downs.add(e.pointerId);
       if (downs.size > 1) { this.end(); return; } // a second finger: the view's
       if (e.button !== 0) return;
+      // Pick (or Alt+click, as in Photoshop) takes the colour under the pointer instead of painting.
+      if (this.settings.pick || e.altKey) { e.stopPropagation(); this.eyedrop(...local(e)); return; }
       this.begin(...local(e), pres(e));
       c.setPointerCapture && c.setPointerCapture(e.pointerId);
     }, true);
@@ -155,10 +199,13 @@ export class PaintTools {
 
   buildBar() {
     const B = this.bar, S = this.settings;
-    B.innerHTML = `<button data-p="brush">Brush</button><button data-p="pencil">Pencil</button><button data-p="erase">Eraser</button><span class="sep"></span>` +
-      `<input type="color" data-k="color" value="${hex(S.color)}" title="Colour">` +
+    const groups = [...new Set(PRESETS.map(p => p.group))];
+    B.innerHTML = `<button data-p="brush">Brush</button><button data-p="pencil">Pencil</button><button data-p="erase">Eraser</button>` +
+      `<select data-k="preset" title="Brush preset (PhotoCraft's)"><option value="">Preset</option>${groups.map(g => `<optgroup label="${g}">${PRESETS.filter(p => p.group === g).map(p => `<option>${p.name}</option>`).join('')}</optgroup>`).join('')}</select><span class="sep"></span>` +
+      `<input type="color" data-k="color" value="${hex(S.color)}" title="Colour"><button data-p="pick" title="Pick a colour from the model (or Alt+click)">Pick</button>` +
       [['size', 'Size', 1, 128, 1], ['hardness', 'Hardness', 0, 1, 0.05], ['opacity', 'Opacity', 0.05, 1, 0.05], ['flow', 'Flow', 0.05, 1, 0.05]]
         .map(([k, l, a, b, st]) => `<label>${l} <input type="range" data-k="${k}" min="${a}" max="${b}" step="${st}" value="${S[k]}"></label>`).join('') +
+      `<label title="Size of a new paint image (a new Decal, or a mesh's first texture); Auto: 512 for Decals, 1024 for meshes">Texture <select data-k="texSize">${TEX_SIZES.map(n => `<option value="${n}">${n ? n + '²' : 'Auto'}</option>`).join('')}</select></label>` +
       `<span class="sep"></span><button data-image title="Edit the selected Decal's, ImageLabel's or MeshPart's image flat, in layers">Image…</button><button data-vector title="Draw shapes and paths on the selected Decal's, ImageLabel's or MeshPart's image, kept sharp as SVG">Vector…</button><button data-done>Done</button>`;
     B.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
@@ -166,15 +213,29 @@ export class PaintTools {
       if (b.dataset.image !== undefined) return this.onImage && this.onImage();
       if (b.dataset.vector !== undefined) return this.onVector && this.onVector();
       const p = b.dataset.p; if (!p) return;
-      S.erase = p === 'erase'; S.aliased = p === 'pencil';
+      if (p === 'pick') { S.pick = !S.pick; return this.state(); }
+      S.pick = false; S.erase = p === 'erase'; S.aliased = p === 'pencil';
       if (p === 'pencil') { S.size = Math.min(S.size, 4); B.querySelector('[data-k=size]').value = S.size; }
       this.state();
     });
     B.addEventListener('input', e => {
-      const k = e.target.dataset.k; if (!k) return;
-      if (k === 'color') S.color = [...unhex(e.target.value), 1]; else S[k] = +e.target.value;
+      const k = e.target.dataset.k; if (!k || k === 'preset' || k === 'texSize') return;
+      if (k === 'color') S.color = [...unhex(e.target.value), 1]; else { S[k] = +e.target.value; S.preset = ''; }
       this.state();
     });
+    B.addEventListener('change', e => {
+      const k = e.target.dataset.k;
+      if (k === 'texSize') S.texSize = +e.target.value;
+      else if (k === 'preset') { const p = PRESETS.find(q => q.name === e.target.value); if (p) this.usePreset(p); }
+      this.state();
+    });
+  }
+  /** Take a brush preset's settings (colour and eraser stay); the sliders follow. */
+  usePreset(p) {
+    const S = this.settings, n = applyPreset(S, p);
+    for (const k of Object.keys(n)) S[k] = n[k];
+    S.pick = false;
+    this.bar.querySelectorAll('input[type=range][data-k]').forEach(i => { i.value = S[i.dataset.k]; });
   }
 }
 

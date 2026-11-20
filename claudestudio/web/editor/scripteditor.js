@@ -7,14 +7,16 @@
 // hides the editor, keeping its tabs; Ctrl+S writes the open one. Play reads the Source, so the
 // editor writes it before a Play.
 // Autocomplete (completions.js) offers what the engine really has: the VM's libraries, the class
-// table's members, services, classes and enums, and the open place's own instances; hovering a
-// word says what it is (type, owning class, read-only, a method's parameters, an instance's path).
+// table's members, services, classes and enums, and the open place's own instances, each with its
+// one-line summary beside the list (Roblox's creator-docs, apidocs.json). Hovering a word (on a
+// phone, pressing and holding it) says what it is: its typed signature (Roblox's types), summary,
+// owning class, read-only, Claude Studio's own, an instance's path.
 // Script analysis (as Studio's): Luau's own type checker (web/luaucheck.mjs, loaded in the background
 // the first time a script opens) in nonstrict mode against definitions generated from the engine and
 // the open place (luautypes.js); its problems show as warnings on their lines.
 import { EditorView, basicSetup } from 'codemirror';
-import { EditorState } from '@codemirror/state';
-import { keymap, hoverTooltip } from '@codemirror/view';
+import { EditorState, StateField, StateEffect } from '@codemirror/state';
+import { keymap, hoverTooltip, showTooltip } from '@codemirror/view';
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { linter, lintGutter, forceLinting } from '@codemirror/lint';
 import { autocompletion } from '@codemirror/autocomplete';
@@ -26,6 +28,40 @@ import { definitions, readable } from './luautypes.js';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export const SCRIPT_CLASSES = ['Script', 'LocalScript', 'ModuleScript'];
 const NEW_SOURCE = 'print("Hello world!")\n'; // what Studio puts in a new script
+const HOLD_MS = 500, HOLD_SLOP = 10; // press and hold: how long, and how far the finger may drift (px)
+
+// A phone has no hover: pressing and holding a word shows the same tooltip, until the next touch or edit.
+let lastPointer = 'mouse';
+const setHeld = StateEffect.define();
+const heldTip = StateField.define({
+  create: () => null,
+  update(tip, tr) { for (const e of tr.effects) if (e.is(setHeld)) return e.value; return tr.docChanged ? null : tip; },
+  provide: f => showTooltip.from(f),
+});
+function holdToDescribe(tipAt) {
+  let timer = 0, start = null;
+  const cancel = () => { clearTimeout(timer); timer = 0; };
+  return [heldTip, EditorView.domEventHandlers({
+    // Which pointer moved last: a touch also sends mouse events, and the hover tooltip is for a real mouse only.
+    pointermove(e) { lastPointer = e.pointerType; return false; },
+    pointerdown(e) { lastPointer = e.pointerType; return false; },
+    touchstart(e, view) {
+      cancel(); if (view.state.field(heldTip)) view.dispatch({ effects: setHeld.of(null) });
+      if (e.touches.length !== 1) return false;
+      start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      timer = setTimeout(() => {
+        timer = 0; const pos = view.posAtCoords(start), tip = pos == null ? null : tipAt(view, pos); if (!tip) return;
+        // Touches go through it to the code beneath: the next tap or hold works wherever the tooltip lies.
+        const create = tip.create; tip.create = v => { const t = create(v); return { ...t, mount: () => { t.dom.style.pointerEvents = 'none'; } }; };
+        view.dispatch({ effects: setHeld.of(tip) });
+      }, HOLD_MS);
+      return false;
+    },
+    touchmove(e) { if (timer && Math.hypot(e.touches[0].clientX - start.x, e.touches[0].clientY - start.y) > HOLD_SLOP) cancel(); return false; },
+    touchend() { cancel(); return false; },
+    touchcancel() { cancel(); return false; },
+  })];
+}
 
 const style = HighlightStyle.define([
   { tag: tags.keyword, color: '#f86d7c' }, { tag: tags.string, color: '#adf195' }, { tag: tags.number, color: '#ffc600' },
@@ -71,14 +107,15 @@ export class ScriptEditor {
       if (e) { const line = at(e.line); return [{ from: line.from, to: Math.max(line.to, line.from), severity: 'error', message: e.message }]; }
       return this.warnings.map(w => { const a = at(w.line), b = at(w.endLine); return { from: Math.min(a.from + w.col - 1, a.to), to: Math.max(Math.min(b.from + w.endCol - 1, b.to), Math.min(a.from + w.col, a.to)), severity: 'warning', message: w.message }; });
     };
+    const tipAt = (view, pos) => { // what the word at pos is, as a tooltip (hover, or press and hold)
+      const d = describe(view.state.doc.toString(), pos, { libs: this.libs, dm: this.dm, script: this.inst }); if (!d) return null;
+      return { pos: d.from, end: d.to, above: true, create: () => { const dom = document.createElement('div'); dom.className = 'se-hover'; dom.innerHTML = `<b>${esc(d.title)}</b>` + (d.doc ? `<p>${esc(d.doc)}</p>` : '') + d.lines.map(l => `<div>${esc(l)}</div>`).join(''); return { dom }; } };
+    };
     return EditorState.create({
       doc: inst.props.Source,
       extensions: [basicSetup, StreamLanguage.define(luau),
         autocompletion({ override: [cx => complete(cx.state.doc.toString(), cx.pos, { libs: this.libs, dm: this.dm, script: this.inst })] }), syntaxHighlighting(style), theme, lintGutter(), linter(check, { delay: 300 }),
-        hoverTooltip((view, pos) => {
-          const d = describe(view.state.doc.toString(), pos, { libs: this.libs, dm: this.dm, script: this.inst }); if (!d) return null;
-          return { pos: d.from, end: d.to, above: true, create: () => { const dom = document.createElement('div'); dom.className = 'se-hover'; dom.innerHTML = `<b>${esc(d.title)}</b>` + d.lines.map(l => `<div>${esc(l)}</div>`).join(''); return { dom }; } };
-        }, { hoverTime: 350 }),
+        hoverTooltip((view, pos) => lastPointer === 'mouse' ? tipAt(view, pos) : null, { hoverTime: 350 }), holdToDescribe(tipAt),
         keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => { this.save(); return true; } }]),
         EditorView.updateListener.of(u => { if (u.docChanged) this.renderTabs(); })],
     });

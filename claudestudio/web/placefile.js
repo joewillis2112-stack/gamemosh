@@ -87,6 +87,49 @@ export function savePlace(dm) {
   return { format: PLACE_FORMAT, version: PLACE_VERSION, services: SAVED.filter(n => dm.services[n]).map(n => node(dm.services[n], true)) };
 }
 
+/** One instance and its descendants as a place-file node (references inside it kept, others dropped). */
+export function saveInstance(root) {
+  const ids = new Map(), walk = i => { ids.set(i, ids.size); for (const c of i.children) if (!c.isCharacter && c.props.Archivable !== false) walk(c); };
+  walk(root);
+  const node = inst => {
+    const props = {}, d = defaultsOf(inst.ClassName);
+    for (const p of propertiesOf(inst.ClassName)) {
+      if (p.readOnly || DERIVED.has(p.name) && inst.props.CFrame) continue;
+      const v = encode(p.type, inst.props[p.name], ids);
+      if (v === undefined) continue;
+      const dv = p.name === 'Name' ? inst.ClassName : encode(p.type, d[p.name], new Map());
+      if (!same(v, dv)) props[p.name] = v;
+    }
+    const n = { class: inst.ClassName, id: ids.get(inst), props };
+    const kids = inst.children.filter(c => ids.has(c));
+    if (kids.length) n.children = kids.map(node);
+    return n;
+  };
+  return node(root);
+}
+/** A node from saveInstance made again in `dm` (unparented), with its descendants. */
+export function loadInstance(dm, n) {
+  const byId = new Map(), refs = [];
+  const build = (n, parent) => {
+    const inst = dm.create(n.class);
+    if (!inst) throw new Error(`can't create a ${n.class}`);
+    byId.set(n.id, inst);
+    const types = new Map(propertiesOf(inst.ClassName).map(p => [p.name, p.type]));
+    for (const [k, v] of Object.entries(n.props || {})) {
+      const ty = types.get(k); if (!ty) continue;
+      if (ty === 'Instance') { refs.push([inst, k, v]); continue; }
+      try { inst.props[k] = decode(ty, v); } catch { /* keeps the default */ }
+    }
+    if (inst.props.CFrame && isA(inst.ClassName, 'BasePart')) { const cf = inst.props.CFrame; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(...cf.toOrientation()); }
+    if (parent) dm.setParent(inst, parent);
+    for (const c of n.children || []) build(c, inst);
+    return inst;
+  };
+  const root = build(n, null);
+  for (const [inst, k, v] of refs) inst.props[k] = v && byId.has(v.ref) ? byId.get(v.ref) : null;
+  return root;
+}
+
 /** Load a place file into a fresh DataModel (its services already exist). Returns the warnings. */
 export function loadPlace(dm, file) {
   if (!file || file.format !== PLACE_FORMAT) throw new Error('not a Claude Studio place file');
@@ -98,7 +141,7 @@ export function loadPlace(dm, file) {
       const ty = types.get(k);
       if (!ty) { warnings.push(`${inst.ClassName}.${k} isn't a property (skipped)`); continue; }
       if (ty === 'Instance') { refs.push([inst, k, v]); continue; }
-      inst.props[k] = decode(ty, v);
+      try { inst.props[k] = decode(ty, v); } catch (e) { warnings.push(`${inst.ClassName}.${k}: ${e.message} (skipped)`); } // a value the type refuses keeps the default
     }
     // A part's derived properties follow its CFrame.
     if (inst.props.CFrame && isA(inst.ClassName, 'BasePart')) { const cf = inst.props.CFrame; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(...cf.toOrientation()); }

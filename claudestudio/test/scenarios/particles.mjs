@@ -263,6 +263,44 @@ export default async function (t) {
   await run('game:GetService("Lighting").ClockTime = 16 workspace.ScreenPart:Destroy() workspace.Probe:Destroy()'); await t.sim(2); await t.eval(() => window.studio.lighting.settled());
   check(await t.eval(() => [...window.studio.particles.emitters.keys()].every(i => i.Name !== 'Screen' && i.Name !== 'P')), 'emitters go with their part');
 
+  // Attachments: an emitter in one emits from its world point, along its own axes; a light in one shines
+  // from there; its World* values follow the part, and setting WorldPosition sets the local Position.
+  await run(`local p = Instance.new("Part") p.Name = "Holder" p.Anchored = true p.Size = Vector3.new(4, 4, 4) p.CFrame = CFrame.new(10, 70, 30) * CFrame.Angles(0, 0, math.pi / 2) p.Parent = workspace
+    local a = Instance.new("Attachment") a.Name = "Tip" a.Position = Vector3.new(0, 2, 0) a.Orientation = Vector3.new(0, 0, 90) a.Parent = p
+    local e = Instance.new("ParticleEmitter") e.Name = "AttE" e.Enabled = false e.Speed = NumberRange.new(5) e.Lifetime = NumberRange.new(100) e.Parent = a
+    local l = Instance.new("PointLight") l.Name = "AttL" l.Range = 6 l.Parent = a
+    print("tip", a.WorldPosition.X, a.WorldPosition.Y, a.WorldPosition.Z)
+    p.Position = p.Position + Vector3.new(0, 0, 2) print("tip moved", a.WorldPosition.Z)
+    a.WorldPosition = Vector3.new(8, 70, 32) print("tip local", a.Position.X, a.Position.Y, a.Position.Z)
+    a.WorldPosition = Vector3.new(8, 70, 32) a.Position = Vector3.new(0, 2, 0)
+    e:Emit(10)`);
+  const tipLog = logs().filter(l => l.startsWith('tip'));
+  const nums = l => l.split(' ').slice(l.startsWith('tip moved') ? 2 : l.startsWith('tip local') ? 2 : 1).map(Number);
+  const tip = nums(tipLog.find(l => l.startsWith('tip ') && !l.startsWith('tip moved') && !l.startsWith('tip local')) || 'tip NaN'), tipMoved = nums(tipLog.find(l => l.startsWith('tip moved')) || 'tip moved NaN'), tipLocal = nums(tipLog.find(l => l.startsWith('tip local')) || 'tip local NaN');
+  // The part is rolled 90 degrees about Z, so its +Y points along world -X: the tip is 2 studs toward -X.
+  check(Math.abs(tip[0] - 8) < 1e-4 && Math.abs(tip[1] - 70) < 1e-4 && Math.abs(tip[2] - 30) < 1e-4 && Math.abs(tipMoved[0] - 32) < 1e-4, `Attachment.WorldPosition is the part's CFrame times its own (${tip.map(v => v.toFixed(2))}), and follows the part (z ${tipMoved[0]})`);
+  check(Math.abs(tipLocal[0]) < 1e-4 && Math.abs(tipLocal[1] - 2) < 1e-4 && Math.abs(tipLocal[2]) < 1e-4, `setting WorldPosition sets the local Position (${tipLocal.map(v => v.toFixed(2))})`);
+  const att = await ps('AttE');
+  // Its axes: the part's roll (+Y -> -X) and the attachment's own roll (another 90 about Z): Top points along world -Y.
+  check(att.length === 10 && att.every(p => Math.abs(p.x - 8) < 1e-4 && Math.abs(p.y - (70 - 5 * p.age)) < 1e-4 && Math.abs(p.z - 32) < 1e-4 && Math.abs(p.vy + 5) < 1e-4 && Math.abs(p.vx) < 1e-4),
+    `an emitter in an attachment: every particle at its point, moving along its turned Top (${att[0] && [att[0].vx, att[0].vy, att[0].vz].map(v => v.toFixed(2))})`);
+  const attLight = await t.eval(() => { const L = window.studio.localLights; L.update(); for (const [i, e] of L.lights) if (i.Name === 'AttL') return [e.light.position.x, e.light.position.y, e.light.position.z]; return null; });
+  check(attLight && Math.abs(attLight[0] - 8) < 1e-3 && Math.abs(attLight[1] - 70) < 1e-3 && Math.abs(attLight[2] - 32) < 1e-3, `a PointLight in an attachment shines from its point (${attLight})`);
+  await run('workspace.Holder:Destroy()');
+
+  // Wind: with WindAffectsDrag, Drag pulls toward Workspace.GlobalWind; without it, or with Drag 0, wind does nothing.
+  await run(`workspace.GlobalWind = Vector3.new(10, 0, 0)
+    local p = Instance.new("Part") p.Name = "Windy" p.Anchored = true p.Transparency = 1 p.CanCollide = false p.Size = Vector3.new(0.1, 0.1, 0.1) p.Position = Vector3.new(-10, 70, 30) p.Parent = workspace
+    for _, c in ipairs({ { "Blown", true, 0.5 }, { "Still", false, 0.5 }, { "NoDrag", true, 0 } }) do
+      local e = Instance.new("ParticleEmitter") e.Name = c[1] e.Enabled = false e.Speed = NumberRange.new(0) e.Lifetime = NumberRange.new(100) e.WindAffectsDrag = c[2] e.Drag = c[3] e.Parent = p e:Emit(3)
+    end`);
+  await t.sim(120);
+  const vx = async n => (await ps(n))[0].vx;
+  const blown = await vx('Blown'), calm = await vx('Still'), nodrag = await vx('NoDrag');
+  const wantV = 10 * (1 - Math.pow(2, -(121 / 60) / 0.5));
+  check(Math.abs(blown - wantV) < 0.05 && calm === 0 && nodrag === 0, `GlobalWind 10: WindAffectsDrag with Drag 0.5 reaches ${blown.toFixed(2)} studs/s (expected ${wantV.toFixed(2)}); without it ${calm}; with Drag 0 ${nodrag}`);
+  await run('workspace.Windy:Destroy() workspace.GlobalWind = Vector3.new(0, 0, 0)');
+
   // The tier's table is what the renderer uses.
   const applied = await t.eval(() => { const S = window.studio, R = S.R; return { size: R.shadows.getShadowMap().getSize().width, cascades: R.shadows.numCascades, msaa: R.pipeline.samples, sky: S.sky.n, maxZ: R.shadows.shadowMaxZ, bias: [R.shadows.bias, R.shadows.normalBias] }; });
   check(applied.size === Q.sunShadowSize && applied.cascades === Q.sunCascades && applied.msaa === Q.msaa && applied.sky === Q.skySize && applied.maxZ === Q.sunShadowDistance && applied.bias.join() === Q.sunShadowBias.join(), `the renderer runs the ${Q.name} tier's numbers (${JSON.stringify(applied)})`);
@@ -287,6 +325,14 @@ export default async function (t) {
   await run('workspace.Stress.S.LockedToPart = false workspace.Stress.Position = workspace.Stress.Position - Vector3.new(0, 0, 4)'); const after = await ps('S');
   const close = (a, b, dz = 0) => a.every((p, i) => Math.abs(p.x - b[i].x) < 1e-3 && Math.abs(p.y - b[i].y) < 1e-3 && Math.abs(p.z - b[i].z - dz) < 1e-3);
   check(close(mid, before) && close(moved, mid, 4) && close(after, moved), 'LockedToPart turned on and off with live particles: no jump, locked ones follow the part, unlocked ones stay');
+  // A locked emitter moved to another part: its particles stay where they are, then ride the new part.
+  await run(`local b = Instance.new("Part") b.Name = "Other" b.Anchored = true b.Transparency = 1 b.CanCollide = false b.CFrame = CFrame.new(20, 80, 30) * CFrame.Angles(0, 1, 0) b.Parent = workspace
+    workspace.Stress.S.LockedToPart = true`);
+  const onA = await ps('S');
+  await run('workspace.Stress.S.Parent = workspace.Other'); const onB = await ps('S');
+  await run('workspace.Other.Position = workspace.Other.Position + Vector3.new(0, 0, 5)'); const rodeB = await ps('S');
+  check(onA.length && close(onB, onA) && close(rodeB, onB, 5), 'a locked emitter moved to another part: its particles keep their place, then follow the new part');
+  await run('workspace.Other.S.LockedToPart = false workspace.Other.S.Parent = workspace.Stress workspace.Other:Destroy()');
   // Textures no emitter uses are let go.
   await run('local e = workspace.Stress.S for _, id in ipairs({ "studio://white", "rbxasset://textures/particles/smoke_main.dds", "rbxasset://textures/particles/fire_main.dds", "studio://white" }) do e.Texture = id task.wait() end');
   await t.sim(5);

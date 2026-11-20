@@ -5,7 +5,8 @@
 // Source as one undo step, which Undo takes back and Redo restores; double-click (desktop) or
 // Edit Script (any) opens it again; Play, with an edit still open, runs the script as edited, and
 // the player's Output window shows its print, a warning and a run-time error; clicking an error
-// goes back to the editor with that script open at its line. Inserting a ParticleEmitter gives Studio's
+// goes back to the editor with that script open at its line. Hovering a word (desktop) or pressing and
+// holding it (phone) shows its typed signature and summary; autocomplete shows them too. Inserting a ParticleEmitter gives Studio's
 // LightInfluence 1, and it emits while editing.
 export default async function (t) {
   const fail = [];
@@ -71,14 +72,62 @@ export default async function (t) {
   await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE);
   await t.page.waitForFunction(() => document.querySelector('#scripteditor .se-status').textContent === 'No errors', null, { timeout: 5000 }).catch(() => {});
   check((await E(() => document.querySelector('#scripteditor .se-status').textContent)) === 'No errors', 'fixed, the warning goes');
-  if (!phone) { // Hover (a mouse has it, a phone doesn't): what the word under the pointer is.
-    await t.page.mouse.click(5, 700); // move the pointer off the text first
-    const at = await E(() => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf('Anchored') + 3, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; });
-    await t.page.mouse.move(...at, { steps: 4 });
+  // Hover (a mouse), or press and hold (a phone): what the word is, with its typed signature (Roblox's
+  // types) and its one-line summary (Roblox's docs). A method call is added for this, then taken out.
+  const WITH_CALL = CODE + 'p:PivotTo(CFrame.new(0, 5, 0))\n';
+  await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, WITH_CALL);
+  const wordAt = (word, at = 3) => E(([w, at]) => { const v = window.editor.scriptEditor.view, i = v.state.doc.toString().indexOf(w) + at, c = v.coordsAtPos(i); return [(c.left + c.right) / 2, (c.top + c.bottom) / 2]; }, [word, at]);
+  const tipText = () => E(() => { const h = document.querySelector('#scripteditor .se-hover'); return h ? h.innerText.replace(/\n+/g, ' | ') : null; });
+  const tipFits = () => E(() => { const r = document.querySelector('#scripteditor .se-hover').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; });
+  const ANCHORED = 'Part.Anchored: boolean | Determines whether a part is immovable by physics. | property of BasePart';
+  // An overloaded datatype constructor lists every form (the hover's title keeps its lines).
+  const CFNEW = /^CFrame\.new\(\): CFrame \| CFrame\.new\(pos: Vector3\): CFrame \| .*CFrame\.new\(x: number, y: number, z: number\): CFrame \| .* \| Returns a CFrame with no rotation with the position of the provided Vector3\. \| in the CFrame datatype.s library$/;
+  const PIVOT = 'Part:PivotTo(targetCFrame: CFrame): () | Transforms the PVInstance along with all of its descendant PVInstances such that the pivot is now located at the specified CFrame. | method of BasePart';
+  if (!phone) {
+    for (const [word, want] of [['Anchored', ANCHORED], ['PivotTo', PIVOT]]) {
+      await t.page.mouse.click(5, 700); // move the pointer off the text first
+      await t.page.waitForFunction(() => !document.querySelector('#scripteditor .se-hover'), null, { timeout: 3000 }).catch(() => {});
+      await t.page.mouse.move(...await wordAt(word), { steps: 4 });
+      await t.page.waitForSelector('#scripteditor .se-hover', { timeout: 3000 }).catch(() => {});
+      const tip = await tipText();
+      check(tip === want && await tipFits(), `hovering "${word}" shows its signature and summary, on screen (${tip})`);
+    }
+    await t.page.mouse.click(5, 700);
+    await t.page.waitForFunction(() => !document.querySelector('#scripteditor .se-hover'), null, { timeout: 3000 }).catch(() => {});
+    await t.page.mouse.move(...await wordAt('CFrame.new', 8), { steps: 4 });
     await t.page.waitForSelector('#scripteditor .se-hover', { timeout: 3000 }).catch(() => {});
-    const tip = await E(() => { const h = document.querySelector('#scripteditor .se-hover'); return h ? h.innerText.replace(/\n/g, ' | ') : null; });
-    check(tip === 'Part.Anchored: bool | property of BasePart', `hovering "Anchored" says what it is (${tip})`);
+    const cfTip = await tipText();
+    check(CFNEW.test(cfTip || '') && await tipFits(), `hovering CFrame.new lists its forms, one per line, typed, on screen (${(cfTip || '').slice(0, 120)}...)`);
+    await t.shot('editor-script-hover-overloads');
+    await t.shot('editor-script-hover');
+    await t.page.mouse.click(5, 700);
+  } else {
+    const cdp = await t.page.context().newCDPSession(t.page), tp = (type, p) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p[0], y: p[1], id: 1 }] : [] });
+    const hold = async (p, ms) => { await tp('touchStart', p); await t.page.waitForTimeout(ms); await tp('touchEnd'); await t.page.waitForTimeout(100); };
+    await hold(await wordAt('PivotTo'), 150); await t.page.waitForTimeout(700); // a tap isn't a hold (waited past the hold time)
+    check(await tipText() === null, 'on a phone, a tap on a word shows nothing');
+    await hold(await wordAt('PivotTo'), 800);
+    const tip = await tipText();
+    check(tip === PIVOT && await tipFits(), `pressing and holding "PivotTo" shows its signature and summary, on screen (${tip})`);
+    await t.shot('editor-script-hold');
+    await hold(await wordAt('Anchored'), 800);
+    check(await tipText() === ANCHORED, `holding another word shows that one instead (${await tipText()})`);
+    await hold(await wordAt('CFrame.new', 8), 800);
+    check(CFNEW.test(await tipText() || '') && await tipFits(), `holding CFrame.new lists its forms, on screen (${(await tipText() || '').slice(0, 100)}...)`);
+    await t.shot('editor-script-hold-overloads');
+    await hold(await wordAt('print'), 80);
+    check(await tipText() === null, 'the next tap puts it away');
   }
+  // Autocomplete: a method's option shows its typed signature, and its summary beside the list.
+  await E(() => { const v = window.editor.scriptEditor.view; v.dispatch({ selection: { anchor: v.state.doc.length } }); v.focus(); });
+  await t.page.keyboard.type('p:Piv');
+  await t.page.waitForSelector('#scripteditor .cm-completionInfo', { timeout: 5000 }).catch(() => {});
+  const ac = await E(() => { const li = document.querySelector('#scripteditor .cm-tooltip-autocomplete li[aria-selected]'), info = document.querySelector('#scripteditor .cm-completionInfo'), r = info && info.getBoundingClientRect();
+    return { label: li && li.querySelector('.cm-completionLabel').textContent, detail: li && li.querySelector('.cm-completionDetail') && li.querySelector('.cm-completionDetail').textContent, info: info && info.textContent, fits: !!r && r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight, ...(r && !(r.left >= 0 && r.right <= innerWidth + 1) ? { rect: [r.left, r.right, innerWidth] } : {}) }; });
+  check(ac.label === 'PivotTo' && ac.detail === '(targetCFrame: CFrame): ()' && /^Transforms the PVInstance/.test(ac.info || '') && ac.fits, `autocomplete offers PivotTo with its signature and, beside the list, its summary on screen (${JSON.stringify(ac)})`);
+  await t.shot('editor-script-complete');
+  await t.page.keyboard.press('Escape');
+  await E(code => { const v = window.editor.scriptEditor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } }); }, CODE); // back to the working script
 
   // Close writes the Source: one step, which Undo and Redo move.
   await btn('#scripteditor [data-se=close]');
