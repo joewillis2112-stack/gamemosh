@@ -105,6 +105,10 @@ check(a.props.CFrame.equals(cf1), 'and redoes to where it ended');
   C.run('setProperty', { items: [p], key: 'Color', value: custom });
   const copy = dm.clone(p);
   check(copy.props.Color.r === custom.r && copy.props.Color.g === custom.g && copy.props.Color.b === custom.b && copy.props.BrickColor === nearest, 'a clone keeps the custom Color exactly (not snapped to its BrickColor)');
+  dm.set(p, 'BrickColor', p.props.BrickColor); p.props.BrickColor = p.props.BrickColor; // what copying props one by one does (an edit's restore, a load)
+  check(p.props.Color === custom, 'writing a part the BrickColor it already reads, through the DataModel or its props, keeps a custom Color');
+  dm.set(p, 'BrickColor', BrickColor.byName('Lime green'));
+  check(p.props.BrickColor.name === 'Lime green' && p.props.Color === BrickColor.byName('Lime green').color, 'and a different one sets the Color to it');
 }
 check(C.list().length >= 12, `commands are listed (${C.list().join(', ')})`);
 
