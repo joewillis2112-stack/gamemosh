@@ -59,8 +59,15 @@ const api = {
 };
 const mismatches = [];
 const scenario = opt('scenario');
-if (scenario) { const mod = await import(path.resolve(scenario)); await mod.default(api); }
-else { await api.frames(30); await api.shot(path.basename(opt('place', 'baseplate'), '.luau')); }
+try {
+  if (scenario) { const mod = await import(path.resolve(scenario)); await mod.default(api); }
+  else { await api.frames(30); await api.shot(path.basename(opt('place', 'baseplate'), '.luau')); }
+} catch (e) {
+  // A failing scenario: the page's errors and warnings first (they usually name the cause).
+  const said = logs.filter(l => /^(error|warning|pageerror)/.test(l));
+  if (said.length) console.log('page said:\n' + said.join('\n'));
+  throw e;
+}
 const errs = logs.filter(l => /^error|pageerror/.test(l));
 if (errs.length) console.log(errs.join('\n'));
 await browser.close();

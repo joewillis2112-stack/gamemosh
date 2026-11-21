@@ -16,6 +16,7 @@ import { Effect } from '@babylonjs/core/Materials/effect.js';
 import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { Material } from '@babylonjs/core/Materials/material.js';
+import { RegisterClass } from '@babylonjs/core/Misc/typeStore.js';
 import { useDepth, releaseDepth } from './depth.js';
 import { keepLast } from './postorder.js';
 
@@ -65,6 +66,10 @@ class ToonPlugin extends MaterialPluginBase {
     };
   }
 }
+
+// A cloned material (glTF MeshParts clone theirs per part) re-creates its plugins by class name:
+// registered, or the clone throws and the mesh never loads.
+RegisterClass('BABYLON.StudioToonPlugin', ToonPlugin);
 
 // ---- OutlineEffect and PixelEffect: screen passes.
 Effect.ShadersStore.studioOutlineFragmentShader = `
@@ -122,8 +127,8 @@ void main(void) {
 export class Styles {
   constructor(scene, dm, camera, { sun = null } = {}) {
     Object.assign(this, { scene, dm, camera, sun });
-    this.plugins = new Map(); // material -> ToonPlugin
-    const attach = m => { if (m instanceof PBRMaterial && !this.plugins.has(m)) this.plugins.set(m, new ToonPlugin(m)); };
+    // Every PBR material gets the plugin once (a clone already has it: see RegisterClass above).
+    const attach = m => { if (m instanceof PBRMaterial && !(m.pluginManager && m.pluginManager.getPlugin('StudioToon'))) new ToonPlugin(m); };
     scene.materials.forEach(attach);
     scene.onNewMaterialAddedObservable.add(attach);
     this.passes = {};
@@ -143,7 +148,7 @@ export class Styles {
     if (t) { toon.bands = clamp(Math.round(t.props.Bands), 2, 8); toon.softness = clamp(t.props.Softness, 0, 0.5); }
     // Full daylight: the sun straight on, plus the sky (OURS: about 1.3 x the sun alone, from the lab).
     toon.full = this.sun ? Math.max(1e-3, this.sun.intensity * lum(this.sun.diffuse) * 1.3) : 1;
-    if (on !== toon.on) { toon.on = on; for (const m of this.plugins.keys()) m.markAsDirty(Material.AllDirtyFlag); } // re-reads the defines: a recompile, once
+    if (on !== toon.on) { toon.on = on; for (const m of this.scene.materials) if (m.pluginManager && m.pluginManager.getPlugin('StudioToon')) m.markAsDirty(Material.AllDirtyFlag); } // re-reads the defines: a recompile, once
     this.toonOn = on;
 
     const o = this.effect('OutlineEffect'), p = this.effect('PixelEffect');
