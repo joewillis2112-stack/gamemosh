@@ -63,6 +63,21 @@ Nothing new starts while the current asset fails the gate.
 
 Assets come from CC0 sources (Quaternius rigged characters and animations, Poly Haven and ambientCG materials and skies, Kenney) so the look is consistent and nothing is borrowed.
 
+[Studio] **Atmosphere (2026-11-21):** Roblox's Atmosphere as aerial perspective, its shader's structure (mashup-research/ROBLOX_LIGHTING_2026-10-09.md §4b, 4c) with our own constants:
+- Every PBR surface and every particle fades with distance into the sky cube in its view direction (`runtime/atmosphere.js`, a material plugin): visibility `exp(-d/L)`, with `L = 8.3·Density^-4.2` studs fitted to the community's Studio measurements.
+- Offset sets the sky's blur floor: at 0 distant things vanish into the sky behind them; at higher values they stand as silhouettes.
+- Haze, Glare, Color and Decay are graded into the same sky cube (`runtime/sky.js`), so the sky, the fog and the light all agree:
+  - below the horizon is the haze colour once Haze reaches 1;
+  - a band 1.5·Haze degrees high blends in above it;
+  - the whole sky is haze from Haze 5;
+  - Glare adds a glow around the sun and turns the haze from Color near the sun to Decay away from it.
+- Every tier renders it, with the same blur angle on each tier's sky size.
+- Also fixed:
+  - the skybox hid everything past 2000 studs (it now sits at the far plane);
+  - the skybox faded below the horizon to a too-light flat colour (it now takes the horizon's own colour at each heading).
+- Tests: `places/atmosphere-lab.luau`, `test/scenarios/atmosphere.mjs` (11 checks, default and low tiers; mutation-checked 5 of 5).
+- Every place gets a Baseplate Atmosphere, so the default look changed: lighter, sky-coloured distance instead of the old linear fog to a flat horizon colour.
+
 ## Architecture
 
 | Layer | What | Notes |
@@ -204,7 +219,7 @@ Reference for the editor (Phase 2), posing and motion (Phase 5): ArtCraft, an op
 
 **Known gaps:**
 - ~~Places with no ground show the HDR sky's mirrored lower half.~~ Fixed (2026-10-08): a skybox material plugin fades the sky below the horizon to the haze colour, deepening to a bluer haze further down. A flat haze disc had looked worse.
-- A soft line remains where fully fogged ground meets the sky's horizon band, which is lighter than the haze colour. Roblox's Atmosphere matches haze to the sky; ours should sample the sky's horizon colour per direction.
+- A soft line remains where fully fogged ground meets the sky's horizon band, which is lighter than the haze colour. Roblox's Atmosphere matches haze to the sky; ours should sample the sky's horizon colour per direction. [Studio] Done 2026-11-21: below the horizon the skybox now takes the sky's own horizon colour at each heading (render.js BelowHorizon), and an Atmosphere fogs ground into the sky behind it.
 
 **2026-10-08, polish pass ("quality before quantity"):**
 - **Roblox's defaults, from its shipped scripts** (`mashup-research/ROBLOX_DEFAULTS_2026-10-08.md`, spot-checked against the Animate script):

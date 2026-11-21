@@ -448,6 +448,26 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **Probe before reading internals (2026-11-21).** Running the one failing scenario in a side copy (`scratchpad/cs`: the studio without node_modules/build, node_modules symlinked, its own `node tools/build.mjs`; the scratchpad's parent needs a `node_modules` link to the repo root's for playwright) costs ~2 min and doesn't touch the suite's build/. Reading Babylon's source to guess a cause cost more and settled nothing.
 - [Studio] **One worker agent at a time (2026-11-21).** Three agents on one usage budget kept hitting the limit together; every resume reloads context (one resume: 589k tokens for 3 commits) and they drained the 5-hour budget for the main session too.
 
+- [Studio] **A Babylon material plugin must be registered (2026-11-21).** Cloning a material re-creates its plugins by class name (`Tools.Instantiate("BABYLON." + getClassName())`). An unregistered plugin class makes the clone throw, so every glTF MeshPart failed to load once the Toon plugin was active. One bug, four suite failures: meshes-gltf, lighting's ShadowSoftness check (the lab's helmet), and three post-effect goldens. Fixes:
+  - call `RegisterClass('BABYLON.<ClassName>', Class)` next to each plugin;
+  - check for an existing plugin with `getPlugin(name)` before adding one;
+  - don't keep a Map of materials (it holds every disposed material alive).
+- [Studio] **Plugin code goes in after includes (2026-11-21).** `getCustomCode` runs as `processCodeAfterIncludes`, so a regex anchor on `#include<...>` never matches and the code silently isn't there. Anchor on a line of the expanded include, e.g. `pbrBlockImageProcessing`'s first line, captured and put back as `$1`. A shader that does nothing is the symptom: check the effect first, with a pixel test against a baseline.
+- [Studio] **Keep comments out of raw shader text (2026-11-21).** In the particle ShaderMaterial, a line ending `{ // ... (x.js); with ...` failed to compile at the word after the `;`. Similar comments compile fine elsewhere, and I don't know the exact rule.
+- [Studio] **A check needs a baseline that fails without the feature (2026-11-21).** Several first-draft Atmosphere checks passed or failed for the wrong reason:
+  - "fully fogged particles match the pixel behind them" also holds with no particles at all;
+  - "near the sun is brighter" holds for any sky;
+  - "wall vs the sky above it" mixes in the sky's own gradient;
+  - a sky point sat behind the character.
+
+  Compare with the same view with the feature off, or with a known reference object (a black part in place of black particles), and mutation-test every check.
+- [Studio] **The skybox is a 4000-stud box (2026-11-21).** Without forcing it to the far plane in its vertex shader, anything past about 2000 studs was hidden behind the sky.
+- [Studio] **play.mjs had blind spots (2026-11-21).** A thrown scenario never printed the page's errors (they named the MeshParts cause at once), and a shader that never compiled left `whenReadyAsync` waiting forever. Now a failure prints the page's errors and warnings, and a 900 s watchdog fails a hung scenario.
+
+- [Studio] **Script timeout (2026-11-21).** A `while true do end` used to hang the page for good: the VM had no interrupt. Now `lua_callbacks(L)->interrupt` stops a resumption that runs longer than Studio's Script Timeout (10 s) without yielding, with Roblox's error, and the VM carries on (`vm.scriptTimeout(s)`; 0 removes the callback). Cost in wasm: pure-Luau loops run about 1.7x slower; loops that call the engine show no measurable difference.
+- [Studio] **Destroyed glTF MeshParts leaked their materials (2026-11-21).** `instantiateModelsToScene(..., cloneMaterials = true)` clones materials and textures per part, and the entries' `dispose()` frees only the nodes. The stress scenario (`test/scenarios/stress.mjs`: make and destroy every kind of content, counts must stay flat) caught it, +4 materials and +4 textures per cycle. Decals with `rbxasset://` URLs were fetched and 404'd.
+- [Studio] **I edited files the running suite uses, three times (2026-11-21).** The rule alone didn't hold. The suite now runs on a snapshot of the tree (`tools/test-play.sh`), so edits made during a run can't reach it.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
