@@ -25,13 +25,13 @@ function nearEdge(D, W, H, x, y) {
   return false;
 }
 
-/** Returns { saved } or { frac, mean, ok }; writes <diffBase>.diff.png on a mismatch. */
+/** Returns { saved } or { frac, mean, ok }; writes <diffBase>.diff.png on a mismatch. With update,
+ *  only a golden that mismatches (or is missing) is re-saved: ones within tolerance stay as they are,
+ *  so an update run doesn't churn every image with render noise. */
 export function checkGolden(file, pngBuffer, { update = false, diffBase = null, text = false } = {}) {
-  if (update || !fs.existsSync(file)) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, pngBuffer);
-    return { saved: true };
-  }
+  const save = () => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, pngBuffer); return { saved: true }; };
+  if (!fs.existsSync(file)) return save();
+  if (update) { const r = checkGolden(file, pngBuffer, { diffBase, text }); return r.ok ? r : save(); }
   const a = PNG.sync.read(fs.readFileSync(file)), b = PNG.sync.read(pngBuffer);
   if (a.width !== b.width || a.height !== b.height) return { frac: 1, mean: 255, ok: false };
   let n = 0, sum = 0;
