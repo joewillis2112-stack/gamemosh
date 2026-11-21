@@ -121,6 +121,9 @@ class BelowHorizon extends MaterialPluginBase {
   }
   bindForSubMesh(ubo) { ubo.updateColor3('horizonColor', this.scene.fogColor); }
   getCustomCode(shaderType) {
+    // The sky at the far plane (just inside it): the box is 4000 studs across, so without this
+    // anything past its faces (about 2000 studs) would be hidden behind the sky.
+    if (shaderType === 'vertex') return { CUSTOM_VERTEX_MAIN_END: 'gl_Position.z = gl_Position.w * 0.9999995;' };
     if (shaderType !== 'fragment') return null;
     return {
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `

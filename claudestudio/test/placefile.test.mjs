@@ -31,6 +31,12 @@ function dump(dm) {
   return out;
 }
 
+// Where two dump lines part: the instance and the first property that differs.
+function firstDiff(x, y) {
+  const tx = x.split(' '), ty = y.split(' '); let i = 0;
+  while (i < tx.length && tx[i] === ty[i]) i++;
+  return `${tx.slice(0, 2).join(' ')}: ${tx[i] || '(none)'} vs ${ty[i] || '(none)'}`;
+}
 const places = fs.readdirSync('places').filter(f => f.endsWith('.luau'));
 for (const f of places) {
   const dm = new DataModel();
@@ -42,7 +48,7 @@ for (const f of places) {
   const warnings = loadPlace(dm2, JSON.parse(text));
   const again = JSON.stringify(savePlace(dm2));
   const a = dump(dm), b = dump(dm2), diff = a.filter((l, i) => l !== b[i]);
-  check(again === text && a.length === b.length && !diff.length && !warnings.length, `${f}: save, load, save again is identical; ${a.length} instances match property by property (${(text.length / 1024).toFixed(1)} KB)${diff.length ? ' FIRST DIFF: ' + diff[0].slice(0, 200) + ' vs ' + b[a.indexOf(diff[0])]?.slice(0, 200) : ''}${warnings.length ? ' ' + warnings[0] : ''}`);
+  check(again === text && a.length === b.length && !diff.length && !warnings.length, `${f}: save, load, save again is identical; ${a.length} instances match property by property (${(text.length / 1024).toFixed(1)} KB)${diff.length ? ' FIRST DIFF: ' + firstDiff(diff[0], b[a.indexOf(diff[0])] || '') : ''}${warnings.length ? ' ' + warnings[0] : ''}`);
 }
 
 // References, scripts, the camera, and a part edited after creation.

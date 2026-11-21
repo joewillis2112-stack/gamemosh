@@ -865,8 +865,11 @@ export class DataModel {
     if (key === 'CFrame') cf = value;
     else if (key === 'Position') cf = old.withPosition(value.x, value.y, value.z);
     else cf = CF.fromOrientation(old.x, old.y, old.z, value.x, value.y, value.z);
-    const [ox, oy, oz] = cf.toOrientation();
-    const next = { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)) };
+    // Position and Orientation follow the CFrame on classes that have them (a part, an Attachment),
+    // not on ones that don't (a Camera has only CFrame, as in Roblox).
+    const next = { CFrame: cf };
+    if (lookup(inst.ClassName, 'props', 'Position')) next.Position = new V3(cf.x, cf.y, cf.z);
+    if (lookup(inst.ClassName, 'props', 'Orientation')) { const [ox, oy, oz] = cf.toOrientation(); next.Orientation = new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)); }
     const changed = Object.keys(next).filter(k => !sameValue(P[k], next[k]));
     if (!changed.length) return;
     Object.assign(P, next);
