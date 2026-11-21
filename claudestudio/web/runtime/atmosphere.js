@@ -88,12 +88,12 @@ export class AtmosphereFog {
   set(props, tex, cap) {
     const on = !!(props && props.Density > 0 && tex);
     atmo.tex = tex || null;
+    atmo.cap = cap || 1e9; // also the skybox's below-horizon colour's (render.js)
     if (on) {
       atmo.invL = 1 / densityLength(props.Density);
       atmo.offset = Math.min(1, Math.max(0, props.Offset));
       const size = tex.getSize ? tex.getSize().width : 128;
       atmo.lod = Math.min(5, Math.log2(Math.max(size, 2)));
-      atmo.cap = cap || 1e9;
       atmo.zSign = this.scene.useRightHandedSystem && !tex.invertZ ? -1 : 1;
     }
     if (on !== atmo.on) { atmo.on = on; for (const m of this.scene.materials) if (m.pluginManager && m.pluginManager.getPlugin('StudioAtmosphere')) m.markAsDirty(Material.AllDirtyFlag); }

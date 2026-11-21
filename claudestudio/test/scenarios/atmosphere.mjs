@@ -83,8 +83,14 @@ export default async function (t) {
   const dirPt = (yaw, el, d = 1000) => { const r = yaw * Math.PI / 180; return [-Math.sin(r) * d, 5 + d * Math.tan(el * Math.PI / 180), -Math.cos(r) * d]; };
   const lowPt = dirPt(160, 1), highPt = dirPt(160, 25, 100);
   const low0 = await colour('sky0', lowPt), high0 = await colour('sky0', highPt);
+  // Below the horizon (before the floor's edge, 2.9 degrees down) the sky continues its own colour
+  // just above the horizon, at every heading: no band between them.
+  const below0 = await colour('sky0', dirPt(160, -1.8)), above0 = await colour('sky0', dirPt(160, 0.5));
+  check(dist(below0, above0) < 15, `below the horizon the sky continues the horizon's colour (${r0(below0)} under ${r0(above0)})`);
   await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 2 a.Color = Color3.fromRGB(255, 40, 30)');
   await grab('haze');
+  const below1 = await colour('haze', dirPt(160, -1.8)), above1 = await colour('haze', dirPt(160, 0.5));
+  check(dist(below1, above1) < 15, `with haze too (${r0(below1)} under ${r0(above1)})`);
   const low1 = await colour('haze', lowPt), high1 = await colour('haze', highPt);
   const redness = c => c[0] / Math.max(1, (c[1] + c[2]) / 2);
   check(redness(low1) > redness(low0) * 1.5 && dist(high1, high0) < 4, `Haze 2, red: 1 degree up the sky reddens (${r0(low0)} -> ${r0(low1)}); 25 degrees up it stays (${r0(high0)} -> ${r0(high1)})`);
