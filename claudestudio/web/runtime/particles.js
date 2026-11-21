@@ -48,6 +48,7 @@ import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResu
 import { isA } from '../datamodel.js';
 import { tier } from './quality.js';
 import { useDepth, releaseDepth } from './depth.js';
+import { atmo } from './atmosphere.js';
 
 export const MAX_PER_EMITTER = 5000;
 const FRAME = 1 / 60; // FastForward's frame
@@ -141,7 +142,8 @@ void main() {
   if (a <= 0.0) discard;
   vec3 rgb = pow(t.rgb, vec3(2.2)) * vColor.rgb;
   float f = 1.0;
-  if (fog.x > 0.5) f = clamp((fog.z - distance(vPos, eye)) / max(fog.z - fog.y, 1e-3), 0.0, 1.0);
+  if (fog.x > 1.5) f = exp(-distance(vPos, eye) * fog.w); // an Atmosphere's (runtime/atmosphere.js), to the horizon's colour
+  else if (fog.x > 0.5) f = clamp((fog.z - distance(vPos, eye)) / max(fog.z - fog.y, 1e-3), 0.0, 1.0);
   float cover = a * (1.0 - lightEmission);
   gl_FragColor = vec4(rgb * a * f + fogColor * (1.0 - f) * cover, cover);
 }`;
@@ -455,7 +457,7 @@ export class Particles {
     // Camera axes in world space (rows of the view matrix's rotation).
     const R = [vm[0], vm[4], vm[8]], U = [vm[1], vm[5], vm[9]];
     const base = this.lightLevel(), sc = this.scene;
-    const fog = sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
+    const fog = atmo.on ? [2, 0, 0, atmo.invL] : sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
     // Soft particles: the camera's depth (shared with the post effects), held once there are emitters.
     let depth = null;
     if (this.Q.softParticles) { if (!this.depth || this.depthCam !== cam) { this.dropDepth(); this.depth = useDepth(sc, cam, this); this.depthCam = cam; } depth = this.depth.getDepthMap(); }
