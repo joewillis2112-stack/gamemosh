@@ -92,8 +92,8 @@ export class AtmosphereFog {
     if (on) {
       atmo.invL = 1 / densityLength(props.Density);
       atmo.offset = Math.min(1, Math.max(0, props.Offset));
-      const size = tex.getSize ? tex.getSize().width : 128;
-      atmo.lod = Math.min(5, Math.log2(Math.max(size, 2)));
+      const size = tex.getSize ? tex.getSize().width || 256 : 256;
+      atmo.lod = Math.max(0, 5 + Math.log2(size / 256)); // Roblox's mip 5, as the same blur angle on every tier's sky size
       atmo.zSign = this.scene.useRightHandedSystem && !tex.invertZ ? -1 : 1;
     }
     if (on !== atmo.on) { atmo.on = on; for (const m of this.scene.materials) if (m.pluginManager && m.pluginManager.getPlugin('StudioAtmosphere')) m.markAsDirty(Material.AllDirtyFlag); }

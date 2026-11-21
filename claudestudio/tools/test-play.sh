@@ -53,6 +53,9 @@ run --phone --scenario test/scenarios/highlights.mjs
 run --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
 run --phone --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
 run --quality low --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
+run --quality low --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
+run --scenario test/scenarios/unions.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs

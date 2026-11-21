@@ -89,10 +89,11 @@ export default async function (t) {
   check(dist(below0, above0) < 15, `below the horizon the sky continues the horizon's colour (${r0(below0)} under ${r0(above0)})`);
   await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 2 a.Color = Color3.fromRGB(255, 40, 30)');
   await grab('haze');
+  // With Haze from 1, below the horizon is the haze's colour (as Roblox's), as red as the band above it.
   const below1 = await colour('haze', dirPt(160, -1.8)), above1 = await colour('haze', dirPt(160, 0.5));
-  check(dist(below1, above1) < 15, `with haze too (${r0(below1)} under ${r0(above1)})`);
-  const low1 = await colour('haze', lowPt), high1 = await colour('haze', highPt);
   const redness = c => c[0] / Math.max(1, (c[1] + c[2]) / 2);
+  check(redness(below1) > 2.5 && redness(below1) > 0.8 * redness(above1), `with Haze 2, below the horizon is the haze's red (${r0(below1)} under ${r0(above1)})`);
+  const low1 = await colour('haze', lowPt), high1 = await colour('haze', highPt);
   check(redness(low1) > redness(low0) * 1.5 && dist(high1, high0) < 4, `Haze 2, red: 1 degree up the sky reddens (${r0(low0)} -> ${r0(low1)}); 25 degrees up it stays (${r0(high0)} -> ${r0(high1)})`);
 
   // Glare and Decay, against the same haze with no glare: near the sun brighter; away from it, Decay's hue.

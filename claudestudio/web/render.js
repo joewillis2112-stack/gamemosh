@@ -130,7 +130,9 @@ class BelowHorizon extends MaterialPluginBase {
   bindForSubMesh(ubo, scene, engine, subMesh) {
     if (!this.env) return;
     ubo.updateMatrix('horizonMatrix', this.env.getReflectionTextureMatrix());
-    ubo.updateFloat4('horizonInfo', this.scene.useRightHandedSystem && !this.env.invertZ ? -1 : 1, Math.min(atmo.cap, 1e9), 0, 0);
+    // The blur as an angle on every tier: mip 2 of the default 256-texel sky, the same angle on smaller or larger ones.
+    const size = this.env.getSize ? this.env.getSize().width || 256 : 256;
+    ubo.updateFloat4('horizonInfo', this.scene.useRightHandedSystem && !this.env.invertZ ? -1 : 1, Math.min(atmo.cap, 1e9), Math.max(0, 2 + Math.log2(size / 256)), 0);
     if (subMesh && subMesh.effect) subMesh.effect.setTexture('horizonSky', this.env);
   }
   getCustomCode(shaderType) {
@@ -147,7 +149,7 @@ class BelowHorizon extends MaterialPluginBase {
           if (below > 0.0) {
             vec3 hd = (horizonMatrix * vec4(normalize(vec3(skyDir.x, -0.01, skyDir.z)), 0.0)).xyz;
             hd.z *= horizonInfo.x;
-            vec3 hc = textureCubeLodEXT(horizonSky, hd, 2.0).rgb;
+            vec3 hc = textureCubeLodEXT(horizonSky, hd, horizonInfo.z).rgb;
             hc *= min(1.0, horizonInfo.y / max(max(hc.r, hc.g), max(hc.b, 1e-4)));
             vec3 deep = hc * vec3(0.55, 0.62, 0.74);
             vec3 haze = mix(hc, deep, smoothstep(-0.02, -0.6, skyDir.y));
