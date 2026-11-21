@@ -64,5 +64,7 @@ export async function startLuau(createLuau, dm, log = console.log, { runScripts 
     step(t) { flush(); Module._cs_step(t); flush(); release(); },
     flush,
     waiting() { return Module._cs_waiting(); },
+    /** Studio's Script Timeout: seconds a resumption may run without yielding (default 10; 0: none). */
+    scriptTimeout(seconds) { Module._cs_set_timeout(seconds); },
   };
 }

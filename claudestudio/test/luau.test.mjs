@@ -416,6 +416,21 @@ const reqErrs = ['require two false', 'require loop false', 'require part false'
 const udimRO = out.find(l => l.startsWith('udim2 ro false') && l.includes('cannot be assigned to'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
+// Script timeout (Studio's Script Timeout): a resumption that never yields stops with Roblox's error,
+// quickly, and the VM carries on; one that yields often runs as long as it likes in total.
+vm.scriptTimeout(0.3);
+const tRun = Date.now();
+vm.run('runaway', 'local n = 0 while true do n += 1 end');
+const runawayMs = Date.now() - tRun;
+vm.run('patient', 'local busy = 0 for i = 1, 8 do local s = os.clock() while os.clock() - s < 0.1 do busy += 1 end task.wait() end print("patient done")');
+for (let i = 0; i < 12; i++) vm.step(3 + i * 0.1);
+vm.scriptTimeout(10);
+vm.run('alive', 'print("alive after timeout")');
+const timedOut = !!out.find(l => l.startsWith('ERR') && l.includes('Script timeout: exhausted allowed execution time')) && runawayMs < 3000;
+const patient = out.includes('patient done'), alive = out.includes('alive after timeout');
+console.log(`script timeout: runaway stopped after ${runawayMs} ms (${timedOut}), patient ${patient}, alive ${alive}`);
+if (!timedOut || !patient || !alive) { console.log('FAIL script timeout'); process.exit(1); }
+
 if (dtBad.length || missing.length || !udimRO || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
   console.log('FAIL', { dtBad, missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, scriptOnce, moduleOnce, reqErrs: !!reqErrs, waiting: vm.waiting() });
   process.exit(1);

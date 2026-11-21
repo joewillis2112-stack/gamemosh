@@ -15,7 +15,7 @@ const outDir = opt('out', 'build/play');
 const pageName = opt('page', 'play'), G = pageName === 'editor' ? 'editor' : 'studio'; // the page's window handle
 fs.mkdirSync(outDir, { recursive: true });
 const srv = serve();
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--js-flags=--expose-gc', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 720 } });
 const page = await ctx.newPage();
 const logs = [];

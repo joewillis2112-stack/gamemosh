@@ -410,12 +410,26 @@ static void report_error(lua_State* T) {
     js_print(msg.c_str(), 2);
 }
 
+// Script timeout, as Roblox Studio's (default 10 s): a resumption that runs that long without
+// yielding stops with Roblox's error, instead of hanging the page. Luau calls the interrupt at
+// loop back-edges and calls; the clock (a call out to JS) is read every 4096 of them.
+static double script_timeout_ms = 10000, deadline_ms = 0;
+static int resume_depth = 0;
+static void interrupt_cb(lua_State* L, int gc) {
+    static unsigned n = 0;
+    if (gc >= 0 || resume_depth == 0 || (++n & 4095)) return;
+    if (emscripten_get_now() > deadline_ms) luaL_error(L, "Script timeout: exhausted allowed execution time");
+}
+
 // Resume thread T (whose ref is `ref`) with nargs on its stack. Drops the ref unless it yielded.
 static void resume(lua_State* T, int ref, int nargs, lua_State* from = nullptr) {
     // Whatever yields (task.wait, Signal:Wait) takes its own ref to the thread,
     // so the caller's ref is dropped in every case. `from` (the calling thread,
     // for task.spawn) keeps nested resumes inside Luau's C-call limit.
+    // The timeout counts from the outermost resume (a task.spawn inside it shares its time).
+    if (resume_depth++ == 0) deadline_ms = emscripten_get_now() + script_timeout_ms;
     int st = lua_resume(T, from, nargs);
+    resume_depth--;
     if (st != LUA_OK && st != LUA_YIELD) report_error(T);
     lua_unref(L0, ref);
 }
@@ -879,6 +893,7 @@ static int l_require(lua_State* L) {
 EMSCRIPTEN_KEEPALIVE void cs_init() {
     L0 = luaL_newstate();
     luaL_openlibs(L0);
+    lua_callbacks(L0)->interrupt = interrupt_cb;
 
     lua_newtable(L0);
     lua_newtable(L0);
@@ -1217,5 +1232,13 @@ EMSCRIPTEN_KEEPALIVE void cs_fire(int ref, int n) {
 }
 
 EMSCRIPTEN_KEEPALIVE int cs_waiting() { return (int)waiters.size(); }
+
+// The script timeout in seconds (0 or less: none), as Studio's Script Timeout setting. The interrupt
+// costs pure-Luau loops (arithmetic, local calls) about 1.7x in wasm and nothing measurable in loops
+// that call the engine; with no timeout it is removed, for full speed.
+EMSCRIPTEN_KEEPALIVE void cs_set_timeout(double s) {
+    script_timeout_ms = s > 0 ? s * 1000 : INFINITY;
+    lua_callbacks(L0)->interrupt = s > 0 ? interrupt_cb : nullptr;
+}
 
 } // extern "C"

@@ -195,7 +195,7 @@ export class World {
     for (const c of inst.children) {
       if (c.ClassName !== 'Decal' && c.ClassName !== 'Texture') continue;
       // A built-in image, or an image by URL (a painted one is a PNG data URL); asset ids aren't loaded yet.
-      const D = c.props, url = this.builtinUrl(D.Texture) || (/^(data:image\/|blob:|https?:)/.test(D.Texture) || /\.(png|jpe?g|webp)$/i.test(D.Texture) ? this.resolveUrl(D.Texture) : null);
+      const D = c.props, url = this.builtinUrl(D.Texture) || (/^(data:image\/|blob:|https?:)/.test(D.Texture) || (!/^rbx/i.test(D.Texture) && /\.(png|jpe?g|webp)$/i.test(D.Texture)) ? this.resolveUrl(D.Texture) : null); // Roblox's own asset URLs (rbxasset://, rbxassetid://) aren't fetchable here
       if (!url || D.Transparency >= 1) continue;
       const wedgeFront = D.Face === 'Front' && isWedge(inst);
       const [pos, rot] = wedgeFront ? [[0, 0, 0], [Math.PI / 4, 0, 0]] : FACES[D.Face] || FACES.Front;
@@ -266,7 +266,15 @@ export class World {
   }
   removed(inst) {
     const p = this.parts.get(inst);
-    if (p && p.meshPart) { p.meshPart.token = null; p.meshPart.inst && p.meshPart.inst.dispose(); p.meshPart.fit && p.meshPart.fit.dispose(); (p.meshPart.textures || []).forEach(t => t.dispose()); }
+    if (p && p.meshPart) {
+      const mp = p.meshPart; mp.token = null;
+      // A glTF MeshPart's own copies of the file's materials (and their textures: cloned with them)
+      // go with it; the instantiated entries' dispose leaves them. An editable mesh wears p.mat.
+      const own = mp.editable ? [] : [...new Set(mp.render.map(m => m.material).filter(Boolean))];
+      for (const m of own) for (const sm of m.subMaterials || [m]) if (sm && 'origAlbedo' in sm) sm.albedoTexture = sm.origAlbedo;
+      mp.inst && mp.inst.dispose(); mp.fit && mp.fit.dispose(); (mp.textures || []).forEach(t => t.dispose());
+      for (const m of own) m.dispose(false, true, true);
+    }
     if (p) { p.agg && p.agg.dispose(); (p.decals || []).forEach(d => { d.material && d.material.dispose(true, true); d.dispose(); }); p.mat && p.mat.dispose(); p.mesh.dispose(); this.parts.delete(inst); }
     for (const c of inst.children) this.removed(c);
   }
@@ -296,6 +304,7 @@ export class World {
   // into the unit box. Until the file arrives the collider is a unit box.
   resolveUrl(id) { return /^(https?:|data:|blob:|\/)/.test(id) ? id : '../' + id; } // the page is web/play.html
   meshAsset(url) {
+    if (/^rbx/i.test(url)) return Promise.reject(new Error("Roblox's own asset ids (rbxassetid://) can't be loaded here")); // not fetched: it would only 404
     if (!this.meshCache.has(url)) this.meshCache.set(url, (async () => {
       const container = await loadGltfContainer(this.scene, this.resolveUrl(url));
       // Measure once, from a throwaway instance (the container itself isn't in the scene).
