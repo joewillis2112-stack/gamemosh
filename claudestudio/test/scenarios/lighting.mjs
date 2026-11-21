@@ -5,7 +5,7 @@
 //   light along it; the moon at night;
 // - ClockTime and TimeOfDay are one time; SetMinutesAfterMidnight;
 // - ExposureCompensation in stops; GlobalShadows; environment diffuse vs
-//   specular scales; an Atmosphere's fog replaces FogStart/FogEnd; Bloom follows its effect;
+//   specular scales; an Atmosphere's fog (into the sky) replaces FogStart/FogEnd; Bloom follows its effect;
 // - LightingStyle Realistic adds ambient occlusion.
 // Goldens: the lab at a Baseplate's defaults, Realistic, sunset, night, and flat.
 export default async function (t) {
@@ -22,7 +22,7 @@ export default async function (t) {
       kids: L.children.map(c => c.ClassName).sort(), clock: L.props.ClockTime, tod: L.props.TimeOfDay,
       sunDir: R.sun.direction.asArray(), sunI: R.sun.intensity, shadows: R.sun.shadowEnabled,
       exposure: R.pipeline.imageProcessing.exposure, envI: S.scene.environmentIntensity, shY: sp.y.length(), shXX: sp.xx.length(),
-      fog: [S.scene.fogMode, S.scene.fogStart, S.scene.fogEnd], bloom: R.pipeline.bloomEnabled, ssao: !!S.lighting.ssao,
+      fog: [S.scene.fogMode, S.scene.fogStart, S.scene.fogEnd], afog: S.lighting.fog.state, bloom: R.pipeline.bloomEnabled, ssao: !!S.lighting.ssao,
     };
   });
   const near = (a, b, tol = 1e-3) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
@@ -55,16 +55,16 @@ export default async function (t) {
   await run(`local L = game:GetService("Lighting") L.EnvironmentDiffuseScale = 1 L.EnvironmentSpecularScale = 1`);
 
   await t.sim(1); s = await state();
-  check(s.fog[0] === 3 && Math.abs(s.fog[2] - 520) < 1e-6, `an Atmosphere (Density 0.3) fogs out at ${s.fog[2]} studs`);
+  check(s.fog[0] === 0 && s.afog.on && Math.abs(s.afog.length - 8.3 * Math.pow(0.3, -4.2)) < 1e-6, `an Atmosphere (Density 0.3) fogs into the sky (visibility length ${Math.round(s.afog.length)} studs), not FogStart/FogEnd`);
   await run(`local L = game:GetService("Lighting") L.Atmosphere.Parent = nil L.FogStart = 20 L.FogEnd = 200`);
   await t.sim(1); s = await state();
-  check(s.fog[0] === 3 && s.fog[1] === 20 && s.fog[2] === 200, 'without an Atmosphere, FogStart and FogEnd apply');
+  check(s.fog[0] === 3 && s.fog[1] === 20 && s.fog[2] === 200 && !s.afog.on, 'without an Atmosphere, FogStart and FogEnd apply');
   await run(`local L = game:GetService("Lighting") L.Bloom.Enabled = false`);
   await t.sim(1); s = await state();
   const bloomOff = !s.bloom;
   await run(`local L = game:GetService("Lighting") L.Bloom.Enabled = true L.FogEnd = 100000 local a = Instance.new("Atmosphere") a.Density = 0.3 a.Parent = L`);
   await t.sim(1); s = await state();
-  check(bloomOff && s.bloom && Math.abs(s.fog[2] - 520) < 1e-6, 'Bloom follows its effect\'s Enabled; a new Atmosphere brings its fog back');
+  check(bloomOff && s.bloom && s.afog.on && s.fog[0] === 0, 'Bloom follows its effect\'s Enabled; a new Atmosphere brings its fog back');
 
   await t.frames(3);
   await t.shot('lighting-default'); await t.golden('lighting-default');

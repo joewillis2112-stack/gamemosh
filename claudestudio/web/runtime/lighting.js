@@ -9,6 +9,7 @@ import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imagePro
 import { createSSAO } from './ssao.js';
 import { tier } from './quality.js';
 import { PostEffects } from './posteffects.js';
+import { AtmosphereFog } from './atmosphere.js';
 import { sunDirection, isA } from '../datamodel.js';
 
 // Ours (calibrated to the look judged on 2026-10-08 at a Baseplate's Brightness 3):
@@ -18,7 +19,6 @@ const SUN_COLOR = new Color3(1.0, 0.96, 0.9), LOW_SUN_COLOR = new Color3(1.0, 0.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const BASE_CONTRAST = 1.15;           // the studio's look before ColorCorrection
 const SHADOW_SOFTNESS_UV = 0.3;       // contact-hardening light size at ShadowSoftness 1 (ours: 0.5 all but erased a wall's shadow)
-const FOG_PER_DENSITY = 156;          // Atmosphere.Density 0.3 -> fog fully opaque at 520 studs
 const HORIZON = new Color3(0.72, 0.77, 0.84); // the sky's horizon colour (fog takes distant things to it)
 // Bloom: Roblox's threshold is in its HDR range (0..4 in a gamma-2 buffer); these
 // map a Baseplate's Bloom (Intensity 1, Size 24, Threshold 2) to the judged look.
@@ -45,6 +45,7 @@ export class LightingController {
     // scaled apart from the specular part, and recaptured whenever the sky changes.
     this.env = sky ? sky.env : scene.environmentTexture;
     if (sky) { scene.environmentTexture = sky.env; sky.onEnvironment = () => { this.baseSH = null; this.dirty = true; this.update(); }; }
+    this.fog = new AtmosphereFog(scene);
     this.post = camera ? new PostEffects(scene, camera, dm, { quality, sun: R.sun }) : null;
     this.pending = Promise.resolve();
     this.dirty = true;
@@ -88,8 +89,12 @@ export class LightingController {
       if (soft > 0) R.shadows.contactHardeningLightSizeUVRatio = SHADOW_SOFTNESS_UV * soft;
     }
     // The sky follows the same sun and moon (re-rendered only when they move).
-    const key = sx + ',' + sy + ',' + sz;
-    if (this.sky && key !== this.skyKey) { this.skyKey = key; this.pending = this.sky.set([sx, sy, sz], [-sx, -sy, sz]); }
+    // An Atmosphere's haze is graded into the same sky (runtime/sky.js), so it lights and fogs too.
+    const atmo = kids.find(c => c.ClassName === 'Atmosphere');
+    const A = atmo && atmo.props, toLin = c => [c.r, c.g, c.b].map(v => Math.pow(Math.max(0, v), 2.2));
+    const atmosphere = A && A.Haze > 0 ? { haze: A.Haze, glare: A.Glare, color: toLin(A.Color), decay: toLin(A.Decay) } : null;
+    const key = [sx, sy, sz, JSON.stringify(atmosphere)].join(',');
+    if (this.sky && key !== this.skyKey) { this.skyKey = key; this.pending = this.sky.set([sx, sy, sz], [-sx, -sy, sz], { atmosphere }); }
 
     // Ambient: outdoors gets OutdoorAmbient (never less than Ambient); with
     // GlobalShadows off there's no indoors/outdoors and Ambient applies (docs).
@@ -138,15 +143,15 @@ export class LightingController {
       this.tonemapper = retro ? 'Retro' : 'Default';
     }
 
-    // Fog: an Atmosphere replaces FogStart/FogEnd (Roblox hides them); its
-    // colour is the sky's horizon (Roblox fogs to the blurred sky).
-    const atmo = kids.find(c => c.ClassName === 'Atmosphere');
-    if (atmo && atmo.props.Density > 0) {
-      scene.fogMode = 3; // linear
-      scene.fogEnd = FOG_PER_DENSITY / atmo.props.Density;
-      scene.fogStart = 0.23 * scene.fogEnd;
-      scene.fogColor = this.sky ? this.sky.horizon.clone() : HORIZON.clone();
-    } else if (!atmo && P.FogEnd < 1e5) {
+    // Fog: an Atmosphere replaces FogStart/FogEnd (Roblox hides them) with aerial perspective:
+    // distant things fade into the sky behind them (runtime/atmosphere.js). The scene's fog colour
+    // stays the horizon's: what the skybox fades to below it, and the particles' fog.
+    const horizon = this.sky ? (this.sky.hazeHorizon || this.sky.horizon).clone() : HORIZON.clone();
+    this.fog.set(atmo ? A : null, scene.environmentTexture, this.sky ? this.sky.fogCap : 0);
+    if (atmo) {
+      scene.fogMode = 0;
+      scene.fogColor = horizon;
+    } else if (P.FogEnd < 1e5) {
       scene.fogMode = 3;
       scene.fogStart = P.FogStart; scene.fogEnd = Math.max(P.FogEnd, P.FogStart + 0.01);
       scene.fogColor = new Color3(P.FogColor.r, P.FogColor.g, P.FogColor.b); // sRGB: Babylon's PBR makes it linear itself
