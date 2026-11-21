@@ -14,6 +14,7 @@
 import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { Material } from '@babylonjs/core/Materials/material.js';
+import { RegisterClass } from '@babylonjs/core/Misc/typeStore.js';
 
 // Shared by every material's plugin, and read by particles (runtime/particles.js).
 export const atmo = { on: false, invL: 0, offset: 0, lod: 5, cap: 1e9, tex: null, zSign: 1, horizon: null };
@@ -47,8 +48,10 @@ class AtmospherePlugin extends MaterialPluginBase {
     if (type !== 'fragment') return null;
     return {
       CUSTOM_FRAGMENT_DEFINITIONS: '#ifdef STUDIO_AFOG\nuniform samplerCube afogSky;\n#endif\n',
-      // Before Babylon's own fog (off while an Atmosphere is on), after the final colour is composed.
-      '!#include<fogFragment>\\(color,finalColor\\)': `
+      // After Babylon's own fog (off while an Atmosphere is on), before image processing: plugin code
+      // goes in after includes are expanded, so the anchor is the first line of pbrBlockImageProcessing
+      // (once in the PBR shader), put back after ours as $1.
+      '!(#if defined\\(IMAGEPROCESSINGPOSTPROCESS\\) \\|\\| defined\\(SS_SCATTERING\\))': `
 #ifdef STUDIO_AFOG
   {
     vec3 fv = vPositionW - vEyePosition.xyz;
@@ -62,17 +65,18 @@ class AtmospherePlugin extends MaterialPluginBase {
     finalColor.rgb = mix(fc, finalColor.rgb, fvis);
   }
 #endif
-#include<fogFragment>(color,finalColor)
-`,
+$1`,
     };
   }
 }
 
+// A cloned material re-creates its plugins by class name (see runtime/styles.js).
+RegisterClass('BABYLON.StudioAtmospherePlugin', AtmospherePlugin);
+
 export class AtmosphereFog {
   constructor(scene) {
     this.scene = scene;
-    this.plugins = new Map();
-    const attach = m => { if (m instanceof PBRMaterial && !this.plugins.has(m)) this.plugins.set(m, new AtmospherePlugin(m)); };
+    const attach = m => { if (m instanceof PBRMaterial && !(m.pluginManager && m.pluginManager.getPlugin('StudioAtmosphere'))) new AtmospherePlugin(m); };
     scene.materials.forEach(attach);
     scene.onNewMaterialAddedObservable.add(attach);
   }
@@ -92,6 +96,6 @@ export class AtmosphereFog {
       atmo.cap = cap || 1e9;
       atmo.zSign = this.scene.useRightHandedSystem && !tex.invertZ ? -1 : 1;
     }
-    if (on !== atmo.on) { atmo.on = on; for (const m of this.plugins.keys()) m.markAsDirty(Material.AllDirtyFlag); }
+    if (on !== atmo.on) { atmo.on = on; for (const m of this.scene.materials) if (m.pluginManager && m.pluginManager.getPlugin('StudioAtmosphere')) m.markAsDirty(Material.AllDirtyFlag); }
   }
 }

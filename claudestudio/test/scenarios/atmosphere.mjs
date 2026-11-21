@@ -35,64 +35,76 @@ export default async function (t) {
   }, [name, pt]);
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   const r0 = v => v.map(x => Math.round(x));
-  // Wall i (from the lab): its face just under its top edge, and the sky just above that edge.
+  // Wall i (from the lab): the middle of its face. Each wall is compared with the sky at the same
+  // screen point with the walls gone (an Atmosphere's Density and Offset don't change the sky).
   const WALLS = [[40, -24], [150, -8], [600, 8], [2400, 24]];
-  const spot = (i, k) => { const [d, a] = WALLS[i], r = a * Math.PI / 180, h = 0.07 * d + 5, z = h * k; return [d * Math.sin(r) * 0.999, z, -d * Math.cos(r) * 0.999]; };
-  const gaps = async name => { const out = []; for (let i = 0; i < 4; i++) out.push(dist(await colour(name, spot(i, 0.85)), await colour(name, spot(i, 1.15)))); return out; };
+  const spot = i => { const [d, a] = WALLS[i], r = a * Math.PI / 180, h = 0.07 * d + 5; return [d * Math.sin(r) * 0.999, h * 0.6, -d * Math.cos(r) * 0.999]; };
+  const cols = async name => { const out = []; for (let i = 0; i < 4; i++) out.push(await colour(name, spot(i))); return out; };
+  await run('_G.walls = workspace.Walls _G.walls.Parent = nil'); await grab('sky'); const sky = await cols('sky'); await run('_G.walls.Parent = workspace');
+  const gaps = async name => (await cols(name)).map((c, i) => dist(c, sky[i]));
 
   // Density: a Baseplate's Atmosphere (0.3, Offset 0.25).
   await grab('base');
   const g0 = await gaps('base');
-  check(g0[0] > g0[1] && g0[1] > g0[2] && g0[2] > g0[3] && g0[0] > 60, `the further a wall, the nearer to the sky above it (gaps ${r0(g0)})`);
+  check(g0[0] > g0[1] && g0[1] > g0[2] && g0[2] > g0[3] && g0[0] > 60, `the further a wall, the nearer to the sky behind it (gaps ${r0(g0)})`);
   await run('local a = game:GetService("Lighting").Atmosphere a.Density = 0.6 a.Offset = 0');
   await grab('thick');
   const g1 = await gaps('thick');
-  check(g1[2] < 10 && g1[3] < 10 && g1[0] > 25, `Density 0.6, Offset 0: walls at 600 and 2400 studs are the sky behind them (gaps ${r0(g1)}); the near wall isn't`);
+  check(g1[2] < 6 && g1[3] < 6 && g1[0] > 25, `Density 0.6, Offset 0: walls at 600 and 2400 studs are the sky behind them (gaps ${r0(g1)}); the near wall isn't`);
   await run('game:GetService("Lighting").Atmosphere.Offset = 1');
   await grab('offset');
   const g2 = await gaps('offset');
-  check(g2[3] > g1[3] + 3, `Offset 1: the far wall takes a blurred sky and stands out against the sharp one (gap ${r0(g2)[3]} vs ${r0(g1)[3]})`);
+  check(g2[3] > g1[3] + 4, `Offset 1: the far wall takes a blurred sky and stands out from the sharp sky behind it (gap ${r0(g2)[3]} vs ${r0(g1)[3]})`);
   await run('game:GetService("Lighting").Atmosphere.Parent = nil');
   await grab('clear');
   const g3 = await gaps('clear');
   check(g3.every(v => v > 60), `no Atmosphere: every wall stands dark against the sky (gaps ${r0(g3)})`);
 
-  // Particles fade like parts: a dark emitter in front of the far wall at Density 0.6.
-  await run(`local L = game:GetService("Lighting") local a = Instance.new("Atmosphere") a.Name = "Atmosphere" a.Density = 0.6 a.Offset = 0 a.Parent = L
-    local p = Instance.new("Part") p.Name = "Smoke" p.Anchored = true p.Transparency = 1 p.CanCollide = false p.Size = Vector3.new(60, 60, 1)
-    p.CFrame = workspace.Walls.Wall3.CFrame * CFrame.new(0, 0, 30) p.Parent = workspace
-    local e = Instance.new("ParticleEmitter") e.Color = ColorSequence.new(Color3.new(0, 0, 0)) e.LightEmission = 0 e.Size = NumberSequence.new(30) e.Rate = 0
-    e.Lifetime = NumberRange.new(100) e.Speed = NumberRange.new(0) e.Parent = p e:Emit(40)`);
+  // Particles fade like parts: black particles 570 studs off in open sky (Density 0.3: partly fogged) look
+  // like a black part in the same place, and not like the sky.
+  const away = [-570 * Math.sin(35 * Math.PI / 180), 30, -570 * Math.cos(35 * Math.PI / 180)];
+  await run(`local L = game:GetService("Lighting") local a = Instance.new("Atmosphere") a.Name = "Atmosphere" a.Density = 0.3 a.Offset = 0 a.Parent = L
+    local p = Instance.new("Part") p.Name = "Smoke" p.Anchored = true p.CanCollide = false p.Size = Vector3.new(60, 60, 1) p.Color = Color3.new(0, 0, 0)
+    p.CFrame = CFrame.lookAt(Vector3.new(${away}), Vector3.new(0, 5, 0)) p.Parent = workspace _G.smoke = p`);
+  await grab('blackpart'); const blackPart = await colour('blackpart', away);
+  await run(`local p = _G.smoke p.Transparency = 1
+    local e = Instance.new("ParticleEmitter") e.Color = ColorSequence.new(Color3.new(0, 0, 0)) e.LightEmission = 0 e.Size = NumberSequence.new(40) e.Rate = 0
+    e.Lifetime = NumberRange.new(100) e.Speed = NumberRange.new(0) e.Parent = p e:Emit(60)`);
   await t.sim(3); await grab('smoke');
-  const smokeAt = spot(2, 0.5), smoke = await colour('smoke', smokeAt), horizonSky = await colour('smoke', spot(2, 1.15));
-  await run('workspace.Smoke:Destroy()'); await grab('nosmoke');
-  const behind = await colour('nosmoke', smokeAt);
-  check(dist(smoke, behind) < 25 && dist(smoke, [0, 0, 0]) > 80, `black particles 570 studs away fade into the fog (${r0(smoke)}; without them ${r0(behind)}, sky ${r0(horizonSky)})`);
+  const smoke = await colour('smoke', away);
+  await run('_G.smoke:Destroy()'); await grab('nosmoke');
+  const open = await colour('nosmoke', away);
+  check(dist(smoke, blackPart) < 10 && dist(smoke, open) > 30, `black particles 570 studs away fog like a black part there (${r0(smoke)} vs ${r0(blackPart)}; the sky ${r0(open)})`);
 
-  // Haze with a red Color: the horizon turns red; high up stays as it was.
+  // Haze with a red Color: the sky just above the horizon turns red; high up stays as it was.
+  // (Looking away from the walls, 20 degrees off centre: the character stands in the middle.)
   await run('local a = game:GetService("Lighting").Atmosphere a.Density = 0.3 a.Offset = 0.25');
-  await look(180, 0); await grab('sky0'); // away from the walls: open sky over the floor's edge
-  const lowPt = [0, 5 + 1000 * Math.tan(1 * Math.PI / 180), 1000], highPt = [0, 5 + 100 * Math.tan(25 * Math.PI / 180), 100];
+  await look(180, 0); await grab('sky0');
+  const dirPt = (yaw, el, d = 1000) => { const r = yaw * Math.PI / 180; return [-Math.sin(r) * d, 5 + d * Math.tan(el * Math.PI / 180), -Math.cos(r) * d]; };
+  const lowPt = dirPt(160, 1), highPt = dirPt(160, 25, 100);
   const low0 = await colour('sky0', lowPt), high0 = await colour('sky0', highPt);
   await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 2 a.Color = Color3.fromRGB(255, 40, 30)');
   await grab('haze');
   const low1 = await colour('haze', lowPt), high1 = await colour('haze', highPt);
   const redness = c => c[0] / Math.max(1, (c[1] + c[2]) / 2);
-  check(redness(low1) > redness(low0) * 1.5 && dist(high1, high0) < 12, `Haze 2, red: the horizon reddens (${r0(low0)} -> ${r0(low1)}), the sky 25 degrees up stays (${r0(high0)} -> ${r0(high1)})`);
+  check(redness(low1) > redness(low0) * 1.5 && dist(high1, high0) < 4, `Haze 2, red: 1 degree up the sky reddens (${r0(low0)} -> ${r0(low1)}); 25 degrees up it stays (${r0(high0)} -> ${r0(high1)})`);
 
-  // Glare and Decay: towards the sun the haze is Color and brighter; away from it, Decay.
-  await run(`local a = game:GetService("Lighting").Atmosphere a.Haze = 2 a.Glare = 3 a.Color = Color3.fromRGB(255, 120, 60) a.Decay = Color3.fromRGB(60, 90, 255)
-    game:GetService("Lighting").ClockTime = 17.2`);
-  const sunYaw = await t.eval(() => { const d = window.studio.R.sun.direction; return Math.atan2(d.x, d.z) * 180 / Math.PI; }); // the camera's -Z towards the sun
-  const ahead = yaw => { const r = yaw * Math.PI / 180; return [-Math.sin(r) * 1000, 5 + 1000 * Math.tan(1.5 * Math.PI / 180), -Math.cos(r) * 1000]; };
-  await look(sunYaw); await grab('tosun'); const toSun = await colour('tosun', ahead(sunYaw + 12));
-  await look(sunYaw + 180); await grab('fromsun'); const fromSun = await colour('fromsun', ahead(sunYaw + 180));
+  // Glare and Decay, against the same haze with no glare: near the sun brighter; away from it, Decay's hue.
+  const sunYaw = await t.eval(() => { const d = window.studio.R.sun.direction; return Math.atan2(d.x, d.z) * 180 / Math.PI; }); // yaw that turns the camera's -Z to the sun
+  const shoot = async (name, yaw) => { await look(yaw); await grab(name); return colour(name, dirPt(yaw + 15, 1.5)); };
+  await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 2 a.Glare = 0 a.Color = Color3.fromRGB(255, 160, 90) a.Decay = Color3.fromRGB(60, 90, 255)');
+  const toSun0 = await shoot('tosun0', sunYaw), fromSun0 = await shoot('fromsun0', sunYaw + 180);
+  await run('game:GetService("Lighting").Atmosphere.Glare = 3');
+  const toSun = await shoot('tosun', sunYaw), fromSun = await shoot('fromsun', sunYaw + 180);
   const L = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-  check(L(toSun) > L(fromSun) * 1.3 && toSun[0] > toSun[2] && fromSun[2] > fromSun[0], `Glare 3: the horizon near the sun ${r0(toSun)} is brighter and Color-warm; away from it ${r0(fromSun)} turns to Decay's blue`);
+  check(L(toSun) > L(toSun0) * 1.08, `Glare 3: the haze near the sun brightens (${r0(toSun0)} -> ${r0(toSun)})`);
+  check(fromSun0[0] > fromSun0[2] && fromSun[2] > fromSun[0], `Decay: with Glare, the haze away from the sun turns from Color's warm (${r0(fromSun0)}) to Decay's blue (${r0(fromSun)})`);
   await look(sunYaw + 40, 2); await t.golden('atmosphere-haze');
-  await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 0');
-  await look(sunYaw); await grab('nohaze'); const plain = await colour('nohaze', ahead(sunYaw + 12));
-  check(dist(plain, toSun) > 20, `Haze 0: Glare and Decay do nothing (near the sun ${r0(plain)})`);
+  await run('local a = game:GetService("Lighting").Atmosphere a.Haze = 0 a.Glare = 0');
+  const plain0 = await shoot('plain0', sunYaw);
+  await run('game:GetService("Lighting").Atmosphere.Glare = 3');
+  const plain1 = await shoot('plain1', sunYaw);
+  check(dist(plain0, plain1) < 2, `Haze 0: Glare does nothing (${r0(plain0)} vs ${r0(plain1)})`);
   if (fail.length) throw new Error(fail.length + ' failed: ' + fail.join('; '));
   console.log('atmosphere: all checks passed');
 }

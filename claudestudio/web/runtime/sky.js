@@ -202,7 +202,7 @@ export class Sky {
         const height = dx * up.x + dy * up.y + dz * up.z, ang = Math.asin(Math.max(-1, Math.min(1, height)));
         const T = (1 - veilK * (1 - smooth(0, band, ang))) * (1 - whole);
         const hl = 0.5 + 0.5 * (dx * S.x + dy * S.y + dz * S.z);
-        const near = G > 0 ? Math.pow(hl, 4) : 1, glow = G * Math.pow(hl, 12) * 0.25;
+        const near = G > 0 ? Math.pow(hl, 4) : 1, glow = G * Math.pow(hl, 12) * 0.5;
         for (let c = 0; c < 3; c++) {
           const inscatter = dec[c] + (col[c] - dec[c]) * near + glow * sunCol[c];
           dst[j + c] = inscatter + (dst[j + c] - inscatter) * T;
@@ -212,6 +212,6 @@ export class Sky {
     });
     // The new horizon (sRGB, as the scene's fog colour is given): what the skybox fades to below it.
     if (out[3]) this.hazeHorizon = new Color3(out[0] / out[3], out[1] / out[3], out[2] / out[3]).toGammaSpace();
-    this.fogCap = Math.max(this.fogCap, (Math.max(...col) + G * 0.25 * 1.5) * 1.05);
+    this.fogCap = Math.max(this.fogCap, (Math.max(...col) + G * 0.5 * 1.5) * 1.05);
   }
 }
