@@ -11,6 +11,8 @@ export class Transaction {
   // A property change. Records what the DataModel actually stored (it may clamp).
   set(inst, key, value) {
     if (key === 'Parent') return this.parent(inst, value);
+    // A part's BrickColor is a view of its Color: record the Color, so undo gives back a custom one exactly.
+    if (key === 'BrickColor' && 'Color' in inst.props && value && value.color) { if (value === inst.props.BrickColor) return; key = 'Color'; value = value.color; }
     const before = inst.props[key];
     this.dm.set(inst, key, value);
     const after = inst.props[key];

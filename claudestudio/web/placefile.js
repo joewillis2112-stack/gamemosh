@@ -3,18 +3,19 @@
 // contents (Players' players, characters in Workspace), each instance's class,
 // its properties that differ from the class's defaults, and its children.
 // Engine-written properties (read-only to scripts) and ones derived from others
-// (a part's Position and Orientation, from its CFrame) aren't saved. References
+// (a part's Position and Orientation, from its CFrame; its BrickColor, from its Color) aren't saved. References
 // (a Model's PrimaryPart, Workspace.CurrentCamera) are saved as ids inside the
 // file and come back pointing at the loaded copies; ones pointing outside the
 // saved tree come back nil. Terrain's cells ride on its node as `voxels`.
-import { DataModel, Instance, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, isA, propertiesOf } from './datamodel.js';
+import { DataModel, Instance, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, BrickColor, isA, propertiesOf } from './datamodel.js';
 import { CF } from './cframe.js';
 
 export const PLACE_FORMAT = 'claudestudio-place';
 export const PLACE_VERSION = 1;
 // Services saved, in Studio's Explorer order.
 const SAVED = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
-const DERIVED = new Set(['Position', 'Orientation']);
+const DERIVED = new Set(['Position', 'Orientation', 'BrickColor']);
+const derived = (inst, k) => DERIVED.has(k) && (k === 'BrickColor' ? 'Color' in inst.props : !!inst.props.CFrame);
 const RUNTIME_CHILDREN = new Set(['Players']); // its children are joined players, not place content
 
 let defaultsDm = null;
@@ -37,6 +38,7 @@ function encode(type, v, ids) {
     case 'UDim': return [v.s, v.o];
     case 'UDim2': return [v.xs, v.xo, v.ys, v.yo];
     case 'NumberRange': return [v.min, v.max];
+    case 'BrickColor': return v.number;
     case 'NumberSequence': case 'ColorSequence': return v.toString(); // Roblox's serialised form
     case 'Instance': return ids.has(v) ? { ref: ids.get(v) } : null;
     default: return type.startsWith('Enum.') ? (v.name || v) : undefined; // TweenInfo and other runtime-only types aren't saved
@@ -52,6 +54,7 @@ function decode(type, v) {
     case 'UDim': return new UDim(v[0], v[1]);
     case 'UDim2': return new UDim2(v[0], v[1], v[2], v[3]);
     case 'NumberRange': return new NumberRange(v[0], v[1]);
+    case 'BrickColor': return BrickColor.byNumber(v);
     case 'NumberSequence': return NumberSequence.parse(v);
     case 'ColorSequence': return ColorSequence.parse(v);
     default: return v;
@@ -69,7 +72,7 @@ export function savePlace(dm) {
   const props = inst => {
     const out = {}, d = defaultsOf(inst.ClassName);
     for (const p of propertiesOf(inst.ClassName)) {
-      if (p.readOnly || DERIVED.has(p.name) && inst.props.CFrame) continue;
+      if (p.readOnly || derived(inst, p.name)) continue;
       const v = encode(p.type, inst.props[p.name], ids);
       if (v === undefined) continue;
       const dv = p.name === 'Name' ? inst.ClassName : encode(p.type, d[p.name], new Map());
@@ -94,7 +97,7 @@ export function saveInstance(root) {
   const node = inst => {
     const props = {}, d = defaultsOf(inst.ClassName);
     for (const p of propertiesOf(inst.ClassName)) {
-      if (p.readOnly || DERIVED.has(p.name) && inst.props.CFrame) continue;
+      if (p.readOnly || derived(inst, p.name)) continue;
       const v = encode(p.type, inst.props[p.name], ids);
       if (v === undefined) continue;
       const dv = p.name === 'Name' ? inst.ClassName : encode(p.type, d[p.name], new Map());

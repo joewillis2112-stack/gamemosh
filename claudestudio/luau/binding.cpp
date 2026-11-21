@@ -20,7 +20,7 @@
 
 // ------------------------------------------------------------------ JS side
 // Values cross as (tag, number, string, x, y, z, handle). Tags:
-enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14, T_UDIM = 15, T_UDIM2 = 16, T_VEC2 = 17, T_NUMRANGE = 18, T_NUMSEQ = 19, T_COLORSEQ = 20 };
+enum Tag { T_NIL = 0, T_BOOL = 1, T_NUM = 2, T_STR = 3, T_VEC = 4, T_INST = 5, T_METHOD = 6, T_SIGNAL = 7, T_ERR = 8, T_LIST = 9, T_COLOR = 10, T_ENUM = 11, T_CFRAME = 12, T_DICT = 13, T_TWEENINFO = 14, T_UDIM = 15, T_UDIM2 = 16, T_VEC2 = 17, T_NUMRANGE = 18, T_NUMSEQ = 19, T_COLORSEQ = 20, T_BRICKCOLOR = 21 };
 
 EM_JS(int, js_new, (const char* cls), { return Module.studio.newInstance(UTF8ToString(cls)); });
 EM_JS(int, js_index, (int h, const char* key), { return Module.studio.index(h, UTF8ToString(key)); });
@@ -171,6 +171,7 @@ static EnumItem* to_enum(lua_State* L, int idx) {
     lua_pop(L, 2);
     return ok ? (EnumItem*)lua_touserdata(L, idx) : nullptr;
 }
+#include "more_types.h"
 
 static int to_instance(lua_State* L, int idx) {
     if (lua_type(L, idx) != LUA_TUSERDATA) return 0;
@@ -201,6 +202,7 @@ static void send_arg(lua_State* L, int idx) {
         if (NR* r = to_ud<NR>(L, idx, NUMRANGE_MT)) { js_arg(T_NUMRANGE, r->min, nullptr, r->max, 0, 0); break; }
         if (NSeq* q = to_ud<NSeq>(L, idx, NUMSEQ_MT)) { js_arg(T_NUMSEQ, q->n, numseq_str(q).c_str(), 0, 0, 0); break; }
         if (CSeq* q = to_ud<CSeq>(L, idx, COLORSEQ_MT)) { js_arg(T_COLORSEQ, q->n, colorseq_str(q).c_str(), 0, 0, 0); break; }
+        if (BC* c = to_bc(L, idx)) { js_arg(T_BRICKCOLOR, BRICKCOLORS[c->i].number, nullptr, 0, 0, 0); break; }
         if (TI* t = to_ti(L, idx)) { std::string k = std::string(t->style) + "," + t->dir; js_arg(T_TWEENINFO, t->time, k.c_str(), t->repeat, t->reverses, t->delay); break; }
         if (EnumItem* e = to_enum(L, idx)) { std::string k = std::string(e->type) + "." + e->name; js_arg(T_ENUM, e->value, k.c_str(), 0, 0, 0); break; }
         luaL_error(L, "can't pass a %s to the engine", luaL_typename(L, idx));
@@ -253,6 +255,7 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
     case T_NUMRANGE: push_numrange(L, js_ret_num(i), js_ret_vec(i, 0)); break;
     case T_NUMSEQ: { char* q = js_ret_str(i); push_numseq_str(L, q ? q : ""); free(q); break; }
     case T_COLORSEQ: { char* q = js_ret_str(i); push_colorseq_str(L, q ? q : ""); free(q); break; }
+    case T_BRICKCOLOR: push_bc(L, bc_of_number((int)js_ret_num(i))); break;
     case T_TWEENINFO: {
         char* s = js_ret_str(i);
         std::string k = s ? s : "Quad,Out";
@@ -673,6 +676,9 @@ static int color_index(lua_State* L) {
     if (!strcmp(k, "Lerp")) { lua_pushcfunction(L, color_lerp, "Lerp"); return 1; }
     if (!strcmp(k, "ToHSV")) { lua_pushcfunction(L, color_toHSV, "ToHSV"); return 1; }
     if (!strcmp(k, "ToHex")) { lua_pushcfunction(L, color_toHex, "ToHex"); return 1; }
+    if (!strcmp(k, "GetLuminance")) { lua_pushcfunction(L, color_getLuminance, "GetLuminance"); return 1; }
+    if (!strcmp(k, "GetContrastRatio")) { lua_pushcfunction(L, color_getContrastRatio, "GetContrastRatio"); return 1; }
+    if (!strcmp(k, "GetContrastingColor")) { lua_pushcfunction(L, color_getContrastingColor, "GetContrastingColor"); return 1; }
     luaL_error(L, "%s is not a valid member of Color3", k);
     return 0;
 }
@@ -1013,6 +1019,7 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     register_cframe(L0);
     register_gui_types(L0);
     register_seq_types(L0);
+    register_more_types(L0); // after Vector3 and CFrame: it adds to their tables
     luaL_newmetatable(L0, TWEENINFO_MT);
     lua_pushcfunction(L0, ti_index, "__index"); lua_setfield(L0, -2, "__index");
     lua_pushcfunction(L0, color_newindex, "__newindex"); lua_setfield(L0, -2, "__newindex");
@@ -1108,7 +1115,7 @@ end)";
         lua_setfield(L0, idx < 0 ? idx - 1 : idx, "__metatable");
         lua_setreadonly(L0, idx, true);
     };
-    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT, TWEENINFO_MT, UDIM_MT, UDIM2_MT, VEC2_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
+    for (const char* mt : { INST_MT, SIGNAL_MT, CONN_MT, COLOR_MT, ENUMITEM_MT, ENUM_MT, CFRAME_MT, TWEENINFO_MT, UDIM_MT, UDIM2_MT, VEC2_MT, BRICKCOLOR_MT, RECT_MT, REGION3_MT }) { luaL_getmetatable(L0, mt); lock(-1); lua_pop(L0, 1); }
     lua_pushvector(L0, 0, 0, 0); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
     lua_getglobal(L0, "Enum"); lua_getmetatable(L0, -1); lock(-1); lua_pop(L0, 2);
 

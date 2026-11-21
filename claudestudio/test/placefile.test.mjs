@@ -76,5 +76,17 @@ const broken = loadPlace(dm3, { format: 'claudestudio-place', version: 1, servic
 const pe3 = dm3.workspace.children.find(c => c.ClassName === 'Part')?.children[0];
 check(broken.length === 1 && /time must start at 0 and end at 1/.test(broken[0]) && pe3 && pe3.props.Size.toString() === '0 1 0 1 1 0 ' && pe3.props.Rate === 7, `a refused value is skipped with a warning, the rest loads (${broken.join('; ')})`);
 
+// A part's BrickColor rides on its Color: a custom Color saves and loads exactly, the file has no
+// BrickColor of its own, and the loaded part reads the same BrickColor.
+{
+  const dmB = new DataModel(), part = dmB.create('Part'), odd = new C3(0.31, 0.62, 0.93);
+  dmB.set(part, 'Color', odd); dmB.setParent(part, dmB.workspace);
+  const part2 = dmB.create('Part'); dmB.set(part2, 'BrickColor', (await import('../web/brickcolor.js')).BrickColor.byName('Pastel Blue')); part2.props.Name = 'Named'; dmB.setParent(part2, dmB.workspace);
+  const file = savePlace(dmB), text = JSON.stringify(file), dmC = new DataModel(), w = loadPlace(dmC, JSON.parse(text));
+  const [a, b] = ['Part', 'Named'].map(n => dmC.workspace.children.find(c => c.props.Name === n));
+  check(!w.length && !/BrickColor/.test(text) && a && a.props.Color.r === odd.r && a.props.Color.b === odd.b && a.props.BrickColor === part.props.BrickColor && b.props.BrickColor.name === 'Pastel Blue',
+    `BrickColor saves as the part's Color: exact after loading, not written twice (${a && a.props.BrickColor.name}, ${b && b.props.BrickColor.name})`);
+}
+
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);

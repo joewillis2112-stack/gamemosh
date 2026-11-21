@@ -3,7 +3,7 @@
 // changes (at most once a frame). Every edit is a command, so it can be undone.
 // Each Explorer row has Studio's + (Insert Object, under that row: onAdd); double-clicking a row
 // opens it (a script in the script editor: onOpen); a script's Properties offer Edit Script.
-import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, propertiesOf } from '../datamodel.js';
+import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, BrickColor, propertiesOf } from '../datamodel.js';
 
 // Studio shows these services in the Explorer, in this order (others it hides).
 const SHOWN = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
@@ -76,6 +76,10 @@ export class Properties {
     if (p.type === 'string') return `<input type="text" ${k} value="${agree ? esc(v) : ''}"${ro}>`;
     if (p.type === 'Vector3') return `<span class="v3">${['x', 'y', 'z'].map(a => `<input type="number" step="any" ${k} data-a="${a}" value="${agree && v ? fmt(v[a]) : ''}"${ro}>`).join('')}</span>`;
     if (p.type === 'Color3') return `<input type="color" ${k} value="${v ? hex(v) : '#000000'}"${ro}>`;
+    if (p.type === 'BrickColor') { // Roblox's named colours, by name (the palette's 128 first, then the rest), each with its swatch colour
+      const list = [...BrickColor.all].sort((a, b) => (a.palette < 0) - (b.palette < 0) || (a.palette - b.palette) || a.number - b.number);
+      return `<select ${k}${ro}>${agree ? '' : '<option selected></option>'}${list.map(c => `<option value="${c.number}" style="background:${hex(c.color)}"${agree && v === c ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select>`;
+    }
     if (p.type.startsWith('Enum.')) {
       const E = ENUMS[p.type.slice(5)] || {}, cur = v && v.name || v;
       return `<select ${k}${ro}>${Object.keys(E).map(n => `<option${n === cur ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
@@ -97,6 +101,7 @@ export class Properties {
     if (ty === 'bool') value = t.checked;
     else if (ty === 'number') { value = parseFloat(t.value); if (!isFinite(value)) return this.dirty = true; }
     else if (ty === 'string') value = t.value;
+    else if (ty === 'BrickColor') { if (!t.value) return this.dirty = true; value = BrickColor.byNumber(+t.value); }
     else if (ty === 'Color3') { const n = parseInt(t.value.slice(1), 16); value = new C3((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255); }
     else if (ty === 'Vector3') {
       // One field: change that component on each item, keeping its others.

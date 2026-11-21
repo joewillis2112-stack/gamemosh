@@ -20,6 +20,7 @@ fi
 emcmake cmake -S "$B/luau" -B "$B/luau-wasm" -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_CLI=OFF -DLUAU_BUILD_TESTS=OFF -DCMAKE_CXX_FLAGS=-fwasm-exceptions >/dev/null
 cmake --build "$B/luau-wasm" --target Luau.VM Luau.Compiler Luau.Bytecode Luau.Inliner Luau.Ast Luau.Common -j"$(nproc)" >/dev/null
 L="$B/luau-wasm"
+node "$H/../tools/gen-brickcolors.mjs" --header >/dev/null # brickcolor_table.h from web/brickcolors.json, the one source
 em++ -O2 -std=c++17 -fwasm-exceptions "$H/binding.cpp" \
   -I"$B/luau/VM/include" -I"$B/luau/Compiler/include" \
   "$L/libLuau.VM.a" "$L/libLuau.Compiler.a" "$L/libLuau.Inliner.a" "$L/libLuau.Bytecode.a" "$L/libLuau.Ast.a" "$L/libLuau.Common.a" \
