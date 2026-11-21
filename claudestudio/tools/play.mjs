@@ -1,5 +1,5 @@
 // Drive the play page headless: load a place, run a scenario, take shots.
-// node tools/play.mjs [--page play|editor] [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
+// node tools/play.mjs [--page play|editor] [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play] [--timeout seconds (900)]
 // --page editor drives web/editor.html instead (its handle is window.editor; sim() is play-only).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,6 +59,14 @@ const api = {
 };
 const mismatches = [];
 const scenario = opt('scenario');
+// A scenario that never finishes (a shader that fails to compile leaves whenReadyAsync waiting forever)
+// says what the page said and fails, rather than hanging the suite.
+const limit = Number(opt('timeout', '900')) * 1000;
+const watchdog = setTimeout(() => {
+  const said = logs.filter(l => /^(error|warning|pageerror)/.test(l));
+  console.log(`TIMEOUT after ${limit / 1000} s` + (said.length ? '; page said:\n' + said.join('\n') : ''));
+  process.exit(3);
+}, limit);
 try {
   if (scenario) { const mod = await import(path.resolve(scenario)); await mod.default(api); }
   else { await api.frames(30); await api.shot(path.basename(opt('place', 'baseplate'), '.luau')); }
@@ -68,6 +76,7 @@ try {
   if (said.length) console.log('page said:\n' + said.join('\n'));
   throw e;
 }
+clearTimeout(watchdog);
 const errs = logs.filter(l => /^error|pageerror/.test(l));
 if (errs.length) console.log(errs.join('\n'));
 await browser.close();
