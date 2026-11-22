@@ -25,6 +25,7 @@ import * as G from '../vector/geom.js';
 import * as Grad from '../vector/gradient.js';
 import { pathfinder, loadPathops, pathopsReady, trace } from '../vector/pathops.js';
 import { IMAGE_PROP } from './imageeditor.js';
+import { FAMILY_NAMES, isBundled, textGlyphPath, declareFonts } from '../vector/text.js';
 
 const NEW_SIZE = 512, UNDO_DEPTH = 50, META = 'claudestudio-vector';
 const TOOLS = [['select', 'Select'], ['rect', 'Rect'], ['ellipse', 'Ellipse'], ['polygon', 'Polygon'], ['star', 'Star'], ['pen', 'Pen'], ['text', 'Text']];
@@ -32,6 +33,8 @@ const PATHFINDER = [['unite', 'Unite'], ['minusFront', 'Minus Front'], ['interse
 const PATHFINDER2 = [['divide', 'Divide'], ['trim', 'Trim'], ['merge', 'Merge'], ['crop', 'Crop']];
 // Fonts: the page's own (system-ui) and the web-safe families, each with a generic fallback.
 export const FONTS = { System: 'system-ui, sans-serif', Sans: 'Arial, Helvetica, sans-serif', Serif: "Georgia, 'Times New Roman', serif", Mono: "'Courier New', monospace", Verdana: 'Verdana, sans-serif', Trebuchet: "'Trebuchet MS', sans-serif", Impact: 'Impact, sans-serif' };
+// The bundled families too (assets/fonts: Roblox's fonts), whose outlines are exact (vector/text.js).
+for (const f of FAMILY_NAMES) FONTS[f] = `'${f}', sans-serif`;
 const NS = 'http://www.w3.org/2000/svg';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const unesc = s => s.replace(/&(amp|lt|gt|quot);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"' })[k]);
@@ -58,12 +61,30 @@ export function shapeBounds(s) {
   const asc = m.actualBoundingBoxAscent ?? s.size * 0.8, desc = m.actualBoundingBoxDescent ?? s.size * 0.2;
   return [s.at[0] - (m.actualBoundingBoxLeft || 0), s.at[1] - asc, s.at[0] + (m.actualBoundingBoxRight ?? m.width), s.at[1] + desc];
 }
-/** A text's outlines (Type › Create Outlines): its glyphs drawn large in black on white by the
- *  browser (so any font it has works), traced with VectorCraft's Image Trace (Flat Logo: sub-pixel
- *  edges, corners kept) and united into one compound path, in document units. Null if it failed.
- *  Traced, not read from the font file (the page can't reach system fonts' outlines): within a
+/** A bundled-font text's exact glyph outlines (vector/text.js), at the positions this page lays
+ *  its characters out (so kerning matches the live text); null for other fonts. */
+export async function glyphOutlines(s) {
+  if (!isBundled(s.font)) return null;
+  declareFonts();
+  await document.fonts.load(fontCss(s), s.text);
+  measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+  measureCtx.font = fontCss(s);
+  return textGlyphPath(s, prefix => measureCtx.measureText(prefix).width);
+}
+/** A text's outlines (Type › Create Outlines), united into one compound path in document units, or
+ *  null if it failed. A bundled font (Roblox's): its glyphs from the font file, exact. Any other
+ *  font (the system's, whose files the page can't read): traced (tracedOutlines). */
+export async function textOutlines(s) {
+  const g = await glyphOutlines(s);
+  if (!g) return tracedOutlines(s);
+  if (!g.glyphs.length) return null;
+  const united = g.glyphs.length > 1 ? pathfinder('unite', g.glyphs) : [{ path: g.glyphs[0] }];
+  return united && united.length ? united[0].path : null;
+}
+/** A system font's text outlines: its glyphs drawn large in black on white by the browser, traced
+ *  with VectorCraft's Image Trace (Flat Logo: sub-pixel edges, corners kept) and united: within a
  *  fraction of a pixel of the glyphs at the size they were traced. */
-export function textOutlines(s, scale = Math.min(Math.max(240 / s.size, 1), 16)) {
+export function tracedOutlines(s, scale = Math.min(Math.max(240 / s.size, 1), 16)) {
   const b = shapeBounds(s), pad = 4, K = scale;
   const W = Math.ceil((b[2] - b[0]) * K) + 2 * pad, H = Math.ceil((b[3] - b[1]) * K) + 2 * pad;
   if (!(W > 2 * pad && H > 2 * pad) || W * H > 16e6) return null;
@@ -79,24 +100,32 @@ export function textOutlines(s, scale = Math.min(Math.max(240 / s.size, 1), 16))
   return united && united.length ? united[0].path : null;
 }
 /** One shape as SVG: its element, and its gradient's definition (id `gid`) if it has one. */
-export function shapeSvg(s, gid) {
+export function shapeSvg(s, gid, outline = null) {
   const b = s.grad ? shapeBounds(s) : null;
   const def = s.grad && b ? Grad.toSvgDef(gid, s.grad, b) : '';
   const fill = s.grad && b ? `url(#${gid})` : s.fill;
   const paint = `fill="${fill}" stroke="${s.strokeWidth > 0 ? s.stroke : 'none'}" stroke-width="${s.strokeWidth}" stroke-linejoin="round" stroke-linecap="round"`;
-  const el = s.kind === 'text'
+  const el = s.kind === 'text' && outline
+    ? `<path d="${G.toSvgD(outline)}" fill-rule="nonzero" ${paint}/>`
+    : s.kind === 'text'
     ? `<text x="${s.at[0]}" y="${s.at[1]}" font-family="${esc(FONTS[s.font] || FONTS.Sans)}" font-size="${s.size}"${s.bold ? ' font-weight="bold"' : ''}${s.italic ? ' font-style="italic"' : ''} xml:space="preserve" ${paint}>${esc(s.text)}</text>`
     : `<path d="${G.toSvgD(shapePath(s))}" fill-rule="nonzero" ${paint}/>`;
   return { el, def };
 }
 /** The document as SVG text, carrying itself in <metadata> so it opens again as shapes. */
-export function toSvg(doc) {
-  const parts = doc.shapes.map((s, i) => shapeSvg(s, 'g' + i));
+export function toSvg(doc, outlines = []) {
+  const parts = doc.shapes.map((s, i) => shapeSvg(s, 'g' + i, outlines[i]));
   const defs = parts.map(p => p.def).join('');
   const bg = doc.background ? `<image href="${esc(doc.background)}" width="${doc.w}" height="${doc.h}" preserveAspectRatio="none"/>` : '';
   return `<svg xmlns="${NS}" width="${doc.w}" height="${doc.h}" viewBox="0 0 ${doc.w} ${doc.h}"><metadata id="${META}">${esc(JSON.stringify(doc))}</metadata>${defs ? `<defs>${defs}</defs>` : ''}${bg}${parts.map(p => p.el).join('')}</svg>`;
 }
-export const toDataUrl = doc => 'data:image/svg+xml;base64,' + b64(toSvg(doc));
+export const toDataUrl = (doc, outlines) => 'data:image/svg+xml;base64,' + b64(toSvg(doc, outlines));
+/** The image to save: bundled-font texts as their exact glyph outlines (an SVG drawn as an image
+ *  can't reach the page's fonts); the editable texts stay in the metadata. */
+export async function exportDataUrl(doc) {
+  const outlines = await Promise.all(doc.shapes.map(s => s.kind === 'text' ? glyphOutlines(s).then(g => g && g.path.length ? g.path : null).catch(() => null) : null));
+  return toDataUrl(doc, outlines);
+}
 /** The document inside one of our SVG data URLs, or null. */
 export function fromDataUrl(url) {
   const m = /^data:image\/svg\+xml;base64,(.*)$/.exec(url || ''); if (!m) return null;
@@ -133,12 +162,14 @@ export class VectorEditor {
     loadPathops().catch(() => {}); // the booleans' module, in the background
     return true;
   }
+  /** The image apply() would save (for tests): bundled-font texts as their glyph outlines. */
+  exportUrl(outlined = true) { return outlined ? exportDataUrl(this.doc) : Promise.resolve(toDataUrl(this.doc)); }
   close() { this.doc = null; this.target = null; this.pen = null; this.drag = null; this.panel.hidden = true; this.onState({ active: false }); }
   /** Write the SVG into the property (one undo step) and close. */
-  apply() {
+  async apply() {
     if (!this.doc) return null;
     this.finishPen();
-    const url = toDataUrl(this.doc), { inst, prop } = this.target;
+    const url = await exportDataUrl(this.doc), { inst, prop } = this.target;
     this.commands.history.run('Edit Vector', tx => tx.set(inst, prop, url));
     this.close();
     return url;
@@ -220,7 +251,7 @@ export class VectorEditor {
     const idx = this.selection.filter(i => this.doc.shapes[i].kind === 'text');
     if (!idx.length) return this.say('Select a text to outline');
     if (!pathopsReady()) { try { await loadPathops(); } catch { return this.say('The path operations failed to load'); } }
-    const done = idx.map(i => [i, textOutlines(this.doc.shapes[i])]);
+    const done = await Promise.all(idx.map(async i => [i, await textOutlines(this.doc.shapes[i])]));
     if (done.some(([, p]) => !p)) return this.say("That text couldn't be outlined");
     this.snapshot();
     for (const [i, path] of done) { const t = this.doc.shapes[i]; this.doc.shapes[i] = { kind: 'path', live: null, path, fill: t.fill, stroke: t.stroke, strokeWidth: t.strokeWidth, corner: 0, cornerKind: 'Round', grad: t.grad }; }
@@ -232,7 +263,7 @@ export class VectorEditor {
     if (idx.length < 2) return this.say('Select two or more shapes (Shift-click, or Add) to combine them');
     if (!pathopsReady()) { try { await loadPathops(); } catch { return this.say('The path operations failed to load'); } }
     // Texts take part by their outlines (as Illustrator's Pathfinder turns type into outlines first).
-    const shapes = idx.map(i => { const s = this.doc.shapes[i]; if (s.kind !== 'text') return s; const path = textOutlines(s); return path && { ...s, kind: 'path', path }; });
+    const shapes = await Promise.all(idx.map(async i => { const s = this.doc.shapes[i]; if (s.kind !== 'text') return s; const path = await textOutlines(s); return path && { ...s, kind: 'path', path }; }));
     if (shapes.some(s => !s)) return this.say("That text couldn't be outlined");
     const paint = s => JSON.stringify([s.fill, s.grad, s.stroke, s.strokeWidth]);
     const keys = shapes.map(s => shapes.findIndex(t => paint(t) === paint(s))); // Merge joins shapes of one paint
@@ -413,6 +444,7 @@ export class VectorEditor {
   }
 
   build() {
+    declareFonts(); // the bundled families, for live text in them
     const P = this.panel;
     P.innerHTML = `<div class="ie-head"><b class="ie-title"></b><span class="grow"></span>` +
       `<button data-ve="undo" title="Undo the last change">Undo</button><button data-ve="cancel">Cancel</button><button data-ve="apply" class="primary">Apply</button></div>` +

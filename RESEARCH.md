@@ -479,6 +479,13 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **A merge can shadow a method (2026-11-22, the editor agent).** The merged branch gave the image editor a property named `this.wheel`, which replaced its `wheel()` method. Nothing errored; wheel zoom just stopped.
 - [Studio] **Phone test gestures (2026-11-22, the editor agent).** A drag that lifts while still moving starts a fling, and Chrome then drops the next tap as the fling's cancel, so hold still before lifting. Wait on pointer events, not touch events, for a drag to end. Sample test pixels away from on-canvas handles.
 
+- [Studio] **Bundled fonts and outlines (2026-11-22).**
+  - opentype.js 2.0 can't read WOFF2 without an external decoder, and it fails on some variable fonts' substitution tables. Exporting glyph outlines with fontTools at build time avoids both.
+  - fontTools' SVGPathPen writes extra coordinate pairs after `M` as implicit line-tos, so a path parser must handle repeated parameters. It drew a broken "x" until it did.
+  - Browsers set a variable font's optical-size axis from the text size, so outlines taken at the default don't match; pin `opsz` in the shipped file.
+  - An SVG drawn as an image can't use the page's web fonts, so exported text must be outlines (or embedded fonts).
+  - Checking outlines against the browser's raster can't show exactness, because tracing copies that raster. Check geometry instead: every anchor on the glyph's own edges.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -672,3 +679,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **2026-11-21 (Studio: review pass, asked by the user):** suite6 red (meshes-gltf, ShadowSoftness, post goldens, completions); local main backed up to `studio-unverified`, Atmosphere WIP to `studio-atmosphere-wip` (2/8 checks); datatypes agent done (branch unmerged), image and paint agents rate-limited. Review and next steps: `claudestudio/REVIEW_2026-11-21.md`.
 - [Studio] **2026-11-21 (Studio: fix pass and stress test, asked by the user):** suite6's four failures came from one root cause, the unregistered Toon plugin, now fixed. Atmosphere finished (aerial perspective, Haze, Glare, Color, Decay; mutation-checked). Stress and review found and fixed: no script timeout, a MeshPart material leak, the skybox hiding everything past 2000 studs, the pale band under the horizon, Camera Position/Orientation, rbxasset fetches. The harness is hardened (snapshot suite, watchdog, page errors on failure, suffixed shots, `--update` only on mismatch, unit-test timeouts, CSG, stress and unions in the suite). 77 goldens re-saved after review. See `claudestudio/REVIEW_2026-11-21.md`.
 - [Studio] **2026-11-22 (Studio: graphics quality):** Automatic tier (device guess, then frame time), Roblox's SavedQualityLevel and in-game menu, live tier switching in every system, GetPropertyChangedSignal; the image and vector editor agent's work merged (selections, Lanczos/Preserve Details, Divide/Trim/Merge/Crop, gradient stops and handles, traced text outlines), its unit tests verified.
+- [Studio] **2026-11-22 (Studio: fonts, at the user's suggestion):** 38 font families for every Enum.Font (Roblox's own or labelled open stand-ins); exact text outlines from the font files in the vector editor, and in its saved images; GUI class gaps recorded in PLAN.md.

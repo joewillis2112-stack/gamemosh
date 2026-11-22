@@ -88,6 +88,22 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 - Files: `runtime/graphics.js`, `runtime/menu.js`, `runtime/quality.js`.
 - Tests: `test/quality.test.mjs`; `test/scenarios/graphics.mjs` (desktop and phone, `--quality auto`).
 
+[Studio] **Fonts (2026-11-22):** every Enum.Font is drawn in the family Roblox's own Font table names, or in a labelled open stand-in.
+- 38 families, all subset to Latin and fetched by `tools/fetch-fonts.py`:
+  - from google/fonts, under OFL, Apache 2.0 or the Ubuntu Font Licence;
+  - from CTAN: Comic Neue Angular for Cartoon, Accanthis ADF Std for Bodoni.
+- Stand-ins: Highway uses Overpass, Garamond uses EB Garamond, SciFi uses Orbitron, Antique uses Cinzel. `assets/fonts/README.md` says why for each.
+- Before this, every font but 9 fell back to Arimo.
+- Only the fonts on screen are fetched.
+- Vector editor:
+  - It offers the bundled families.
+  - Their outlines are exact: each glyph comes from the font file (`tools/glyphs.py`), placed where the page lays the letter out.
+  - Saved images draw such text as its outlines, because an SVG image can't reach the page's fonts.
+  - System-font text keeps the traced outlines.
+- Tests: `test/scenarios/fonts.mjs`, `test/text.test.mjs` (31,221 glyphs), `editor-vector.mjs`.
+
+[Studio] **GUI gaps found (2026-11-22):** these Roblox classes aren't implemented: `ScrollingFrame`, `UIGridLayout`, `TextBox`, `UIGradient`, `UIScale`, `UISizeConstraint`, `BillboardGui`, `SurfaceGui`, `ViewportFrame`, `CanvasGroup`. `Enum.Font.Unknown` and the `Font` datatype (`FontFace`) are missing too.
+
 ## Architecture
 
 | Layer | What | Notes |

@@ -67,6 +67,11 @@ def woff2(data):
     f = TTFont(io.BytesIO(data))
     opts = subset.Options(); opts.flavor = 'woff2'; opts.layout_features = ['*']; opts.name_IDs = ['*']; opts.notdef_outline = True
     s = subset.Subsetter(opts); s.populate(unicodes=subset.parse_unicodes(LATIN)); s.subset(f)
+    # An optical-size axis is pinned at its default: browsers pick it from the text size, which the
+    # editor's glyph outlines (tools/glyphs.py) can't follow, and Roblox's fonts don't vary it.
+    if 'fvar' in f and any(a.axisTag == 'opsz' for a in f['fvar'].axes):
+        from fontTools.varLib import instancer
+        f = instancer.instantiateVariableFont(f, {a.axisTag: a.defaultValue for a in f['fvar'].axes if a.axisTag == 'opsz'})
     out = io.BytesIO(); f.flavor = 'woff2'; f.save(out); return out.getvalue()
 
 def main():

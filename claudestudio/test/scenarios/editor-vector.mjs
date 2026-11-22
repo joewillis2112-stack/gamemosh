@@ -184,6 +184,44 @@ export default async function (t) {
   check(ol.kind === 'path' && ol.fill === '#ffffff' && ol.path.length >= 3 && inter / union > 0.9, `Create Outlines makes the text a path (${ol.path.length} contours, white): the same letters on screen (${(inter / union * 100).toFixed(1)}% of their pixels agree)`);
   await btn('#vectoreditor [data-ve=undo]');
   check((await st()).doc.shapes[4].kind === 'text', 'Undo brings the live text back');
+  // A bundled font (Roblox's Merriweather, assets/fonts): its outlines are the font's own glyphs. An
+  // "H" (straight lines only) outlines to exactly the glyph's corners, where the font file puts them.
+  await tap(await at(90, 480)); await setV('font', 'Merriweather'); await setV('text', 'H'); await E(() => window.editor.frames(1));
+  await t.page.waitForFunction(() => document.fonts.check("bold 64px 'Merriweather'"));
+  await btn('#vectoreditor [data-ve=outline]'); await t.page.waitForFunction(() => window.editor.vectorEditor.doc.shapes[4].kind === 'path');
+  const exact = await E(async () => {
+    const ve = window.editor.vectorEditor, ol = ve.doc.shapes[4];
+    const res = await fetch('../assets/fonts/glyphs/Merriweather-700.json.gz');
+    const data = JSON.parse(await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text());
+    const undo = JSON.parse(ve.undo[ve.undo.length - 1]).doc.shapes[4], k = undo.size / data.upm; // the text as it was
+    // The glyph's edges (its contours: M, then L/H/V corners, Z), in document units.
+    const edges = [];
+    for (const contour of data.glyphs.H[1].split('Z').filter(c => c.trim())) {
+      const tok = contour.match(/[MLHV]|-?\d+/g), pts = []; let c = 'M', p = [0, 0];
+      for (let i = 0; i < tok.length;) { if (/[MLHV]/.test(tok[i])) c = tok[i++]; if (c === 'H') p = [+tok[i++], p[1]]; else if (c === 'V') p = [p[0], +tok[i++]]; else p = [+tok[i++], +tok[i++]]; pts.push([undo.at[0] + p[0] * k, undo.at[1] - p[1] * k]); }
+      pts.forEach((a, i) => edges.push([a, pts[(i + 1) % pts.length]]));
+    }
+    const toEdge = (q, [a, b]) => { const d = [b[0] - a[0], b[1] - a[1]], L = d[0] * d[0] + d[1] * d[1], t = L ? Math.max(0, Math.min(1, ((q[0] - a[0]) * d[0] + (q[1] - a[1]) * d[1]) / L)) : 0; return Math.hypot(q[0] - a[0] - t * d[0], q[1] - a[1] - t * d[1]); };
+    const got = ol.path.flatMap(sp => sp.anchors.map(a => a.p));
+    const off = got.map(q => Math.min(...edges.map(e => toEdge(q, e))));
+    return { edges: edges.length, got: got.length, worst: Math.max(...off) };
+  });
+  check(exact.got >= 12 && exact.worst < 1e-6, `a bundled font's outline is its glyph: every one of the "H" outline's ${exact.got} anchors lies on the glyph's own edges (${exact.edges} edges; furthest ${exact.worst.toExponential(1)} units off)`);
+  await btn('#vectoreditor [data-ve=undo]'); await tap(await at(90, 480)); await setV('text', 'HUD'); await tap(await at(20, 20));
+  // The saved image draws the text in its font (an SVG image can't reach the page's fonts, so the
+  // text goes in as its outlines): the text alone, against the page's own drawing of it.
+  const agree = await E(async () => {
+    const ve = window.editor.vectorEditor, s = ve.doc.shapes[4], W = ve.doc.w, H = ve.doc.h, saved = ve.doc;
+    ve.doc = { ...saved, background: null, shapes: [s] };
+    const draw = async url => { const img = new Image(); img.src = url; await img.decode(); const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.drawImage(img, 0, 0, W, H); return g.getImageData(0, 0, W, H).data; };
+    const live = (() => { const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.fillStyle = '#fff'; g.font = `bold 64px 'Merriweather'`; g.fillText(s.text, s.at[0], s.at[1]); return g.getImageData(0, 0, W, H).data; })();
+    const score = px => { let i = 0, u = 0; for (let k = 0; k < px.length; k += 4) { const a = px[k] > 128, b = live[k] > 128; if (a && b) i++; if (a || b) u++; } return u ? i / u : 0; };
+    const r = [score(await draw(await ve.exportUrl(true))), score(await draw(await ve.exportUrl(false)))];
+    ve.doc = saved;
+    return r;
+  });
+  check(agree[0] > 0.9 && agree[0] > agree[1] + 0.2, `the saved image draws the text in its font: ${(agree[0] * 100).toFixed(1)}% of its pixels agree with the page's own drawing (as plain SVG text, which falls back to another font: ${(agree[1] * 100).toFixed(1)}%)`);
+  await tap(await at(90, 480)); await setV('font', 'Serif'); await tap(await at(20, 20));
   await btn('#vectoreditor [data-tool=text]');
 
   // Pathfinder (VectorCraft's pathops in wasm): a magenta ellipse over the green triangle.

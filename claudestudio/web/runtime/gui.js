@@ -16,7 +16,7 @@ import { PlayerList } from './playerlist.js';
 
 export const GUI_INSET = 58;
 // Every family in assets/fonts (families.json: its files, weights and licences).
-import FAMILIES from '../../assets/fonts/families.json';
+import FAMILIES from '../../assets/fonts/families.json' with { type: 'json' };
 const FONTS = Object.values(FAMILIES).flatMap(f => f.files.map(x => [f.family, x.file, x.weight, x.style]));
 // Enum.Font -> [family, weight, style], following Roblox's own table (creator-docs, Font datatype:
 // each Enum.Font's rbxasset://fonts/families/*.json). Where Roblox's family isn't open or couldn't be
