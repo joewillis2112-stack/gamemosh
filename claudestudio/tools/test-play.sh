@@ -74,6 +74,7 @@ run --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
 run --quality low --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
 run --scenario test/scenarios/unions.mjs
 run --noshots --scenario test/scenarios/stress.mjs
+run --scenario test/scenarios/fonts.mjs
 run --quality auto --place places/lighting-lab.luau --scenario test/scenarios/graphics.mjs
 run --phone --quality auto --place places/lighting-lab.luau --scenario test/scenarios/graphics.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs

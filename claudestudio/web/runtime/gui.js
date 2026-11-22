@@ -15,21 +15,29 @@ import { V2, EnumItem, isA } from '../datamodel.js';
 import { PlayerList } from './playerlist.js';
 
 export const GUI_INSET = 58;
-const FONTS = [
-  ['Arimo', 'Arimo.woff2', '400 700'], ['Source Sans 3', 'SourceSans3.woff2', '200 900'], ['Montserrat', 'Montserrat.woff2', '100 900'],
-  ['Press Start 2P', 'PressStart2P.woff2', '400'], ['Fredoka', 'Fredoka.woff2', '300 700'], ['Roboto', 'Roboto.woff2', '100 900'],
-  ['Nunito', 'Nunito.woff2', '200 1000'], ['Oswald', 'Oswald.woff2', '200 700'], ['Bangers', 'Bangers.woff2', '400'],
-];
-// Enum.Font -> [family, weight, style]. Roblox maps Legacy/Arial to Arimo and Gotham to Montserrat;
-// Builder Sans isn't open, so Nunito stands in. Anything else falls back to Arimo.
+// Every family in assets/fonts (families.json: its files, weights and licences).
+import FAMILIES from '../../assets/fonts/families.json';
+const FONTS = Object.values(FAMILIES).flatMap(f => f.files.map(x => [f.family, x.file, x.weight, x.style]));
+// Enum.Font -> [family, weight, style], following Roblox's own table (creator-docs, Font datatype:
+// each Enum.Font's rbxasset://fonts/families/*.json). Where Roblox's family isn't open or couldn't be
+// found, an open stand-in (families.json says which): Builder Sans -> Nunito, Gotham -> Montserrat
+// (Roblox's own mapping), Highway -> Overpass, Garamond -> EB Garamond, SciFi -> Orbitron,
+// Antique -> Cinzel. Unknown names fall back to Arimo (Legacy).
 const FONT_MAP = {
   Legacy: ['Arimo', 400], Arial: ['Arimo', 400], ArialBold: ['Arimo', 700], Arimo: ['Arimo', 400], ArimoBold: ['Arimo', 700],
   SourceSans: ['Source Sans 3', 400], SourceSansBold: ['Source Sans 3', 700], SourceSansLight: ['Source Sans 3', 300],
   SourceSansItalic: ['Source Sans 3', 400, 'italic'], SourceSansSemibold: ['Source Sans 3', 600],
   Gotham: ['Montserrat', 400], GothamMedium: ['Montserrat', 500], GothamBold: ['Montserrat', 700], GothamBlack: ['Montserrat', 900],
-  Arcade: ['Press Start 2P', 400], FredokaOne: ['Fredoka', 600], Roboto: ['Roboto', 400], RobotoCondensed: ['Roboto', 400],
-  Nunito: ['Nunito', 400], Oswald: ['Oswald', 400], Bangers: ['Bangers', 400],
+  Arcade: ['Press Start 2P', 400], FredokaOne: ['Fredoka', 600], Roboto: ['Roboto', 400], RobotoCondensed: ['Roboto Condensed', 400],
+  RobotoMono: ['Roboto Mono', 400], Nunito: ['Nunito', 400], Oswald: ['Oswald', 400], Bangers: ['Bangers', 400],
   BuilderSans: ['Nunito', 400], BuilderSansMedium: ['Nunito', 500], BuilderSansBold: ['Nunito', 700], BuilderSansExtraBold: ['Nunito', 800],
+  AmaticSC: ['Amatic SC', 400], Antique: ['Cinzel', 400], Bodoni: ['Accanthis ADF Std No3', 400], Cartoon: ['Comic Neue Angular', 400],
+  Code: ['Inconsolata', 400], Creepster: ['Creepster', 400], DenkOne: ['Denk One', 400], Fantasy: ['Balthazar', 400],
+  Fondamento: ['Fondamento', 400], Garamond: ['EB Garamond', 400], GrenzeGotisch: ['Grenze Gotisch', 400], Highway: ['Overpass', 400],
+  IndieFlower: ['Indie Flower', 400], JosefinSans: ['Josefin Sans', 400], Jura: ['Jura', 400], Kalam: ['Kalam', 400],
+  LuckiestGuy: ['Luckiest Guy', 400], Merriweather: ['Merriweather', 400], Michroma: ['Michroma', 400], PatrickHand: ['Patrick Hand', 400],
+  PermanentMarker: ['Permanent Marker', 400], Sarpanch: ['Sarpanch', 400], SciFi: ['Orbitron', 400], SpecialElite: ['Special Elite', 400],
+  TitilliumWeb: ['Titillium Web', 400], Ubuntu: ['Ubuntu', 400],
 };
 const css = (c, a = 1) => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
 const child = (inst, cls) => inst.children.find(c => c.ClassName === cls);
@@ -41,7 +49,7 @@ export class Gui {
     Object.assign(this.root.style, { position: 'fixed', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', overflow: 'hidden', zIndex: '5' });
     document.body.appendChild(this.root);
     const st = document.createElement('style');
-    st.textContent = FONTS.map(([f, file, w]) => `@font-face{font-family:'${f}';src:url('${base}${file}') format('woff2');font-weight:${w};font-display:block}`).join('\n') +
+    st.textContent = FONTS.map(([f, file, w, style]) => `@font-face{font-family:'${f}';src:url('${base}${file}') format('woff2');font-weight:${w};font-style:${style || 'normal'};font-display:block}`).join('\n') +
       '\n.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}' +
       '\n.cs-pl-row:hover{background:rgba(255,255,255,0.1)}'; // the player list's row hover (BackgroundOnHover)
     document.head.appendChild(st);
@@ -60,7 +68,16 @@ export class Gui {
     this.measure.appendChild(this.measureSpan);
     document.body.appendChild(this.measure);
   }
-  fontsReady() { return Promise.all(FONTS.map(([f]) => document.fonts.load(`16px '${f}'`))).then(() => document.fonts.ready).then(() => { this.fitCache = new Map(); this.dirty = true; }); }
+  // The fonts the screen uses now (the CoreGui's, and every Font in the player's GUI), loaded: the
+  // other families wait until something shows them (the browser fetches a face on first use, and
+  // text re-fits when it arrives), so a page doesn't download all of them.
+  fontsReady() {
+    const used = new Set(['Arimo', 'Source Sans 3', 'Montserrat', 'Nunito']);
+    const pg = this.players.player && child(this.players.player, 'PlayerGui');
+    const walk = i => { const f = i.props && i.props.Font; if (f) used.add((FONT_MAP[f.name || f] || FONT_MAP.Legacy)[0]); i.children.forEach(walk); };
+    if (pg) walk(pg);
+    return Promise.all([...used].map(f => document.fonts.load(`16px '${f}'`))).then(() => document.fonts.ready).then(() => { this.fitCache = new Map(); this.dirty = true; });
+  }
 
   // Per frame (after RenderStepped): lay out and draw when anything changed or the screen resized.
   update() {

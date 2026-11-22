@@ -1,0 +1,547 @@
+{
+ "Arimo": {
+  "family": "Arimo",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Arimo.woff2",
+    "weight": "400 700",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "SourceSans3": {
+  "family": "Source Sans 3",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "SourceSans3.woff2",
+    "weight": "200 900",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "Montserrat": {
+  "family": "Montserrat",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Montserrat.woff2",
+    "weight": "100 900",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "PressStart2P": {
+  "family": "Press Start 2P",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "PressStart2P.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "Fredoka": {
+  "family": "Fredoka",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Fredoka.woff2",
+    "weight": "300 700",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "Roboto": {
+  "family": "Roboto",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Roboto.woff2",
+    "weight": "100 900",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "Nunito": {
+  "family": "Nunito",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Nunito.woff2",
+    "weight": "200 1000",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ],
+  "standsFor": "BuilderSans (Roblox's Builder Sans isn't open)"
+ },
+ "Oswald": {
+  "family": "Oswald",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Oswald.woff2",
+    "weight": "200 700",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "Bangers": {
+  "family": "Bangers",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Bangers.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "earlier (assets/fonts/README.md)"
+   }
+  ]
+ },
+ "AmaticSC": {
+  "family": "Amatic SC",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "AmaticSC.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/amaticsc/AmaticSC-Regular.ttf"
+   },
+   {
+    "file": "AmaticSC-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ofl/amaticsc/AmaticSC-Bold.ttf"
+   }
+  ]
+ },
+ "Balthazar": {
+  "family": "Balthazar",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Balthazar.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/balthazar/Balthazar-Regular.ttf"
+   }
+  ]
+ },
+ "ComicNeue": {
+  "family": "Comic Neue",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "ComicNeue.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/comicneue/ComicNeue-Regular.ttf"
+   },
+   {
+    "file": "ComicNeue-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "ofl/comicneue/ComicNeue-Italic.ttf"
+   },
+   {
+    "file": "ComicNeue-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ofl/comicneue/ComicNeue-Bold.ttf"
+   }
+  ]
+ },
+ "Creepster": {
+  "family": "Creepster",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Creepster.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/creepster/Creepster-Regular.ttf"
+   }
+  ]
+ },
+ "DenkOne": {
+  "family": "Denk One",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "DenkOne.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/denkone/DenkOne-Regular.ttf"
+   }
+  ]
+ },
+ "Fondamento": {
+  "family": "Fondamento",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Fondamento.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/fondamento/Fondamento-Regular.ttf"
+   },
+   {
+    "file": "Fondamento-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "ofl/fondamento/Fondamento-Italic.ttf"
+   }
+  ]
+ },
+ "GrenzeGotisch": {
+  "family": "Grenze Gotisch",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "GrenzeGotisch.woff2",
+    "weight": "100 900",
+    "style": "normal",
+    "source": "ofl/grenzegotisch/GrenzeGotisch[wght].ttf"
+   }
+  ]
+ },
+ "Inconsolata": {
+  "family": "Inconsolata",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Inconsolata.woff2",
+    "weight": "200 900",
+    "style": "normal",
+    "source": "ofl/inconsolata/Inconsolata[wdth,wght].ttf"
+   }
+  ]
+ },
+ "IndieFlower": {
+  "family": "Indie Flower",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "IndieFlower.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/indieflower/IndieFlower-Regular.ttf"
+   }
+  ]
+ },
+ "JosefinSans": {
+  "family": "Josefin Sans",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "JosefinSans.woff2",
+    "weight": "100 700",
+    "style": "normal",
+    "source": "ofl/josefinsans/JosefinSans[wght].ttf"
+   }
+  ]
+ },
+ "Jura": {
+  "family": "Jura",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Jura.woff2",
+    "weight": "300 700",
+    "style": "normal",
+    "source": "ofl/jura/Jura[wght].ttf"
+   }
+  ]
+ },
+ "Kalam": {
+  "family": "Kalam",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Kalam.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/kalam/Kalam-Regular.ttf"
+   },
+   {
+    "file": "Kalam-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ofl/kalam/Kalam-Bold.ttf"
+   }
+  ]
+ },
+ "LuckiestGuy": {
+  "family": "Luckiest Guy",
+  "license": "Apache-2.0",
+  "files": [
+   {
+    "file": "LuckiestGuy.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "apache/luckiestguy/LuckiestGuy-Regular.ttf"
+   }
+  ]
+ },
+ "Merriweather": {
+  "family": "Merriweather",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Merriweather.woff2",
+    "weight": "300 900",
+    "style": "normal",
+    "source": "ofl/merriweather/Merriweather[opsz,wdth,wght].ttf"
+   }
+  ]
+ },
+ "Michroma": {
+  "family": "Michroma",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Michroma.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/michroma/Michroma-Regular.ttf"
+   }
+  ]
+ },
+ "PatrickHand": {
+  "family": "Patrick Hand",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "PatrickHand.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/patrickhand/PatrickHand-Regular.ttf"
+   }
+  ]
+ },
+ "PermanentMarker": {
+  "family": "Permanent Marker",
+  "license": "Apache-2.0",
+  "files": [
+   {
+    "file": "PermanentMarker.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "apache/permanentmarker/PermanentMarker-Regular.ttf"
+   }
+  ]
+ },
+ "RobotoCondensed": {
+  "family": "Roboto Condensed",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "RobotoCondensed.woff2",
+    "weight": "100 900",
+    "style": "normal",
+    "source": "ofl/robotocondensed/RobotoCondensed[wght].ttf"
+   }
+  ]
+ },
+ "RobotoMono": {
+  "family": "Roboto Mono",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "RobotoMono.woff2",
+    "weight": "100 700",
+    "style": "normal",
+    "source": "ofl/robotomono/RobotoMono[wght].ttf"
+   }
+  ]
+ },
+ "Sarpanch": {
+  "family": "Sarpanch",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "Sarpanch.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/sarpanch/Sarpanch-Regular.ttf"
+   },
+   {
+    "file": "Sarpanch-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ofl/sarpanch/Sarpanch-Bold.ttf"
+   }
+  ]
+ },
+ "SpecialElite": {
+  "family": "Special Elite",
+  "license": "Apache-2.0",
+  "files": [
+   {
+    "file": "SpecialElite.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "apache/specialelite/SpecialElite-Regular.ttf"
+   }
+  ]
+ },
+ "TitilliumWeb": {
+  "family": "Titillium Web",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "TitilliumWeb.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ofl/titilliumweb/TitilliumWeb-Regular.ttf"
+   },
+   {
+    "file": "TitilliumWeb-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "ofl/titilliumweb/TitilliumWeb-Italic.ttf"
+   },
+   {
+    "file": "TitilliumWeb-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ofl/titilliumweb/TitilliumWeb-Bold.ttf"
+   }
+  ]
+ },
+ "Ubuntu": {
+  "family": "Ubuntu",
+  "license": "UFL-1.0",
+  "files": [
+   {
+    "file": "Ubuntu.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "ufl/ubuntu/Ubuntu-Regular.ttf"
+   },
+   {
+    "file": "Ubuntu-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "ufl/ubuntu/Ubuntu-Italic.ttf"
+   },
+   {
+    "file": "Ubuntu-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "ufl/ubuntu/Ubuntu-Bold.ttf"
+   }
+  ]
+ },
+ "Overpass": {
+  "family": "Overpass",
+  "license": "OFL-1.1",
+  "standsFor": "Highway (HighwayGothic): Overpass is drawn after Highway Gothic",
+  "files": [
+   {
+    "file": "Overpass.woff2",
+    "weight": "100 900",
+    "style": "normal",
+    "source": "ofl/overpass/Overpass[wght].ttf"
+   }
+  ]
+ },
+ "EBGaramond": {
+  "family": "EB Garamond",
+  "license": "OFL-1.1",
+  "standsFor": "Garamond (Roblox's Guru, not found)",
+  "files": [
+   {
+    "file": "EBGaramond.woff2",
+    "weight": "400 800",
+    "style": "normal",
+    "source": "ofl/ebgaramond/EBGaramond[wght].ttf"
+   }
+  ]
+ },
+ "Orbitron": {
+  "family": "Orbitron",
+  "license": "OFL-1.1",
+  "standsFor": "SciFi (Zekton, whose free licence excludes embedding)",
+  "files": [
+   {
+    "file": "Orbitron.woff2",
+    "weight": "400 900",
+    "style": "normal",
+    "source": "ofl/orbitron/Orbitron[wght].ttf"
+   }
+  ]
+ },
+ "Cinzel": {
+  "family": "Cinzel",
+  "license": "OFL-1.1",
+  "standsFor": "Antique (Roman Antique, not found): Roman capitals, a guess at its look",
+  "files": [
+   {
+    "file": "Cinzel.woff2",
+    "weight": "400 900",
+    "style": "normal",
+    "source": "ofl/cinzel/Cinzel[wght].ttf"
+   }
+  ]
+ },
+ "ComicNeueAngular": {
+  "family": "Comic Neue Angular",
+  "license": "OFL-1.1",
+  "files": [
+   {
+    "file": "ComicNeueAngular.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "https://mirrors.ctan.org/fonts/comicneue.zip comicneue/fonts/ComicNeueAngular-Regular.otf"
+   },
+   {
+    "file": "ComicNeueAngular-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "https://mirrors.ctan.org/fonts/comicneue.zip comicneue/fonts/ComicNeueAngular-RegularItalic.otf"
+   },
+   {
+    "file": "ComicNeueAngular-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "https://mirrors.ctan.org/fonts/comicneue.zip comicneue/fonts/ComicNeueAngular-Bold.otf"
+   }
+  ]
+ },
+ "AccanthisADFStd": {
+  "family": "Accanthis ADF Std No3",
+  "license": "GPL-2.0-with-font-exception",
+  "files": [
+   {
+    "file": "AccanthisADFStd-Bold.woff2",
+    "weight": "700",
+    "style": "normal",
+    "source": "https://mirrors.ctan.org/fonts/accanthis.zip accanthis/opentype/AccanthisADFStdNo3-Bold.otf"
+   },
+   {
+    "file": "AccanthisADFStd.woff2",
+    "weight": "400",
+    "style": "normal",
+    "source": "https://mirrors.ctan.org/fonts/accanthis.zip accanthis/opentype/AccanthisADFStdNo3-Regular.otf"
+   },
+   {
+    "file": "AccanthisADFStd-Italic.woff2",
+    "weight": "400",
+    "style": "italic",
+    "source": "https://mirrors.ctan.org/fonts/accanthis.zip accanthis/opentype/AccanthisADFStdNo3-Italic.otf"
+   }
+  ]
+ }
+}
