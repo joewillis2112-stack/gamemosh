@@ -1,5 +1,5 @@
 // Drive the play page headless: load a place, run a scenario, take shots.
-// node tools/play.mjs [--page play|editor] [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play]
+// node tools/play.mjs [--page play|editor] [--place places/x.luau] [--character x.glb] [--phone] [--scenario test/scenarios/x.mjs] [--out build/play] [--timeout seconds (900)]
 // --page editor drives web/editor.html instead (its handle is window.editor; sim() is play-only).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +15,7 @@ const outDir = opt('out', 'build/play');
 const pageName = opt('page', 'play'), G = pageName === 'editor' ? 'editor' : 'studio'; // the page's window handle
 fs.mkdirSync(outDir, { recursive: true });
 const srv = serve();
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--js-flags=--expose-gc', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 720 } });
 const page = await ctx.newPage();
 const logs = [];
@@ -23,6 +23,7 @@ page.on('console', m => logs.push(m.type() + ' ' + m.text()));
 page.on('pageerror', e => logs.push('pageerror ' + e.message));
 page.on('response', r => { if (r.status() >= 400) logs.push('error ' + r.status() + ' ' + r.url()); });
 const quality = opt('quality', phone ? 'phone' : 'high'); // a fidelity tier (web/runtime/quality.js)
+const variant = (phone ? '-phone' : '') + (opt('quality') ? '-' + quality : ''); // goldens/play/<name><variant>.png
 const q = new URLSearchParams({ test: '1', quality });
 if (opt('place')) q.set('place', '../' + opt('place'));
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
@@ -41,15 +42,17 @@ await load();
 // The test clock: render frames at a fixed 1/60 s so runs are repeatable.
 const api = {
   page, outDir, logs, // logs: console lines from the page (Luau prints arrive as '[luau] ...')
+  // Shots, diffs and goldens of a phone or quality run carry its suffix (one run doesn't overwrite another's).
+  get variant() { return variant; },
   async frames(n, input = null) { if (noShots) return; await page.evaluate(([n, input, g]) => window[g].frames(n, input), [n, input, G]); },
   async sim(n, input = null) { await page.evaluate(([n, input]) => window.studio.sim(n, input), [n, input]); },
-  async shot(name) { if (noShots) return null; const f = path.join(outDir, name + '.png'); await page.screenshot({ path: f, timeout: 300000 }); console.log('shot', f); return f; },
+  async shot(name) { if (noShots) return null; const f = path.join(outDir, name + variant + '.png'); await page.screenshot({ path: f, timeout: 300000 }); console.log('shot', f); return f; },
   // Screenshot compared with goldens/play/<name>.png (saved if missing or with --update).
   // { text: true } for GUI shots: text antialiasing at edges doesn't count (golden.mjs).
   async golden(name, opts = {}) {
     if (noShots) return;
     const buf = await page.screenshot({ timeout: 300000 });
-    const r = checkGolden(path.join('goldens/play', name + (phone ? '-phone' : '') + (opt('quality') ? '-' + quality : '') + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name), text: !!opts.text });
+    const r = checkGolden(path.join('goldens/play', name + variant + '.png'), buf, { update: args.includes('--update'), diffBase: path.join(outDir, name + variant), text: !!opts.text });
     if (r.saved) console.log('golden saved', name);
     else { console.log(`golden ${name}: ${(r.frac * 100).toFixed(3)}% pixels differ, mean ${r.mean.toFixed(3)}/255`); if (!r.ok) mismatches.push(name); }
   },
@@ -59,8 +62,24 @@ const api = {
 };
 const mismatches = [];
 const scenario = opt('scenario');
-if (scenario) { const mod = await import(path.resolve(scenario)); await mod.default(api); }
-else { await api.frames(30); await api.shot(path.basename(opt('place', 'baseplate'), '.luau')); }
+// A scenario that never finishes (a shader that fails to compile leaves whenReadyAsync waiting forever)
+// says what the page said and fails, rather than hanging the suite.
+const limit = Number(opt('timeout', '900')) * 1000;
+const watchdog = setTimeout(() => {
+  const said = logs.filter(l => /^(error|warning|pageerror)/.test(l));
+  console.log(`TIMEOUT after ${limit / 1000} s` + (said.length ? '; page said:\n' + said.join('\n') : ''));
+  process.exit(3);
+}, limit);
+try {
+  if (scenario) { const mod = await import(path.resolve(scenario)); await mod.default(api); }
+  else { await api.frames(30); await api.shot(path.basename(opt('place', 'baseplate'), '.luau')); }
+} catch (e) {
+  // A failing scenario: the page's errors and warnings first (they usually name the cause).
+  const said = logs.filter(l => /^(error|warning|pageerror)/.test(l));
+  if (said.length) console.log('page said:\n' + said.join('\n'));
+  throw e;
+}
+clearTimeout(watchdog);
 const errs = logs.filter(l => /^error|pageerror/.test(l));
 if (errs.length) console.log(errs.join('\n'));
 await browser.close();

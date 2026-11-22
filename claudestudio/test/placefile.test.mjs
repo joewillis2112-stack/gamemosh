@@ -31,6 +31,12 @@ function dump(dm) {
   return out;
 }
 
+// Where two dump lines part: the instance and the first property that differs.
+function firstDiff(x, y) {
+  const tx = x.split(' '), ty = y.split(' '); let i = 0;
+  while (i < tx.length && tx[i] === ty[i]) i++;
+  return `${tx.slice(0, 2).join(' ')}: ${tx[i] || '(none)'} vs ${ty[i] || '(none)'}`;
+}
 const places = fs.readdirSync('places').filter(f => f.endsWith('.luau'));
 for (const f of places) {
   const dm = new DataModel();
@@ -42,7 +48,7 @@ for (const f of places) {
   const warnings = loadPlace(dm2, JSON.parse(text));
   const again = JSON.stringify(savePlace(dm2));
   const a = dump(dm), b = dump(dm2), diff = a.filter((l, i) => l !== b[i]);
-  check(again === text && a.length === b.length && !diff.length && !warnings.length, `${f}: save, load, save again is identical; ${a.length} instances match property by property (${(text.length / 1024).toFixed(1)} KB)${diff.length ? ' FIRST DIFF: ' + diff[0].slice(0, 200) + ' vs ' + b[a.indexOf(diff[0])]?.slice(0, 200) : ''}${warnings.length ? ' ' + warnings[0] : ''}`);
+  check(again === text && a.length === b.length && !diff.length && !warnings.length, `${f}: save, load, save again is identical; ${a.length} instances match property by property (${(text.length / 1024).toFixed(1)} KB)${diff.length ? ' FIRST DIFF: ' + firstDiff(diff[0], b[a.indexOf(diff[0])] || '') : ''}${warnings.length ? ' ' + warnings[0] : ''}`);
 }
 
 // References, scripts, the camera, and a part edited after creation.
@@ -75,6 +81,18 @@ const dm3 = new DataModel();
 const broken = loadPlace(dm3, { format: 'claudestudio-place', version: 1, services: [{ class: 'Workspace', id: 0, children: [{ class: 'Part', id: 1, children: [{ class: 'ParticleEmitter', id: 2, props: { Size: '0 1 0 0.5 2 0 ', Rate: 7 } }] }] }] });
 const pe3 = dm3.workspace.children.find(c => c.ClassName === 'Part')?.children[0];
 check(broken.length === 1 && /time must start at 0 and end at 1/.test(broken[0]) && pe3 && pe3.props.Size.toString() === '0 1 0 1 1 0 ' && pe3.props.Rate === 7, `a refused value is skipped with a warning, the rest loads (${broken.join('; ')})`);
+
+// A part's BrickColor rides on its Color: a custom Color saves and loads exactly, the file has no
+// BrickColor of its own, and the loaded part reads the same BrickColor.
+{
+  const dmB = new DataModel(), part = dmB.create('Part'), odd = new C3(0.31, 0.62, 0.93);
+  dmB.set(part, 'Color', odd); dmB.setParent(part, dmB.workspace);
+  const part2 = dmB.create('Part'); dmB.set(part2, 'BrickColor', (await import('../web/brickcolor.js')).BrickColor.byName('Pastel Blue')); part2.props.Name = 'Named'; dmB.setParent(part2, dmB.workspace);
+  const file = savePlace(dmB), text = JSON.stringify(file), dmC = new DataModel(), w = loadPlace(dmC, JSON.parse(text));
+  const [a, b] = ['Part', 'Named'].map(n => dmC.workspace.children.find(c => c.props.Name === n));
+  check(!w.length && !/BrickColor/.test(text) && a && a.props.Color.r === odd.r && a.props.Color.b === odd.b && a.props.BrickColor === part.props.BrickColor && b.props.BrickColor.name === 'Pastel Blue',
+    `BrickColor saves as the part's Color: exact after loading, not written twice (${a && a.props.BrickColor.name}, ${b && b.props.BrickColor.name})`);
+}
 
 console.log(fail.length ? `FAIL (${fail.length})` : 'PASS');
 process.exit(fail.length ? 1 : 0);

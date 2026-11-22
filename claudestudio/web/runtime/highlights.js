@@ -21,6 +21,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { isA } from '../datamodel.js';
+import { keepLast } from './postorder.js';
 
 export const MAX_HIGHLIGHTS = 255;
 const MAX_THICKNESS = 8; // OURS: the outline search radius in pixels (LineThickness is clamped to it)
@@ -191,14 +192,13 @@ export class Highlights {
     for (const m of occluders) mask.setMaterialForRendering(m, this.occluder);
     mask.renderList = occluders.concat(list); // occluders first: their depth is in before the highlights test it
     this.count = this.list.length;
-    // Our pass goes last in the camera's chain (other passes may be added after it).
-    const pps = cam._postProcesses.filter(Boolean);
-    if (pps[pps.length - 1] !== this.post) { cam.detachPostProcess(this.post); cam.attachPostProcess(this.post); }
+    keepLast(cam, this, 30, [this.post]); // after Lighting's effects and outlines, before pixelation (runtime/postorder.js)
   }
 
   dispose() {
     if (!this.mask) return;
     const i = this.scene.customRenderTargets.indexOf(this.mask); if (i >= 0) this.scene.customRenderTargets.splice(i, 1);
+    keepLast(this.cam, this, 30, []);
     if (this.post) this.post.dispose(this.cam); this.post = null; this.mask.dispose(); this.paramTex.dispose(); this.occluder.dispose();
     for (const m of this.mats.values()) m.dispose();
     this.mask = null; this.mats = null; this.count = 0;

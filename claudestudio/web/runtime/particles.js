@@ -48,6 +48,7 @@ import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResu
 import { isA } from '../datamodel.js';
 import { tier } from './quality.js';
 import { useDepth, releaseDepth } from './depth.js';
+import { atmo } from './atmosphere.js';
 
 export const MAX_PER_EMITTER = 5000;
 const FRAME = 1 / 60; // FastForward's frame
@@ -127,9 +128,14 @@ void main() {
   vA = uv; vB = uv2; vColor = color; vBlend = blend.x; vSoft = blend.y; vPos = position; gl_Position = viewProjection * vec4(position, 1.0);
   vDepth = (gl_Position.z + depthValues.x) / depthValues.y; // the depth renderer's own metric
 }`;
+// Fog mode 2 is an Atmosphere's: into the sky behind, as parts (runtime/atmosphere.js); with no sky
+// cube, the horizon's colour. (No comments inside the shader text: Babylon's preprocessor can mangle them.)
 const FRAGMENT = `precision highp float;
 uniform sampler2D tex; uniform float lightEmission; uniform vec3 eye; uniform vec4 fog; uniform vec3 fogColor;
 uniform vec2 depthValues; uniform vec2 screen; uniform sampler2D depthTex;
+#ifdef AFOG
+uniform samplerCube afogSky; uniform vec4 afogParams; uniform vec4 afogMore; uniform mat4 afogMatrix;
+#endif
 varying vec2 vA; varying vec2 vB; varying vec4 vColor; varying float vBlend; varying vec3 vPos; varying float vDepth; varying float vSoft;
 void main() {
   vec4 t = mix(texture2D(tex, vA), texture2D(tex, vB), vBlend);
@@ -141,9 +147,18 @@ void main() {
   if (a <= 0.0) discard;
   vec3 rgb = pow(t.rgb, vec3(2.2)) * vColor.rgb;
   float f = 1.0;
-  if (fog.x > 0.5) f = clamp((fog.z - distance(vPos, eye)) / max(fog.z - fog.y, 1e-3), 0.0, 1.0);
+  vec3 fc = fogColor;
+  if (fog.x > 1.5) {
+    vec3 fv = vPos - eye; float fd = length(fv);
+    f = exp(-fd * fog.w);
+#ifdef AFOG
+    vec3 fdir = (afogMatrix * vec4(fv / max(fd, 1e-4), 0.0)).xyz; fdir.z *= afogParams.w;
+    fc = textureCubeLodEXT(afogSky, fdir, max(afogParams.y, f) * afogParams.z).rgb;
+    fc *= min(1.0, afogMore.x / max(max(fc.r, fc.g), max(fc.b, 1e-4)));
+#endif
+  } else if (fog.x > 0.5) f = clamp((fog.z - distance(vPos, eye)) / max(fog.z - fog.y, 1e-3), 0.0, 1.0);
   float cover = a * (1.0 - lightEmission);
-  gl_FragColor = vec4(rgb * a * f + fogColor * (1.0 - f) * cover, cover);
+  gl_FragColor = vec4(rgb * a * f + fc * (1.0 - f) * cover, cover);
 }`;
 
 export class Particles {
@@ -200,8 +215,9 @@ export class Particles {
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.metadata = { particles: inst };
     const mat = new ShaderMaterial('particles', this.scene, { vertexSource: VERTEX, fragmentSource: FRAGMENT }, {
-      attributes: ['position', 'uv', 'uv2', 'color', 'blend'], uniforms: ['viewProjection', 'lightEmission', 'eye', 'fog', 'fogColor', 'depthValues', 'screen'], samplers: ['tex', 'depthTex'], needAlphaBlending: true,
-      defines: this.Q.softParticles ? ['#define SOFT'] : [],
+      attributes: ['position', 'uv', 'uv2', 'color', 'blend'], uniforms: ['viewProjection', 'lightEmission', 'eye', 'fog', 'fogColor', 'depthValues', 'screen', 'afogParams', 'afogMore', 'afogMatrix'], samplers: ['tex', 'depthTex', 'afogSky'], needAlphaBlending: true,
+      // The Atmosphere's sky sampler only where there is a sky cube to bind (an unbound cube sampler fails the draw).
+      defines: [...(this.Q.softParticles ? ['#define SOFT'] : []), ...(this.scene.environmentTexture ? ['#define AFOG'] : [])],
     });
     mat.backFaceCulling = false;
     mat.disableDepthWrite = true;
@@ -455,7 +471,8 @@ export class Particles {
     // Camera axes in world space (rows of the view matrix's rotation).
     const R = [vm[0], vm[4], vm[8]], U = [vm[1], vm[5], vm[9]];
     const base = this.lightLevel(), sc = this.scene;
-    const fog = sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
+    const fog = atmo.on ? [2, 0, 0, atmo.invL] : sc.fogMode === 3 ? [1, sc.fogStart, sc.fogEnd, 0] : [0, 0, 0, 0];
+    const sky = sc.environmentTexture, skyM = sky && sky.getReflectionTextureMatrix();
     // Soft particles: the camera's depth (shared with the post effects), held once there are emitters.
     let depth = null;
     if (this.Q.softParticles) { if (!this.depth || this.depthCam !== cam) { this.dropDepth(); this.depth = useDepth(sc, cam, this); this.depthCam = cam; } depth = this.depth.getDepthMap(); }
@@ -474,6 +491,10 @@ export class Particles {
       m.setVector3('eye', eye);
       m.setVector4('fog', { x: fog[0], y: fog[1], z: fog[2], w: fog[3] });
       m.setColor3('fogColor', (sc.fogColor || Color3.Black()).toLinearSpace()); // as Babylon's PBR does: the scene's fog colour is sRGB
+      if (sky && m.options.defines.includes('#define AFOG')) {
+        m.setTexture('afogSky', sky); m.setMatrix('afogMatrix', skyM);
+        m.setVector4('afogParams', { x: atmo.invL, y: atmo.offset, z: atmo.lod, w: atmo.zSign }); m.setVector4('afogMore', { x: atmo.cap, y: 0, z: 0, w: 0 });
+      }
       if (e.texFor !== P.Texture) { e.texFor = P.Texture; m.setTexture('tex', this.texture(P.Texture)); this.evictTextures(); }
     }
     this.castLights(eye);

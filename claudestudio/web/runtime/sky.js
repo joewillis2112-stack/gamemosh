@@ -129,6 +129,8 @@ export class Sky {
     const sy = sun[1];
     const dayK = smooth(-0.12, 0.1, sy), sunsetK = smooth(-0.16, 0.0, sy) * (1 - smooth(0.04, 0.4, sy));
     const sunK = smooth(-0.03, 0.02, sy), moonK = smooth(-0.02, 0.03, moon[1]) * (1 - dayK), starsK = 1 - smooth(-0.2, -0.05, sy);
+    let cap = 0;
+    const hz = [0, 0, 0, 0]; // the horizon's mean colour, before haze
     const faces = this.base.map((src, f) => {
       if (opts.plain) return Float32Array.from(src);
       const dst = new Float32Array(src.length), dir = this.dirs[f];
@@ -146,6 +148,9 @@ export class Sky {
         r *= 1 + 0.2 * w; g *= 1 - 0.18 * w; b *= 1 - 0.38 * w;
         const glow = sunsetK * (0.9 * Math.pow(toward, 8) + 0.35 * band * (0.4 + 0.6 * toward));
         r += glow; g += 0.42 * glow; b += 0.13 * glow;
+        // The brightest of the sky itself (not the discs): the most the fog may take (runtime/atmosphere.js).
+        if (r > cap) cap = r; if (g > cap) cap = g; if (b > cap) cap = b;
+        if (height > -0.03 && height < 0.03) { hz[0] += r; hz[1] += g; hz[2] += b; hz[3]++; }
         // Discs (bright enough for bloom to make the glow).
         if (sunK > 0 && toward > SUN_COS) { r += 60 * sunK; g += 56 * sunK; b += 49 * sunK; }
         if (moonK > 0 && dx * M.x + dy * M.y + dz * M.z > MOON_COS) { r += 2 * moonK; g += 2.2 * moonK; b += 2.4 * moonK; }
@@ -158,6 +163,11 @@ export class Sky {
       }
       return dst;
     });
+    // An Atmosphere's haze over the graded sky.
+    const A = opts.atmosphere;
+    this.fogCap = opts.plain ? 1e9 : Math.max(cap, 1e-3);
+    this.hazeHorizon = null;
+    if (A && !opts.plain && hz[3] && A.haze > 0) this.haze(faces, A, S, up, hz, { dayK, sunsetK, sunK });
     if (v !== this.version) return;
     const sp = CubeMapToSphericalPolynomialTools.ConvertCubeMapToSphericalPolynomial({ size: n, right: faces[0], left: faces[1], up: faces[2], down: faces[3], front: faces[4], back: faces[5], format: 4, type: 1, gammaSpace: false });
     this.env.update(faces, 4, 1, false);
@@ -167,5 +177,41 @@ export class Sky {
     this.env.lodGenerationScale = 0.8; this.env.lodGenerationOffset = 0; // as for a loaded HDR
     this.env.sphericalPolynomial = sp;
     this.onEnvironment && this.onEnvironment();
+  }
+
+  // Atmosphere.Haze, Glare, Color and Decay, as Roblox's sky shader composes them (mashup-research/
+  // ROBLOX_LIGHTING_2026-10-09.md §4c: sky = mix(in-scattered light + sun glare, skybox, T), T the
+  // transmittance by elevation). The amounts are OURS, shaped by the community's Studio notes (§4d):
+  // below the horizon the sky is the haze colour once Haze reaches 1, above it a band about
+  // 1.5 x Haze degrees high blends in, and from Haze 5 the whole sky is haze. The haze is Color
+  // (a mid grey, 199, keeps the sky's own horizon brightness); with Glare it falls off from Color
+  // near the sun to Decay away from it, and the sun's glow (Glare) brightens it around the sun.
+  haze(faces, A, S, up, hz, { dayK, sunsetK, sunK }) {
+    const n = this.n, H = Math.min(10, Math.max(0, A.haze)), G = Math.min(10, Math.max(0, A.glare));
+    const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    const horizon = [hz[0] / hz[3], hz[1] / hz[3], hz[2] / hz[3]];
+    const k = lum(horizon) / 0.571; // linear 199 grey
+    const col = A.color.map(c => c * k), dec = A.decay.map(c => c * k);
+    const sunCol = [1, 0.92 - 0.3 * sunsetK, 0.8 - 0.45 * sunsetK].map(c => c * sunK * 1.5);
+    const band = Math.max(1e-3, 1.5 * H * Math.PI / 180), whole = smooth(3, 5, H), veilK = Math.min(1, H);
+    const out = [0, 0, 0, 0];
+    faces.forEach((dst, f) => {
+      const dir = this.dirs[f];
+      for (let i = 0; i < n * n; i++) {
+        const j = i * 3, dx = dir[j], dy = dir[j + 1], dz = dir[j + 2];
+        const height = dx * up.x + dy * up.y + dz * up.z, ang = Math.asin(Math.max(-1, Math.min(1, height)));
+        const T = (1 - veilK * (1 - smooth(0, band, ang))) * (1 - whole);
+        const hl = 0.5 + 0.5 * (dx * S.x + dy * S.y + dz * S.z);
+        const near = G > 0 ? Math.pow(hl, 4) : 1, glow = G * Math.pow(hl, 12) * 0.5;
+        for (let c = 0; c < 3; c++) {
+          const inscatter = dec[c] + (col[c] - dec[c]) * near + glow * sunCol[c];
+          dst[j + c] = inscatter + (dst[j + c] - inscatter) * T;
+        }
+        if (height > -0.03 && height < 0.03) { out[0] += dst[j]; out[1] += dst[j + 1]; out[2] += dst[j + 2]; out[3]++; }
+      }
+    });
+    // The new horizon (sRGB, as the scene's fog colour is given): what the skybox fades to below it.
+    if (out[3]) this.hazeHorizon = new Color3(out[0] / out[3], out[1] / out[3], out[2] / out[3]).toGammaSpace();
+    this.fogCap = Math.max(this.fogCap, (Math.max(...col) + G * 0.5 * 1.5) * 1.05);
   }
 }

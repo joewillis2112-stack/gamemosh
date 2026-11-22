@@ -1,5 +1,6 @@
 // Luau in wasm driving the JS DataModel: properties, parenting, lists,
-// vectors, Color3, Enum, events, task.wait, Signal:Wait, errors.
+// vectors, Color3, Enum, events, task.wait, Signal:Wait, errors; BrickColor, Rect, Region3 and
+// the members added with them, against Roblox's documented behaviour.
 // The Workspace starts with its Camera (workspace.CurrentCamera), as in Roblox.
 import createLuau from '../web/luau.mjs';
 import { DataModel, V3 } from '../web/datamodel.js';
@@ -312,6 +313,94 @@ const expect = [
   'udim2 lerp true',
   'vector2 5 6, 8 4, 5 3 1 -3, -4 true',
 ];
+// BrickColor, Rect, Region3 and the members added with them (luau/more_types.h), against Roblox's
+// documented behaviour (creator-docs datatypes/*.yaml). Each line is `name value`, checked exactly.
+const dt = {};
+const dtOut = [];
+const dvm = await startLuau(createLuau, new DataModel(), s => dtOut.push(s), { runScripts: false });
+dvm.run('datatypes', `
+local function say(k, ...) local t = {} for i = 1, select("#", ...) do t[i] = tostring((select(i, ...))) end print("@" .. k .. " " .. table.concat(t, ",")) end
+local function r3(x) return string.format("%.3f", x) end
+-- BrickColor: the docs' examples
+say("pastel_number", BrickColor.new("Pastel Blue").Number)
+say("by_number", BrickColor.new(11).Name)
+say("by_rgb", BrickColor.new(0.502, 0.734, 0.859).Name)
+say("by_color3", BrickColor.new(Color3.fromRGB(128, 187, 219)).Name, BrickColor.new(Color3.new(1, 0, 0)).Name)
+say("palette70", BrickColor.palette(70).Name, BrickColor.palette(70).Number)
+say("palette_bad", pcall(BrickColor.palette, 128))
+say("unknown", BrickColor.new("No such colour").Name, BrickColor.new(99999).Name)
+say("named", BrickColor.White().Name, BrickColor.Gray().Name, BrickColor.DarkGray().Name, BrickColor.Black().Name, BrickColor.Red().Name, BrickColor.Yellow().Name, BrickColor.Green().Name, BrickColor.Blue().Name)
+local p = BrickColor.new("Pastel Blue")
+say("members", p.Number, p.Name, r3(p.r), r3(p.g), r3(p.b), typeof(p.Color), p.Color == Color3.fromRGB(128, 187, 219))
+say("tostring_eq", tostring(p), p == BrickColor.new(11), p == BrickColor.new(1), typeof(p))
+say("readonly", pcall(function() p.Number = 1 end))
+local inPalette = true for i = 1, 20 do local c = BrickColor.random() if typeof(c) ~= "BrickColor" then inPalette = false end end
+say("random", inPalette)
+-- BasePart.BrickColor: setting it sets Color; reading gives the nearest to Color
+local part = Instance.new("Part")
+say("part_default", part.BrickColor.Name)
+part.BrickColor = BrickColor.new("Pastel Blue")
+say("part_set", part.Color == Color3.fromRGB(128, 187, 219), part.BrickColor.Name)
+part.Color = Color3.fromRGB(250, 10, 10)
+say("part_nearest", part.BrickColor.Name, part.Color == Color3.fromRGB(250, 10, 10))
+say("part_bad", pcall(function() part.BrickColor = Color3.new() end))
+-- Rect
+local r = Rect.new(Vector2.new(5, 6), Vector2.new(1, 2))
+say("rect", r.Min.X, r.Min.Y, r.Max.X, r.Max.Y, r.Width, r.Height, typeof(r))
+say("rect4", Rect.new(0, 0, 10, 4).Width, Rect.new(0, 0, 10, 4).Height, Rect.new().Width, tostring(Rect.new(1, 2, 3, 4)), Rect.new(1, 2, 3, 4) == Rect.new(3, 4, 1, 2))
+-- Region3
+local g = Region3.new(Vector3.new(0.5, 0, -1), Vector3.new(4, 4, 3))
+say("region3", g.Size.X, g.Size.Y, g.Size.Z, g.CFrame.X, g.CFrame.Y, g.CFrame.Z, g.CFrame.Rotation == CFrame.new(), typeof(g))
+local e = g:ExpandToGrid(4)
+say("expand", e.Size.X, e.Size.Y, e.Size.Z, e.CFrame.X, e.CFrame.Y, e.CFrame.Z)
+say("negative", Region3.new(Vector3.one, Vector3.zero).Size.X)
+-- Color3: the docs' examples
+say("luminance", r3(Color3.fromRGB(255, 0, 0):GetLuminance()), Color3.new(1, 1, 1):GetLuminance(), Color3.new(0, 0, 0):GetLuminance(), r3(Color3.new(2, 2, 2):GetLuminance()))
+say("contrast", Color3.new(0, 0, 0):GetContrastRatio(Color3.new(1, 1, 1)), Color3.new(1, 1, 1):GetContrastRatio(Color3.new(0, 0, 0)), Color3.new(0.3, 0.3, 0.3):GetContrastRatio(Color3.new(0.3, 0.3, 0.3)))
+local orange = Color3.fromRGB(255, 165, 0)
+say("contrasting", tostring(orange:GetContrastingColor()), tostring(Color3.fromRGB(0, 0, 139):GetContrastingColor()), tostring(orange:GetContrastingColor(Color3.fromRGB(20, 20, 20), Color3.fromRGB(240, 240, 240))))
+-- Vector3.FromNormalId / FromAxis
+say("normals", Vector3.FromNormalId(Enum.NormalId.Top), Vector3.FromNormalId(Enum.NormalId.Front), Vector3.FromNormalId(Enum.NormalId.Right), Vector3.FromNormalId(Enum.NormalId.Left), Vector3.FromNormalId(Enum.NormalId.Bottom), Vector3.FromNormalId(Enum.NormalId.Back))
+say("axes", Vector3.FromAxis(Enum.Axis.X), Vector3.FromAxis(Enum.Axis.Y), Vector3.FromAxis(Enum.Axis.Z), (pcall(Vector3.FromAxis, Enum.NormalId.Top)))
+-- CFrame: rotation orders. fromEulerAngles(XYZ) is Angles; (YXZ) is fromEulerAnglesYXZ; each order round-trips.
+say("order_xyz", CFrame.fromEulerAngles(0.3, 0.5, 0.7):FuzzyEq(CFrame.Angles(0.3, 0.5, 0.7)), CFrame.fromEulerAngles(0.3, 0.5, 0.7, Enum.RotationOrder.YXZ):FuzzyEq(CFrame.fromEulerAnglesYXZ(0.3, 0.5, 0.7)))
+local same = true
+for _, o in Enum.RotationOrder:GetEnumItems() do
+  local c = CFrame.fromEulerAngles(0.3, -0.5, 0.7, o)
+  local x, y, z = c:ToEulerAngles(o)
+  if math.abs(x - 0.3) > 1e-5 or math.abs(y + 0.5) > 1e-5 or math.abs(z - 0.7) > 1e-5 then same = false end
+  -- and the order is the product's: X then Y then Z for XYZ, etc.
+  local parts = { X = CFrame.Angles(0.3, 0, 0), Y = CFrame.Angles(0, -0.5, 0), Z = CFrame.Angles(0, 0, 0.7) }
+  local n = o.Name
+  if not c:FuzzyEq(parts[n:sub(1, 1)] * parts[n:sub(2, 2)] * parts[n:sub(3, 3)]) then same = false end
+end
+say("orders", same)
+local yx, yy, yz = CFrame.fromEulerAnglesYXZ(0.3, 0.5, 0.7):ToEulerAngles(Enum.RotationOrder.YXZ)
+local ax, ay, az = CFrame.fromEulerAnglesYXZ(0.3, 0.5, 0.7):ToEulerAnglesYXZ()
+say("to_yxz", math.abs(yx - ax) < 1e-6 and math.abs(yy - ay) < 1e-6 and math.abs(yz - az) < 1e-6)
+say("angle_between", r3(CFrame.new():AngleBetween(CFrame.Angles(0, 1, 0))), r3(CFrame.new(5, 0, 0):AngleBetween(CFrame.new(-3, 2, 1))), r3(CFrame.Angles(0, 0.5, 0):AngleBetween(CFrame.Angles(0, 0.5, 0) * CFrame.Angles(0.25, 0, 0))))
+say("look_along", CFrame.lookAlong(Vector3.new(1, 2, 3), Vector3.new(0, 0, 5)):FuzzyEq(CFrame.lookAt(Vector3.new(1, 2, 3), Vector3.new(1, 2, 8))))
+local rb = CFrame.fromRotationBetweenVectors(Vector3.new(0, 2, 0), Vector3.new(3, 0, 0))
+say("rotation_between", (rb * Vector3.yAxis):FuzzyEq(Vector3.xAxis), rb.Position == Vector3.zero, (CFrame.fromRotationBetweenVectors(Vector3.yAxis, -Vector3.yAxis) * Vector3.yAxis):FuzzyEq(-Vector3.yAxis), CFrame.fromRotationBetweenVectors(Vector3.xAxis, Vector3.xAxis * 2) == CFrame.new())
+`);
+for (const l of dtOut) { const m = /^@(\w+) (.*)$/.exec(l); if (m) dt[m[1]] = m[2]; }
+const DT_EXPECT = {
+  pastel_number: '11', by_number: 'Pastel Blue', by_rgb: 'Pastel Blue', by_color3: 'Pastel Blue,Really red', palette70: 'Gold,333',
+  unknown: 'Medium stone grey,Medium stone grey', named: 'White,Medium stone grey,Dark stone grey,Black,Bright red,Bright yellow,Dark green,Bright blue',
+  members: '11,Pastel Blue,0.502,0.733,0.859,Color3,true', tostring_eq: 'Pastel Blue,true,false,BrickColor', random: 'true',
+  part_default: 'Medium stone grey', part_set: 'true,Pastel Blue', part_nearest: 'Really red,true',
+  rect: '1,2,5,6,4,4,Rect', rect4: '10,4,0,1, 2, 3, 4,true',
+  region3: '3.5,4,4,2.25,2,1,true,Region3', expand: '4,4,8,2,2,0', negative: '-1',
+  luminance: '0.213,1,0,1.000', contrast: '21,21,1',
+  contrasting: '0, 0, 0,1, 1, 1,0.0784313753, 0.0784313753, 0.0784313753',
+  normals: '0, 1, 0,0, 0, -1,1, 0, 0,-1, 0, 0,0, -1, 0,0, 0, 1', axes: '1, 0, 0,0, 1, 0,0, 0, 1,false',
+  order_xyz: 'true,true', orders: 'true', to_yxz: 'true', angle_between: '1.000,0.000,0.250', look_along: 'true', rotation_between: 'true,true,true,true',
+};
+const dtBad = Object.entries(DT_EXPECT).filter(([k, v]) => dt[k] !== v).map(([k, v]) => `${k}: got ${JSON.stringify(dt[k])}, want ${JSON.stringify(v)}`);
+for (const [k, re] of [['palette_bad', /^false,.*out of range/], ['readonly', /^false,.*Number cannot be assigned to/], ['part_bad', /^false,.*BrickColor expected/]]) if (!re.test(dt[k] || '')) dtBad.push(`${k}: got ${JSON.stringify(dt[k])}`);
+if (dtBad.length) console.log('datatypes:', dtBad.join('; '));
+else console.log(`datatypes: BrickColor, Rect, Region3, Color3 contrast, FromNormalId/FromAxis, CFrame orders: ${Object.keys(DT_EXPECT).length + 3} checks ok`);
+
 const missing = expect.filter(e => !out.includes(e));
 const badprop = out.find(l => l.startsWith('bad prop false') && l.includes('Nope is not a valid member of Part'));
 const badtype = out.find(l => l.startsWith('bad type false') && l.includes('bool expected'));
@@ -327,8 +416,23 @@ const reqErrs = ['require two false', 'require loop false', 'require part false'
 const udimRO = out.find(l => l.startsWith('udim2 ro false') && l.includes('cannot be assigned to'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
-if (missing.length || !udimRO || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
-  console.log('FAIL', { missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, scriptOnce, moduleOnce, reqErrs: !!reqErrs, waiting: vm.waiting() });
+// Script timeout (Studio's Script Timeout): a resumption that never yields stops with Roblox's error,
+// quickly, and the VM carries on; one that yields often runs as long as it likes in total.
+vm.scriptTimeout(0.3);
+const tRun = Date.now();
+vm.run('runaway', 'local n = 0 while true do n += 1 end');
+const runawayMs = Date.now() - tRun;
+vm.run('patient', 'local busy = 0 for i = 1, 8 do local s = os.clock() while os.clock() - s < 0.1 do busy += 1 end task.wait() end print("patient done")');
+for (let i = 0; i < 12; i++) vm.step(3 + i * 0.1);
+vm.scriptTimeout(10);
+vm.run('alive', 'print("alive after timeout")');
+const timedOut = !!out.find(l => l.startsWith('ERR') && l.includes('Script timeout: exhausted allowed execution time')) && runawayMs < 3000;
+const patient = out.includes('patient done'), alive = out.includes('alive after timeout');
+console.log(`script timeout: runaway stopped after ${runawayMs} ms (${timedOut}), patient ${patient}, alive ${alive}`);
+if (!timedOut || !patient || !alive) { console.log('FAIL script timeout'); process.exit(1); }
+
+if (dtBad.length || missing.length || !udimRO || !scriptOnce || !moduleOnce || !reqErrs || !cfType || !badprop || !badtype || !broken || !t1 || !colorType || !colorRO || !enumErrs || !mtLocked || vm.waiting() !== 0) {
+  console.log('FAIL', { dtBad, missing, badprop: !!badprop, badtype: !!badtype, broken: !!broken, t1, colorType: !!colorType, colorRO: !!colorRO, enumErrs, mtLocked: !!mtLocked, cfType: !!cfType, scriptOnce, moduleOnce, reqErrs: !!reqErrs, waiting: vm.waiting() });
   process.exit(1);
 }
 console.log('PASS');

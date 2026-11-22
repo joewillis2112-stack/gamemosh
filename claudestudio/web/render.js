@@ -13,6 +13,8 @@ import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPi
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase.js';
+import { RegisterClass } from '@babylonjs/core/Misc/typeStore.js';
+import { atmo } from './runtime/atmosphere.js';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader.js';
 import '@babylonjs/core/Helpers/sceneHelpers.js';
@@ -43,7 +45,7 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
     scene.environmentIntensity = 0.9;
     if (skybox) {
       const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false);
-      if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene); }
+      if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene, env); }
     }
     ready = new Promise(res => env.onLoadObservable.addOnce(() => res()));
   } else if (!dynamicSky) {
@@ -100,41 +102,65 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
 // (runtime/sky.js) uses it for the same cube that lights the scene.
 export function createSkybox(scene, env) {
   const sky = scene.createDefaultSkybox(env, true, 4000, 0.0, false);
-  if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene); }
+  if (sky) { sky.applyFog = false; new BelowHorizon(sky.material, scene, env); }
   return sky;
 }
 
-// The HDR's lower half is mirrored, streaky cloud. Below the horizon the sky
-// fades into the haze colour, the same colour fog takes distant geometry to,
-// so a place with no ground (or the ground's far edge) meets it seamlessly;
-// further down it deepens, so a void still has depth.
+// The HDR's lower half is mirrored, streaky cloud. Below the horizon the sky fades into its own
+// colour at the horizon in the same direction (a little blurred), which is also what an Atmosphere
+// fogs distant ground to (runtime/atmosphere.js), so the ground's far edge, or a place with no
+// ground, meets it seamlessly at every heading, hazy or not; further down it deepens, so a void
+// still has depth. Linear, as the sky itself (the image processing comes after, in the pipeline).
 class BelowHorizon extends MaterialPluginBase {
-  constructor(material, scene) {
+  constructor(material, scene, env) {
     super(material, 'BelowHorizon', 200, { BELOW_HORIZON: false });
-    this.scene = scene;
+    Object.assign(this, { scene, env });
     this._enable(true);
   }
-  prepareDefines(defines) { defines.BELOW_HORIZON = true; }
+  prepareDefines(defines) { defines.BELOW_HORIZON = !!this.env; }
+  isReadyForSubMesh() { return !this.env || this.env.isReady(); }
   getClassName() { return 'BelowHorizon'; }
+  getSamplers(samplers) { samplers.push('horizonSky'); }
   getUniforms() {
-    return { ubo: [{ name: 'horizonColor', size: 3, type: 'vec3' }], fragment: 'uniform vec3 horizonColor;' };
+    return {
+      ubo: [{ name: 'horizonMatrix', size: 16, type: 'mat4' }, { name: 'horizonInfo', size: 4, type: 'vec4' }],
+      fragment: '#ifdef BELOW_HORIZON\nuniform mat4 horizonMatrix;\nuniform vec4 horizonInfo;\n#endif\n',
+    };
   }
-  bindForSubMesh(ubo) { ubo.updateColor3('horizonColor', this.scene.fogColor); }
+  bindForSubMesh(ubo, scene, engine, subMesh) {
+    if (!this.env) return;
+    ubo.updateMatrix('horizonMatrix', this.env.getReflectionTextureMatrix());
+    // The blur as an angle on every tier: mip 2 of the default 256-texel sky, the same angle on smaller or larger ones.
+    const size = this.env.getSize ? this.env.getSize().width || 256 : 256;
+    ubo.updateFloat4('horizonInfo', this.scene.useRightHandedSystem && !this.env.invertZ ? -1 : 1, Math.min(atmo.cap, 1e9), Math.max(0, 2 + Math.log2(size / 256)), 0);
+    if (subMesh && subMesh.effect) subMesh.effect.setTexture('horizonSky', this.env);
+  }
   getCustomCode(shaderType) {
+    // The sky at the far plane (just inside it): the box is 4000 studs across, so without this
+    // anything past its faces (about 2000 studs) would be hidden behind the sky.
+    if (shaderType === 'vertex') return { CUSTOM_VERTEX_MAIN_END: 'gl_Position.z = gl_Position.w * 0.9999995;' };
     if (shaderType !== 'fragment') return null;
     return {
+      CUSTOM_FRAGMENT_DEFINITIONS: '#ifdef BELOW_HORIZON\nuniform samplerCube horizonSky;\n#endif\n',
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
         #ifdef BELOW_HORIZON
           vec3 skyDir = normalize(vPositionW - vEyePosition.xyz);
           float below = smoothstep(0.0, -0.05, skyDir.y);
-          // Deeper below, a darker, bluer haze, as an atmosphere looks looking down.
-          vec3 deep = horizonColor * vec3(0.55, 0.62, 0.74);
-          vec3 haze = mix(horizonColor, deep, smoothstep(-0.02, -0.6, skyDir.y));
-          finalColor.rgb = mix(finalColor.rgb, haze, below);
+          if (below > 0.0) {
+            vec3 hd = (horizonMatrix * vec4(normalize(vec3(skyDir.x, -0.01, skyDir.z)), 0.0)).xyz;
+            hd.z *= horizonInfo.x;
+            vec3 hc = textureCubeLodEXT(horizonSky, hd, horizonInfo.z).rgb;
+            hc *= min(1.0, horizonInfo.y / max(max(hc.r, hc.g), max(hc.b, 1e-4)));
+            vec3 deep = hc * vec3(0.55, 0.62, 0.74);
+            vec3 haze = mix(hc, deep, smoothstep(-0.02, -0.6, skyDir.y));
+            finalColor.rgb = mix(finalColor.rgb, haze, below);
+          }
         #endif`,
     };
   }
 }
+// A cloned material re-creates its plugins by class name (see runtime/styles.js).
+RegisterClass('BABYLON.BelowHorizon', BelowHorizon);
 
 /** A plain studio plastic: albedo colour, mid roughness, no metal. */
 export function plastic(scene, name, color, roughness = 0.55) {

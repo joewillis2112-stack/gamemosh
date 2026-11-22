@@ -15,6 +15,7 @@ import { World } from './runtime/world.js';
 import { LocalLights } from './runtime/locallights.js';
 import { Particles } from './runtime/particles.js';
 import { Highlights } from './runtime/highlights.js';
+import { Styles } from './runtime/styles.js';
 import { Character } from './runtime/character.js';
 import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
@@ -87,6 +88,7 @@ async function main() {
   const localLights = new LocalLights(scene, dm, world, { quality: q.get('quality') || 'high', sunShadows: R.shadows });
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality: q.get('quality') || 'high', localLights });
+  const styles = new Styles(scene, dm, camera.cam, { sun: R.sun });
   const highlights = new Highlights(scene, dm, world, { rigs, localCharacter: () => { const h = players.humanoid; return h && !h.destroyed && h.parent ? { model: h.parent, meshes: player.meshes } : null; } });
   await lighting.settled(); // the sky drawn into the environment for the starting time
   const controls = new Controls(canvas, camera);
@@ -138,6 +140,7 @@ async function main() {
     lighting.update();
     localLights.update();
     particles.update(dt);
+    styles.update();
     highlights.update();
     sounds.update(dt);
   };
@@ -165,7 +168,7 @@ async function main() {
     output.mount();
   }
   window.studio = {
-    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, sky, R, ready: true,
+    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

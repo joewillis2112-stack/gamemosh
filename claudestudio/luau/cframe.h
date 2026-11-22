@@ -206,6 +206,8 @@ static int cf_m_fuzzyeq(lua_State* L) {
     lua_pushboolean(L, ok); return 1;
 }
 
+static int cf_m_toEulerAngles(lua_State* L); // more_types.h (they take an Enum.RotationOrder)
+static int cf_m_angleBetween(lua_State* L);
 static int cf_index(lua_State* L) {
     double m[12]; check_cf(L, 1, m);
     const char* k = luaL_checkstring(L, 2);
@@ -225,6 +227,7 @@ static int cf_index(lua_State* L) {
         { "GetComponents", cf_m_components }, { "components", cf_m_components },
         { "ToEulerAnglesXYZ", cf_m_toXYZ }, { "toEulerAnglesXYZ", cf_m_toXYZ }, { "ToEulerAnglesYXZ", cf_m_toYXZ }, { "toEulerAnglesYXZ", cf_m_toYXZ },
         { "ToOrientation", cf_m_toYXZ }, { "ToAxisAngle", cf_m_toAxisAngle }, { "toAxisAngle", cf_m_toAxisAngle }, { "FuzzyEq", cf_m_fuzzyeq },
+        { "ToEulerAngles", cf_m_toEulerAngles }, { "AngleBetween", cf_m_angleBetween },
     };
     for (auto& e : M) if (!strcmp(k, e.name)) { lua_pushcfunction(L, e.fn, e.name); return 1; }
     luaL_error(L, "%s is not a valid member of CFrame", k);

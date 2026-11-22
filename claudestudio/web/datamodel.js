@@ -7,8 +7,9 @@ import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
-export { CF };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20 };
+import { BrickColor, defineBrickColor } from './brickcolor.js';
+export { CF, BrickColor };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
 export class UDim { constructor(s = 0, o = 0) { this.s = Math.fround(s); this.o = Math.trunc(o); } }
 export class UDim2 { constructor(xs = 0, xo = 0, ys = 0, yo = 0) { this.xs = Math.fround(xs); this.xo = Math.trunc(xo); this.ys = Math.fround(ys); this.yo = Math.trunc(yo); } }
@@ -79,6 +80,8 @@ export const ENUMS = {
   },
   PartType: { Ball: 0, Block: 1, Cylinder: 2, Wedge: 3, CornerWedge: 4 },
   NormalId: { Right: 0, Top: 1, Back: 2, Left: 3, Bottom: 4, Front: 5 },
+  Axis: { X: 0, Y: 1, Z: 2 }, // Vector3.FromAxis
+  RotationOrder: { XYZ: 0, XZY: 1, YZX: 2, YXZ: 3, ZXY: 4, ZYX: 5 }, // CFrame.fromEulerAngles, :ToEulerAngles (values: Roblox's API dump)
   // ParticleEmitter's (API dump, mashup-research/ROBLOX_PARTICLES_2026-11-13.md).
   ParticleOrientation: { FacingCamera: 0, FacingCameraWorldUp: 1, VelocityParallel: 2, VelocityPerpendicular: 3 },
   ParticleEmitterShape: { Box: 0, Sphere: 1, Cylinder: 2, Disc: 3 },
@@ -327,7 +330,8 @@ defineClass('BasePart', 'Instance', {
   props: {
     CFrame: ['CFrame', null], Position: ['Vector3', [0, 0, 0]], Orientation: ['Vector3', [0, 0, 0]], Size: ['Vector3', [4, 1, 2]],
     Anchored: ['bool', false], CanCollide: ['bool', true], CanTouch: ['bool', true], CanQuery: ['bool', true], Transparency: ['number', 0],
-    Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
+    // BrickColor: a view of Color (brickcolor.js), the nearest named colour; setting it sets Color.
+    BrickColor: ['BrickColor', null], Color: ['Color3', [163 / 255, 162 / 255, 165 / 255]], Material: ['Enum.Material', 'Plastic'], Reflectance: ['number', 0],
     // Studio only: a locked part can't be clicked to select it (it still shows in the Explorer).
     Locked: ['bool', false],
     // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
@@ -477,6 +481,11 @@ defineClass('DepthOfFieldEffect', 'PostEffect', { props: { FarIntensity: ['numbe
 defineClass('SunRaysEffect', 'PostEffect', { props: { Intensity: ['number', 0.25], Spread: ['number', 1] } });
 defineClass('BlurEffect', 'PostEffect', { props: { Size: ['number', 24] } });
 // Only under Lighting, and only the most recently parented one counts (Roblox's docs).
+// Claude Studio's own looks (STUDIO_OWN), placed like Roblox's effects (children of Lighting or the
+// camera) and drawn by runtime/styles.js: cel shading, ink outlines, and a pixel look.
+defineClass('ToonEffect', 'PostEffect', { props: { Bands: ['number', 3], Softness: ['number', 0.05] } });
+defineClass('OutlineEffect', 'PostEffect', { props: { Color: ['Color3', [0, 0, 0]], Transparency: ['number', 0], Thickness: ['number', 1], DepthSensitivity: ['number', 0.5], NormalSensitivity: ['number', 0.5] } });
+defineClass('PixelEffect', 'PostEffect', { props: { PixelSize: ['number', 4], Colors: ['number', 0], Dither: ['bool', false] } });
 defineClass('ColorGradingEffect', 'PostEffect', { props: { TonemapperPreset: ['Enum.TonemapperPreset', 'Default'] } });
 defineClass('Atmosphere', 'Instance', { props: { Density: ['number', 0.395], Offset: ['number', 0], Color: ['Color3', [0.7843, 0.6667, 0.4235]], Decay: ['Color3', [0.3608, 0.2353, 0.0549]], Glare: ['number', 0], Haze: ['number', 0] } });
 defineClass('Sky', 'Instance', { props: { CelestialBodiesShown: ['bool', true], StarCount: ['number', 3000], SunAngularSize: ['number', 21], MoonAngularSize: ['number', 11] } });
@@ -698,6 +707,7 @@ export class Instance {
       for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : d;
     }
     this.props.Name = cls;
+    if (isA(cls, 'BasePart')) defineBrickColor(this.props);
     if (cls === 'Terrain') this.voxels = new Voxels();
     this.handle = dm.register(this);
   }
@@ -812,6 +822,9 @@ export class DataModel {
   }
   set(inst, key, value) {
     if (key === 'Parent') return this.setParent(inst, value);
+    // A part's BrickColor sets its Color; naming the BrickColor its Color is already nearest changes
+    // nothing, so a custom Color survives props copied one by one (scripts always set: host.newindex).
+    if (key === 'BrickColor' && 'Color' in inst.props) { if (!(value instanceof BrickColor) || value === inst.props.BrickColor) return; key = 'Color'; value = value.color; }
     if (inst.ClassName === 'Attachment' && (key === 'WorldCFrame' || key === 'WorldPosition' || key === 'WorldOrientation')) {
       // A world placement becomes the local one under the part.
       const w = this.attachmentWorld(inst).WorldCFrame;
@@ -852,8 +865,11 @@ export class DataModel {
     if (key === 'CFrame') cf = value;
     else if (key === 'Position') cf = old.withPosition(value.x, value.y, value.z);
     else cf = CF.fromOrientation(old.x, old.y, old.z, value.x, value.y, value.z);
-    const [ox, oy, oz] = cf.toOrientation();
-    const next = { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)) };
+    // Position and Orientation follow the CFrame on classes that have them (a part, an Attachment),
+    // not on ones that don't (a Camera has only CFrame, as in Roblox).
+    const next = { CFrame: cf };
+    if (lookup(inst.ClassName, 'props', 'Position')) next.Position = new V3(cf.x, cf.y, cf.z);
+    if (lookup(inst.ClassName, 'props', 'Orientation')) { const [ox, oy, oz] = cf.toOrientation(); next.Orientation = new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)); }
     const changed = Object.keys(next).filter(k => !sameValue(P[k], next[k]));
     if (!changed.length) return;
     Object.assign(P, next);
@@ -1038,6 +1054,19 @@ export const STUDIO_OWN = new Map([
   ['ParticleEmitter.Bounciness', 'The share of a particle\'s speed kept when it bounces off a part (Collision Bounce), 0 to 1.'],
   ['PartOperation.PartColors', 'The colour of each part a solid-modelling operation was made from, shown on its faces unless UsePartColor is set.'],
   ['Enum.ParticleCollision','What a ParticleEmitter\'s particles do when they hit a part (its Collision property).'],
+  ['ToonEffect', 'Cel shading for the whole scene: direct light falls into a few flat bands.'],
+  ['ToonEffect.Bands', 'How many steps of light a lit surface shows (2 to 8).'],
+  ['ToonEffect.Softness', 'How soft the step between two bands is, as a share of a band (0 hard, 0.5 smooth).'],
+  ['OutlineEffect', 'Ink lines on the whole scene: around silhouettes and along creases.'],
+  ['OutlineEffect.Color', 'The colour of the lines.'],
+  ['OutlineEffect.Transparency', 'How see-through the lines are (0 solid, 1 invisible).'],
+  ['OutlineEffect.Thickness', 'The width of the lines in pixels (1 to 4).'],
+  ['OutlineEffect.DepthSensitivity', 'How small a jump in distance draws a line (0 only big gaps, 1 every step).'],
+  ['OutlineEffect.NormalSensitivity', 'How shallow a crease draws a line (0 only sharp corners, 1 gentle bends).'],
+  ['PixelEffect', 'A low-resolution, pixel-art look for the whole screen.'],
+  ['PixelEffect.PixelSize', 'How many screen pixels make one big pixel (1 to 16).'],
+  ['PixelEffect.Colors', 'Levels per colour channel (2 to 32) for a limited palette; 0 keeps every colour.'],
+  ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
 ]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
@@ -1104,6 +1133,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof ColorSequence) o.push({ t: T.COLORSEQ, n: v.k.length, s: v.toString() });
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
+      else if (v instanceof BrickColor) o.push({ t: T.BRICKCOLOR, n: v.number });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
@@ -1141,6 +1171,7 @@ export function makeHost(dm, log = console.log) {
         case T.COLORSEQ: return ColorSequence.parse(a.s);
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
+        case T.BRICKCOLOR: return BrickColor.byNumber(a.n);
       }
       return null;
     },
@@ -1188,6 +1219,10 @@ export function makeHost(dm, log = console.log) {
       if (ok && typeof v !== ok) return host.err(`Unable to assign property ${key}. ${ty} expected, got ${v === null ? 'nil' : typeof v}`);
       if (ty === 'Vector3' && !(v instanceof V3)) return host.err(`Unable to assign property ${key}. Vector3 expected`);
       if (ty === 'Color3' && !(v instanceof C3)) return host.err(`Unable to assign property ${key}. Color3 expected`);
+      if (ty === 'BrickColor') { // as in Roblox, a script's BrickColor always sets Color to its colour
+        if (!(v instanceof BrickColor)) return host.err(`Unable to assign property ${key}. BrickColor expected`);
+        return dm.set(inst, 'Color', v.color);
+      }
       if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
       for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2], ['NumberRange', NumberRange], ['NumberSequence', NumberSequence], ['ColorSequence', ColorSequence]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
       if (ty.startsWith('Enum.')) {

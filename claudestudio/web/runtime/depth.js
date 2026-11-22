@@ -9,7 +9,7 @@ const users = new WeakMap(); // camera -> Set of users
 export function useDepth(scene, camera, who) {
   if (!users.has(camera)) users.set(camera, new Set());
   users.get(camera).add(who);
-  return scene.enableDepthRenderer(camera, false);
+  return scene.enableDepthRenderer(camera, false, true); // 32-bit: half floats are too coarse far away for outlines and soft particles
 }
 /** `who` no longer needs it; the last one out turns it off. */
 export function releaseDepth(scene, camera, who) {

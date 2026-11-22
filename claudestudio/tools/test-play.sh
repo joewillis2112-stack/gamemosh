@@ -2,6 +2,23 @@
 # Every player scenario, in order. Exits non-zero if any scenario fails or any
 # golden mismatches. Pass --update to re-save goldens (look at them first).
 set -u
+# The suite runs on a snapshot of the tree, so files edited while it runs (it takes about an hour)
+# can't reach it. Goldens re-saved with --update are copied back; shots and diffs stay in the
+# snapshot's build/play (its path is printed first).
+if [ -z "${SUITE_SNAPSHOT:-}" ]; then
+  SRC="$(cd "$(dirname "$0")/.." && pwd)"
+  rm -rf /tmp/cs-suite-* 2>/dev/null
+  SNAP="$(mktemp -d /tmp/cs-suite-XXXX)"
+  mkdir -p "$SNAP/claudestudio"
+  (cd "$SRC" && tar cf - --exclude=./node_modules --exclude=./build --exclude=./.cache .) | (cd "$SNAP/claudestudio" && tar xf -)
+  ln -s "$SRC/node_modules" "$SNAP/claudestudio/node_modules"
+  ln -s "$(cd "$SRC/.." && pwd)/node_modules" "$SNAP/node_modules"
+  [ -d "$SRC/.cache" ] && ln -s "$SRC/.cache" "$SNAP/claudestudio/.cache"
+  echo "suite snapshot: $SNAP/claudestudio"
+  SUITE_SNAPSHOT=1 bash "$SNAP/claudestudio/tools/test-play.sh" "$@"; code=$?
+  [ "${1:-}" = "--update" ] && cp -r "$SNAP/claudestudio/goldens/." "$SRC/goldens/"
+  exit $code
+fi
 cd "$(dirname "$0")/.."
 node tools/build.mjs >/dev/null || exit 1
 U="${1:-}"
@@ -50,6 +67,13 @@ run --quality low --place places/particles-lab.luau --scenario test/scenarios/pa
 run --quality ultra --place places/particles-lab.luau --scenario test/scenarios/particles.mjs
 run --scenario test/scenarios/highlights.mjs
 run --phone --scenario test/scenarios/highlights.mjs
+run --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --phone --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --quality low --place places/styles-lab.luau --scenario test/scenarios/styles.mjs
+run --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
+run --quality low --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
+run --scenario test/scenarios/unions.mjs
+run --noshots --scenario test/scenarios/stress.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs
@@ -68,6 +92,8 @@ run --page editor --scenario test/scenarios/editor-terrain.mjs
 run --page editor --phone --scenario test/scenarios/editor-terrain.mjs
 run --page editor --scenario test/scenarios/editor-paint.mjs
 run --page editor --phone --scenario test/scenarios/editor-paint.mjs
+run --page editor --scenario test/scenarios/editor-paint-more.mjs
+run --page editor --phone --scenario test/scenarios/editor-paint-more.mjs
 run --page editor --scenario test/scenarios/editor-image.mjs
 run --page editor --phone --scenario test/scenarios/editor-image.mjs
 run --page editor --scenario test/scenarios/editor-vector.mjs
@@ -82,23 +108,23 @@ if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
 else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
-node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
-node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
-node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }
-node test/camera.test.mjs | tail -1 | grep -q PASS && echo "camera test PASS" || { echo "FAILED: camera test"; fail=1; }
-node test/editor-commands.test.mjs | tail -1 | grep -q PASS && echo "editor commands test PASS" || { echo "FAILED: editor commands test"; fail=1; }
-node test/animation.test.mjs | tail -1 | grep -q PASS && echo "animation test PASS" || { echo "FAILED: animation test"; fail=1; }
-node test/terrain.test.mjs | tail -1 | grep -q PASS && echo "terrain test PASS" || { echo "FAILED: terrain test"; fail=1; }
-node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place file test PASS" || { echo "FAILED: place file test"; fail=1; }
-vt=$(npx vitest run web/modeling/kernel test/modeling.test.mjs 2>&1); echo "$vt" | grep -q "Tests .*passed" && ! echo "$vt" | grep -q "failed" && echo "modeling tests PASS ($(echo "$vt" | grep -o "Tests .*passed[^)]*"))" || { echo "FAILED: modeling tests"; fail=1; }
-node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
-node test/vector.test.mjs | tail -1 | grep -q PASS && echo "vector geometry test PASS" || { echo "FAILED: vector geometry test"; fail=1; }
-node test/develop.test.mjs | tail -1 | grep -q PASS && echo "develop test PASS" || { echo "FAILED: develop test"; fail=1; }
-node test/sequences.test.mjs | tail -1 | grep -q PASS && echo "particle datatypes test PASS" || { echo "FAILED: particle datatypes test"; fail=1; }
-node test/completions.test.mjs | tail -1 | grep -q PASS && echo "completions test PASS" || { echo "FAILED: completions test"; fail=1; }
-node test/luaucheck.test.mjs | tail -1 | grep -q PASS && echo "script checker test PASS" || { echo "FAILED: script checker test"; fail=1; }
-node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
-node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
-node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }
+timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
+timeout 600 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
+timeout 600 node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }
+timeout 600 node test/camera.test.mjs | tail -1 | grep -q PASS && echo "camera test PASS" || { echo "FAILED: camera test"; fail=1; }
+timeout 600 node test/editor-commands.test.mjs | tail -1 | grep -q PASS && echo "editor commands test PASS" || { echo "FAILED: editor commands test"; fail=1; }
+timeout 600 node test/animation.test.mjs | tail -1 | grep -q PASS && echo "animation test PASS" || { echo "FAILED: animation test"; fail=1; }
+timeout 600 node test/terrain.test.mjs | tail -1 | grep -q PASS && echo "terrain test PASS" || { echo "FAILED: terrain test"; fail=1; }
+timeout 600 node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place file test PASS" || { echo "FAILED: place file test"; fail=1; }
+vt=$(timeout 900 npx vitest run web/modeling/kernel test/modeling.test.mjs test/csg.test.mjs 2>&1); echo "$vt" | grep -q "Tests .*passed" && ! echo "$vt" | grep -q "failed" && echo "modeling tests PASS ($(echo "$vt" | grep -o "Tests .*passed[^)]*"))" || { echo "FAILED: modeling tests"; fail=1; }
+timeout 600 node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
+timeout 600 node test/vector.test.mjs | tail -1 | grep -q PASS && echo "vector geometry test PASS" || { echo "FAILED: vector geometry test"; fail=1; }
+timeout 600 node test/develop.test.mjs | tail -1 | grep -q PASS && echo "develop test PASS" || { echo "FAILED: develop test"; fail=1; }
+timeout 600 node test/sequences.test.mjs | tail -1 | grep -q PASS && echo "particle datatypes test PASS" || { echo "FAILED: particle datatypes test"; fail=1; }
+timeout 600 node test/completions.test.mjs | tail -1 | grep -q PASS && echo "completions test PASS" || { echo "FAILED: completions test"; fail=1; }
+timeout 600 node test/luaucheck.test.mjs | tail -1 | grep -q PASS && echo "script checker test PASS" || { echo "FAILED: script checker test"; fail=1; }
+timeout 600 node test/charmaker.test.mjs | tail -1 | grep -q PASS && echo "character maker test PASS" || { echo "FAILED: character maker test"; fail=1; }
+timeout 600 node test/rigmesh.test.mjs | tail -1 | grep -q PASS && echo "rigmesh test PASS" || { echo "FAILED: rigmesh test"; fail=1; }
+timeout 600 node test/maker.test.mjs | tail -1 | grep -q PASS && echo "character maker page test PASS" || { echo "FAILED: character maker page test"; fail=1; }
 [ $fail -eq 0 ] && echo "ALL PASSED" || echo "SOME FAILED"
 exit $fail
