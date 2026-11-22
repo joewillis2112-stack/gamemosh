@@ -238,7 +238,7 @@ async function main() {
     if (scriptEditor.active) return; // keys belong to the code (CodeMirror has its own undo)
     if (!insertMenu.hidden) return;
     if (vectorEditor.active) { if (c && k === 'z') { e.preventDefault(); vectorEditor.undoLast(); } else if (vectorEditor.key(e)) e.preventDefault(); return; } // keys belong to the open drawing
-    if (imageEditor.active) { if (c && k === 'z') { e.preventDefault(); imageEditor.undoLast(); } return; } // keys belong to the open image
+    if (imageEditor.active) { if (c && k === 'z') { e.preventDefault(); imageEditor.undoLast(); } else if (imageEditor.key(e)) e.preventDefault(); return; } // keys belong to the open image
     const map = c ? { '1': 'select', '2': 'move', '3': 'scale', '4': 'rotate', d: 'duplicate', g: 'group', u: 'ungroup', z: e.shiftKey ? 'redo' : 'undo', y: 'redo', r: 'turn', t: 'tilt' } : { delete: 'delete', backspace: 'delete' };
     if (map[k]) { e.preventDefault(); actions[map[k]](); }
   });
