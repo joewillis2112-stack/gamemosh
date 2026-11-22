@@ -62,6 +62,20 @@ export class LightingController {
   // Resolves once the sky for the current time is in the environment.
   settled() { return this.pending; }
 
+  /** A new fidelity tier while running: ambient occlusion's resolution, the post passes (sun-ray
+   *  taps) and the sky's size; the rest of the look is the place's and doesn't change. */
+  setTier(name) {
+    if (name === this.quality) return;
+    this.quality = name;
+    if (this.post) this.post.quality = name;
+    if (this.sky && this.sky.resize && this.sky.n !== tier(name).skySize) {
+      this.sky.resize(tier(name).skySize);
+      this.env = this.sky.env; this.baseSH = null; this.skyKey = null; // the new cube lights the scene once it is drawn
+    }
+    this.dirty = true;
+    this.update();
+  }
+
   update() {
     if (!this.dirty) return;
     this.dirty = false;
@@ -161,11 +175,14 @@ export class LightingController {
     const realistic = P.LightingStyle === 'Realistic';
     // (The tier sets its resolution; the lowest tier has none.)
     const ao = tier(this.quality).ssao;
-    if (realistic && ao && !this.ssao && this.camera) {
-      this.ssao = createSSAO(scene, [this.camera], { totalStrength: SSAO.totalStrength, radius: SSAO.radiusMetres / 0.28, base: SSAO.base }, ao);
-    } else if (!realistic && this.ssao) {
+    // Out when Soft, or when the tier changed its resolution (or has none); in when Realistic.
+    if (this.ssao && (!realistic || this.ssaoRatio !== ao)) {
       scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline('ssao', this.camera);
       this.ssao.dispose(); this.ssao = null;
+    }
+    if (realistic && ao && !this.ssao && this.camera) {
+      this.ssao = createSSAO(scene, [this.camera], { totalStrength: SSAO.totalStrength, radius: SSAO.radiusMetres / 0.28, base: SSAO.base }, ao);
+      this.ssaoRatio = ao;
     }
     if (this.post) this.post.update();
   }

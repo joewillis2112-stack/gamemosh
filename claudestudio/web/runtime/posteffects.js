@@ -176,7 +176,7 @@ export class PostEffects {
     const identity = cc.M.every((row, r) => row.every((v, c) => Math.abs(v - (r === c ? 1 : 0)) < 1e-6)) && cc.off.every(v => Math.abs(v) < 1e-6);
     if (!identity) want.push('cc');
     this.key = want.join(','); // which passes (read by tests)
-    const build = this.key + (blur ? '|' + blur.props.Size : '') + '|' + this.scene.getEngine().getRenderHeight();
+    const build = this.key + (blur ? '|' + blur.props.Size : '') + '|' + this.scene.getEngine().getRenderHeight() + '|' + this.quality; // a new tier rebuilds (sun-ray taps)
     this.state = { dof, rays, blur, cc };
     if (build !== this.built) { this.built = build; this.rebuild(want, { blur }); }
     this.ensureLast();

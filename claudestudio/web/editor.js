@@ -11,6 +11,7 @@ import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import '@babylonjs/core/Culling/ray.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
+import { Graphics } from './runtime/graphics.js';
 import { DataModel, baseplateLighting, isA, V3, C3 } from './datamodel.js';
 import { savePlace, loadPlace } from './placefile.js';
 import { startLuau } from './luau.js';
@@ -43,8 +44,8 @@ import { CF } from './cframe.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
-const quality = q.get('quality') || 'high';
-const R = createRenderer(canvas, { quality, preserveDrawingBuffer: !!q.get('test'), dynamicSky: true });
+// The tier: the page's ?quality= if given (tests), else the player's graphics setting (runtime/graphics.js).
+const R = createRenderer(canvas, { quality: q.get('quality') || 'high', preserveDrawingBuffer: !!q.get('test'), dynamicSky: true });
 const { scene, engine } = R;
 
 async function main() {
@@ -53,6 +54,8 @@ async function main() {
   scene.physicsEnabled = false; // edit mode: nothing falls until Play
 
   const dm = new DataModel();
+  const graphics = new Graphics(R, dm, q.get('quality'));
+  const quality = graphics.tier;
   let capture = null; // while set, the VM's prints go here instead (asking it for its libraries)
   const vm = await startLuau(createLuau, dm, (s, lvl) => capture ? capture.push(s) : (lvl === 2 ? console.error : console.log)('[luau] ' + s), { runScripts: false }); // edit mode: Scripts don't run
   capture = []; vm.run('libraries', LIBRARY_PROBE); const libs = parseLibraries(capture); capture = null;
@@ -80,6 +83,7 @@ async function main() {
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality, localLights }); // Studio runs emitters while editing too
+  graphics.add(lighting, localLights, particles);
   const highlights = new Highlights(scene, dm, world, { rigs }); // and shows Highlights
   const styles = new Styles(scene, dm, camera.cam, { sun: R.sun }); // and the place's look (ToonEffect, OutlineEffect, PixelEffect)
   await lighting.settled();
@@ -268,11 +272,11 @@ async function main() {
   properties.onEdit = inst => scriptEditor.open(inst);
   const fixed = !!q.get('test');
   const step = dt => { camera.update(dt); anim.update(dt); rigs.update(dt); anim.afterPose(); lighting.update(); localLights.update(); particles.update(dt); styles.update(); highlights.update(); explorer.update(); properties.update(); };
-  scene.onBeforeRenderObservable.add(() => step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)));
+  scene.onBeforeRenderObservable.add(() => { step(fixed ? 1 / 60 : Math.min(engine.getDeltaTime() / 1000, 0.05)); if (!fixed) graphics.frame(); });
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, styles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, solid, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, graphics, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, styles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, solid, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.

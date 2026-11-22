@@ -214,6 +214,13 @@ export class Particles {
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.metadata = { particles: inst };
+    const mat = this.material();
+    mesh.material = mat;
+    return { inst, mesh, mat, ps: [], acc: 0, cap: 0, texFor: null, seq: 0, light: null, stats: null };
+  }
+
+  // An emitter's material: soft edges if the tier has them; the Atmosphere's sky where there is one.
+  material() {
     const mat = new ShaderMaterial('particles', this.scene, { vertexSource: VERTEX, fragmentSource: FRAGMENT }, {
       attributes: ['position', 'uv', 'uv2', 'color', 'blend'], uniforms: ['viewProjection', 'lightEmission', 'eye', 'fog', 'fogColor', 'depthValues', 'screen', 'afogParams', 'afogMore', 'afogMatrix'], samplers: ['tex', 'depthTex', 'afogSky'], needAlphaBlending: true,
       // The Atmosphere's sky sampler only where there is a sky cube to bind (an unbound cube sampler fails the draw).
@@ -222,8 +229,18 @@ export class Particles {
     mat.backFaceCulling = false;
     mat.disableDepthWrite = true;
     mat.alphaMode = Constants.ALPHA_PREMULTIPLIED; // ONE, ONE_MINUS_SRC_ALPHA: LightEmission 0 normal, 1 additive
-    mesh.material = mat;
-    return { inst, mesh, mat, ps: [], acc: 0, cap: 0, texFor: null, seq: 0, light: null, stats: null };
+    return mat;
+  }
+
+  /** A new fidelity tier while running: its budgets (emitted lights, collision rays) from the next
+   *  frame, and every emitter's material remade if soft edges came or went. */
+  setTier(name) {
+    if (name === this.quality) return;
+    const soft = this.Q.softParticles;
+    this.quality = name; this.Q = tier(name);
+    if (this.Q.softParticles !== soft) for (const e of this.emitters.values()) { const old = e.mat; e.mat = e.mesh.material = this.material(); e.texFor = null; old.dispose(); }
+    if (!this.Q.softParticles) this.dropDepth();
+    for (const e of this.emitters.values()) if (e.light && this.Q.particleLights === 0) this.dropLight(e);
   }
 
   texture(id) {

@@ -74,6 +74,8 @@ run --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
 run --quality low --place places/atmosphere-lab.luau --scenario test/scenarios/atmosphere.mjs
 run --scenario test/scenarios/unions.mjs
 run --noshots --scenario test/scenarios/stress.mjs
+run --quality auto --place places/lighting-lab.luau --scenario test/scenarios/graphics.mjs
+run --phone --quality auto --place places/lighting-lab.luau --scenario test/scenarios/graphics.mjs
 run --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --phone --place places/lighting-lab.luau --scenario test/scenarios/posteffects.mjs
 run --scenario test/scenarios/camera.mjs
@@ -108,6 +110,7 @@ if [ -d .cache/fidelity/assets ]; then
   node tools/build.mjs web/fidelity.js >/dev/null
   node tools/fidelity.mjs --check test/fidelity-baseline.json 2>&1 | grep "FAIL\|^fidelity:" ; [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: glTF fidelity"; fail=1; }
 else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
+timeout 600 node test/quality.test.mjs | tail -1 | grep -q PASS && echo "graphics quality test PASS" || { echo "FAILED: graphics quality test"; fail=1; }
 timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
 timeout 600 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
 timeout 600 node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }

@@ -81,11 +81,32 @@ export class Sky {
     this.env = new RawCubeTexture(scene, [zero(), zero(), zero(), zero(), zero(), zero()], n, 4 /* RGB */, 1 /* FLOAT */, true, false, 3);
     this.env.gammaSpace = false;
     this.ready = (async () => {
-      const buf = await (await fetch(url)).arrayBuffer();
-      const cube = GetCubeMapTextureData(buf, n);
+      this.buf = await (await fetch(url)).arrayBuffer(); // kept: a new tier re-samples it at its size
+      const cube = GetCubeMapTextureData(this.buf, n);
       this.base = FACES.map(f => cube[f]);
       this.dirs = faceDirections(n);
     })();
+  }
+
+  // A new size (the fidelity tier changed while playing): a new cube at that size, which the
+  // visible sky and the skybox's below-horizon plugin follow; the caller points the scene's
+  // lighting at it and asks for the sky again (set). The old cube goes once nothing shows it.
+  resize(n) {
+    if (n === this.n) return;
+    const scene = this.scene, old = this.env;
+    this.n = n;
+    const zero = () => new Float32Array(n * n * 3);
+    this.env = new RawCubeTexture(scene, [zero(), zero(), zero(), zero(), zero(), zero()], n, 4 /* RGB */, 1 /* FLOAT */, true, false, 3);
+    this.env.gammaSpace = false;
+    this.ready = this.ready.then(() => { const cube = GetCubeMapTextureData(this.buf, n); this.base = FACES.map(f => cube[f]); this.dirs = faceDirections(n); });
+    this.version++; // a refresh still running for the old size stops
+    if (this.mesh) {
+      const view = this.view; this.view = null; this.attach(this.mesh); if (!this.view) this.view = view;
+      const below = this.mesh.material && this.mesh.material.pluginManager && this.mesh.material.pluginManager.getPlugin('BelowHorizon');
+      if (below) below.env = this.env;
+    }
+    if (scene.environmentTexture === old) scene.environmentTexture = this.env;
+    old.dispose();
   }
 
   // The visible sky: Babylon's default skybox shows a clone of its texture, and a

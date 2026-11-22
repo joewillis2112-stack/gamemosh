@@ -90,6 +90,7 @@ export const ENUMS = {
   ParticleFlipbookLayout: { None: 0, Grid2x2: 1, Grid4x4: 2, Grid8x8: 3, Custom: 4 },
   ParticleFlipbookMode: { Loop: 0, OneShot: 1, PingPong: 2, Random: 3 },
   HighlightDepthMode: { AlwaysOnTop: 0, Occluded: 1 },
+  SavedQualitySetting: { Automatic: 0, QualityLevel1: 1, QualityLevel2: 2, QualityLevel3: 3, QualityLevel4: 4, QualityLevel5: 5, QualityLevel6: 6, QualityLevel7: 7, QualityLevel8: 8, QualityLevel9: 9, QualityLevel10: 10 },
   ParticleCollision: { None: 0, Bounce: 1, Stick: 2, Die: 3 }, // Claude Studio's own (STUDIO_OWN)
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
   TonemapperPreset: { Default: 0, Retro: 1 },
@@ -123,6 +124,8 @@ function enumItem(type, nameOrValue) {
 // ------------------------------------------------------------------ classes
 // Each class: parent class, properties {name: [type, default]}, methods, events.
 const CLASSES = {};
+/** A signal a method returns (GetPropertyChangedSignal): its instance and event name. */
+export class SignalRef { constructor(inst, ev) { this.inst = inst; this.ev = ev; } }
 function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false } = {}) {
   CLASSES[name] = { name, base, props, methods, events, creatable, service };
 }
@@ -154,6 +157,12 @@ defineClass('Instance', null, {
     FindFirstAncestor(self, name) { for (let p = self.parent; p; p = p.parent) if (p.Name === name) return [p]; return [null]; },
     IsA(self, cls) { return [isA(self.ClassName, cls)]; },
     IsDescendantOf(self, other) { for (let p = self.parent; p; p = p.parent) if (p === other) return [true]; return [false]; },
+    // A signal fired (with no arguments) when that one property changes, as Changed fires with its name.
+    GetPropertyChangedSignal(self, prop) {
+      const name = ALIASES[prop] && ALIASES[prop] in self.props ? ALIASES[prop] : prop;
+      if (typeof prop !== 'string' || !(name in self.props) && prop !== 'Parent' && prop !== 'Name') throw new Error(`${prop} is not a valid property name.`);
+      return [new SignalRef(self, 'Changed:' + name)];
+    },
     Destroy(self) { self.dm.destroy(self); return []; },
     Clone(self) { return [self.dm.clone(self)]; },
     ClearAllChildren(self) { for (const c of self.children.slice()) self.dm.destroy(c); return []; },
@@ -591,6 +600,25 @@ export function baseplateLighting(dm) {
   add('BloomEffect', 'Bloom', { Intensity: 1, Size: 24, Threshold: 2 });
   add('DepthOfFieldEffect', 'DepthOfField', { Enabled: false, FarIntensity: 0.1, FocusDistance: 0.05, InFocusRadius: 30, NearIntensity: 0.75 });
 }
+// The player's own settings, outside the game tree: UserSettings():GetService("UserGameSettings").
+// SavedQualityLevel is the graphics quality the player chose (Automatic or 1..10); scripts may read
+// and set it (Roblox: no security on it), the in-game menu sets it, runtime/quality.js follows it.
+defineClass('UserSettings', 'Instance', {
+  creatable: false,
+  methods: {
+    GetService(self, name) {
+      const have = self.children.find(c => c.ClassName === name);
+      if (have) return [have];
+      if (name !== 'UserGameSettings') throw new Error(`'${name}' is not a valid Service name`);
+      const g = new Instance(self.dm, 'UserGameSettings'); self.dm.setParent(g, self); return [g];
+    },
+  },
+});
+defineClass('UserGameSettings', 'Instance', {
+  creatable: false,
+  props: { SavedQualityLevel: ['Enum.SavedQualitySetting', 'Automatic'] },
+});
+
 // Players and characters. Single-player for now: one Player joins after the
 // place's scripts have run (so PlayerAdded handlers see it, as in Roblox).
 defineClass('Players', 'Instance', {
@@ -747,6 +775,11 @@ export class DataModel {
     this.setParent(terrain, this.workspace);
   }
   register(inst) { this.byHandle.push(inst); return this.byHandle.length - 1; }
+  /** The player's settings (UserSettings()): one per DataModel, outside the game tree. */
+  userSettings() { return this._userSettings || (this._userSettings = new Instance(this, 'UserSettings')); }
+  /** UserGameSettings, made if needed. */
+  userGameSettings() { const u = this.userSettings(); return methodOf('UserSettings', 'GetService')(u, 'UserGameSettings')[0]; }
+
   service(name) {
     if (!this.services[name]) {
       if (!CLASSES[name] || !CLASSES[name].service) return null;
@@ -767,6 +800,7 @@ export class DataModel {
   create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
 
   fire(inst, ev, args) {
+    if (ev === 'Changed' && args && typeof args[0] === 'string') this.fire(inst, 'Changed:' + args[0], []); // GetPropertyChangedSignal's
     for (const h of this.eventHooks) h(inst, ev, args);
     const ids = this.connsOf.get(inst)?.get(ev);
     if (!ids) return;
@@ -1134,6 +1168,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (v instanceof BrickColor) o.push({ t: T.BRICKCOLOR, n: v.number });
+      else if (v instanceof SignalRef) o.push({ t: T.SIGNAL, n: v.inst.handle, s: v.ev });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
       return o;
@@ -1179,7 +1214,7 @@ export function makeHost(dm, log = console.log) {
     enumType(type) { return !!ENUMS[type]; },
     enumValue(type, name) { const E = ENUMS[type]; return E && name in E ? E[name] : null; },
     enumItems(type) { const E = ENUMS[type] || {}; host.ret = Object.entries(E).map(([k, v]) => ({ t: T.ENUM, s: type + '.' + k, n: v })); return host.ret.length; },
-    global(name) { return name === 'game' ? dm.game.handle : name === 'workspace' ? dm.workspace.handle : 0; },
+    global(name) { return name === 'game' ? dm.game.handle : name === 'workspace' ? dm.workspace.handle : name === 'UserSettings' ? dm.userSettings().handle : 0; },
     newInstance(cls) { const i = dm.create(cls); return i ? i.handle : 0; },
     index(h, key) {
       const inst = dm.byHandle[h];
@@ -1194,7 +1229,7 @@ export function makeHost(dm, log = console.log) {
         return 1;
       }
       if (lookup(inst.ClassName, 'methods', key)) { host.ret = [{ t: T.METHOD }]; return 1; }
-      if (hasEvent(inst.ClassName, key)) { host.ret = [{ t: T.SIGNAL }]; return 1; }
+      if (hasEvent(inst.ClassName, key)) { host.ret = [{ t: T.SIGNAL, n: h, s: key }]; return 1; }
       const child = inst.children.find(c => c.Name === key);
       if (child) { host.ret = host.put([], child); return 1; }
       if (inst.ClassName === 'DataModel' && dm.service(key)) { host.ret = host.put([], dm.service(key)); return 1; }

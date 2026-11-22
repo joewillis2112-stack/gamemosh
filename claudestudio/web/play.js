@@ -24,12 +24,15 @@ import { Rigs } from './runtime/rigs.js';
 import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
 import { LightingController } from './runtime/lighting.js';
+import { Graphics } from './runtime/graphics.js';
+import { Menu } from './runtime/menu.js';
 import { Sky } from './runtime/sky.js';
 import { Audio } from './runtime/audio.js';
 import { CharacterSounds } from './runtime/charsounds.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
+// The tier: the page's ?quality= if given (tests), else the player's graphics setting (runtime/graphics.js).
 const R = createRenderer(canvas, { quality: q.get('quality') || 'high', preserveDrawingBuffer: !!q.get('test'), dynamicSky: true });
 const { scene, engine } = R;
 
@@ -40,6 +43,8 @@ async function main() {
   scene.enablePhysics(new Vector3(0, -GRAVITY, 0), new HavokPlugin(true, havok));
 
   const dm = new DataModel();
+  const graphics = new Graphics(R, dm, q.get('quality'));
+  const quality = graphics.tier;
   // Played from the editor: Studio's Output window shows every print, warn and error.
   const output = q.get('from') === 'editor' ? new Output() : null;
   const log = (s, lvl) => { (lvl === 2 ? console.error : console.log)('[luau] ' + s); if (output) output.add(s, lvl); };
@@ -81,17 +86,20 @@ async function main() {
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
   const camSync = new CameraSync(dm, camera, canvas, world);
-  const sky = new Sky(scene, '../assets/sky/sky_1k_nosun.hdr', { quality: q.get('quality') || 'high' });
+  const sky = new Sky(scene, '../assets/sky/sky_1k_nosun.hdr', { quality });
   sky.attach(createSkybox(scene, sky.env)); // the same cube you see is the one that lights the scene
-  const lighting = new LightingController(R, scene, dm, camera.cam, sky, q.get('quality') || 'high');
+  const lighting = new LightingController(R, scene, dm, camera.cam, sky, quality);
   lighting.update();
-  const localLights = new LocalLights(scene, dm, world, { quality: q.get('quality') || 'high', sunShadows: R.shadows });
+  const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
-  const particles = new Particles(scene, dm, world, { quality: q.get('quality') || 'high', localLights });
+  const particles = new Particles(scene, dm, world, { quality, localLights });
+  graphics.add(lighting, localLights, particles);
   const styles = new Styles(scene, dm, camera.cam, { sun: R.sun });
   const highlights = new Highlights(scene, dm, world, { rigs, localCharacter: () => { const h = players.humanoid; return h && !h.destroyed && h.parent ? { model: h.parent, meshes: player.meshes } : null; } });
   await lighting.settled(); // the sky drawn into the environment for the starting time
   const controls = new Controls(canvas, camera);
+  const menu = new Menu(gui.root, graphics); // Esc or the top-left button: Graphics Mode and Quality
+  menu.onOpen = () => controls.keys.clear();
   gui.small = controls.isTouch;
   players.onSpawn = () => camera.snapBehind();
   camSync.pre(); camera.update(0); camSync.write(); // the Camera's properties before the first frame
@@ -153,7 +161,7 @@ async function main() {
   scene.getPhysicsEngine().setSubTimeStep(1000 / 240);
   let framePhysics = false;
   scene.onBeforePhysicsObservable.add(() => { if (!framePhysics) { framePhysics = true; beforePhysics(frameDt()); } });
-  scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); });
+  scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); if (!fixed) graphics.frame(); });
   await scene.whenReadyAsync();
   // Played from the editor: Stop goes back to it with the place as it was before Play (Studio's Stop).
   if (q.get('from') === 'editor') {
@@ -168,7 +176,7 @@ async function main() {
     output.mount();
   }
   window.studio = {
-    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
+    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, graphics, menu, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

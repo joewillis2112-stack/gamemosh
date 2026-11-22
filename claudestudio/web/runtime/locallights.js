@@ -35,8 +35,8 @@ export class LocalLights {
     this.external = new Set(); // lights other systems drive (particles' CastLight), in the same budget
     this.frame = 0;
     // Every material shades enough lights for the sun, the sky and the local lights near it.
-    const max = tier(quality).maxLights;
-    const raise = m => { if ('maxSimultaneousLights' in m) m.maxSimultaneousLights = max; };
+    const raise = m => { if ('maxSimultaneousLights' in m) m.maxSimultaneousLights = tier(this.quality).maxLights; };
+    this.raise = raise;
     scene.materials.forEach(raise);
     scene.onNewMaterialAddedObservable.add(raise);
     dm.watch((inst, key) => {
@@ -147,6 +147,15 @@ export class LocalLights {
   }
 
   // A light another system positions and colours itself; it shares the per-surface budget.
+  /** A new fidelity tier while running: lights per surface, and shadow maps at the tier's size. */
+  setTier(name) {
+    if (name === this.quality) return;
+    this.quality = name;
+    this.scene.materials.forEach(this.raise);
+    for (const e of this.lights.values()) this.dropShadow(e); // remade at the new size where still wanted
+    this.reassign = true; this.dirty = true;
+  }
+
   addExternal(light) { const e = { light, on: true, external: true }; this.external.add(e); this.reassign = true; return e; }
   removeExternal(e) { if (e && this.external.delete(e)) this.reassign = true; }
 

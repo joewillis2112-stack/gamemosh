@@ -277,9 +277,12 @@ static int push_ret(lua_State* L, int i, int self, const char* key) {
         lua_pushcclosurek(L, method_call, key, 1, nullptr);
         break;
     case T_SIGNAL: {
+        // Its instance and event from JS (an event read off an instance, or a method's signal).
+        char* ev = js_ret_str(i);
         Signal* s = (Signal*)lua_newuserdata(L, sizeof(Signal));
-        s->h = self;
-        strncpy(s->ev, key, sizeof(s->ev) - 1);
+        s->h = (int)js_ret_num(i);
+        strncpy(s->ev, ev ? ev : key, sizeof(s->ev) - 1);
+        free(ev);
         s->ev[sizeof(s->ev) - 1] = 0;
         luaL_getmetatable(L, SIGNAL_MT);
         lua_setmetatable(L, -2);
@@ -1070,6 +1073,9 @@ EMSCRIPTEN_KEEPALIVE void cs_init() {
     lua_setglobal(L0, "game");
     push_instance(L0, js_global("workspace"));
     lua_setglobal(L0, "workspace");
+    // UserSettings(): the player's settings (UserGameSettings), outside the game tree.
+    lua_pushcfunction(L0, [](lua_State* L) -> int { push_instance(L, js_global("UserSettings")); return 1; }, "UserSettings");
+    lua_setglobal(L0, "UserSettings");
 
     // Instance:WaitForChild(name, timeout?) yields until the child exists (or
     // the timeout passes, returning nil), warning after 5 s without a timeout.

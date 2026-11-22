@@ -24,7 +24,8 @@ page.on('pageerror', e => logs.push('pageerror ' + e.message));
 page.on('response', r => { if (r.status() >= 400) logs.push('error ' + r.status() + ' ' + r.url()); });
 const quality = opt('quality', phone ? 'phone' : 'high'); // a fidelity tier (web/runtime/quality.js)
 const variant = (phone ? '-phone' : '') + (opt('quality') ? '-' + quality : ''); // goldens/play/<name><variant>.png
-const q = new URLSearchParams({ test: '1', quality });
+// --quality auto: no tier given, so the page picks it (the player's setting or Automatic).
+const q = new URLSearchParams({ test: '1', ...(quality === 'auto' ? {} : { quality }) });
 if (opt('place')) q.set('place', '../' + opt('place'));
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
 if (opt('character')) q.set('character', '../' + opt('character'));

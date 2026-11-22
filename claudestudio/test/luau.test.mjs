@@ -416,6 +416,25 @@ const reqErrs = ['require two false', 'require loop false', 'require part false'
 const udimRO = out.find(l => l.startsWith('udim2 ro false') && l.includes('cannot be assigned to'));
 const mtLocked = out.find(l => l.startsWith('metatable The metatable is locked false'));
 const enumErrs = ['enum wrong type false', 'enum bad name false', 'enum bad item false'].every(p => out.find(l => l.startsWith(p)));
+// GetPropertyChangedSignal (only that property, no arguments; a bad name errors) and UserSettings().
+vm.run('propsig', `local p = Instance.new("Part") p.Parent = workspace
+local n, args = 0, -1
+p:GetPropertyChangedSignal("Transparency"):Connect(function(...) n += 1 args = select("#", ...) end)
+p.Transparency = 0.5 p.Color = Color3.new(1, 0, 0) p.Transparency = 0.5
+task.wait()
+print("propsig", n, args, typeof(p:GetPropertyChangedSignal("Name")), pcall(function() return p:GetPropertyChangedSignal("Nope") end))
+local s = UserSettings():GetService("UserGameSettings")
+local seen
+s:GetPropertyChangedSignal("SavedQualityLevel"):Connect(function() seen = s.SavedQualityLevel end)
+s.SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel4
+task.wait()
+print("usersettings", s.ClassName, s.Parent == UserSettings(), s.Parent.Parent, seen == Enum.SavedQualitySetting.QualityLevel4, UserSettings():GetService("UserGameSettings") == s)`);
+for (let i = 0; i < 4; i++) vm.step(2.6 + i * 0.05);
+const propsig = out.some(l => /^propsig 1 0 RBXScriptSignal false .*Nope is not a valid property name/.test(l));
+const usersettings = out.includes('usersettings UserGameSettings true nil true true');
+console.log(`GetPropertyChangedSignal ${propsig}, UserSettings ${usersettings}`);
+if (!propsig || !usersettings) { console.log('FAIL GetPropertyChangedSignal/UserSettings', out.filter(l => /propsig|usersettings/.test(l))); process.exit(1); }
+
 // Script timeout (Studio's Script Timeout): a resumption that never yields stops with Roblox's error,
 // quickly, and the VM carries on; one that yields often runs as long as it likes in total.
 vm.scriptTimeout(0.3);

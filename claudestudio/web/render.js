@@ -71,16 +71,21 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
 
   const Q = tier(quality);
   const shadows = new CascadedShadowGenerator(Q.sunShadowSize, sun);
-  shadows.numCascades = Q.sunCascades;
   shadows.lambda = 0.85;
   shadows.stabilizeCascades = true;
-  [shadows.bias, shadows.normalBias] = Q.sunShadowBias;
   shadows.usePercentageCloserFiltering = true;
-  shadows.filteringQuality = Q.sunShadowFilter === 'low' ? CascadedShadowGenerator.QUALITY_LOW : CascadedShadowGenerator.QUALITY_HIGH;
   shadows.autoCalcDepthBounds = true;
-  shadows.shadowMaxZ = Q.sunShadowDistance; // studs from the camera that get sun shadows
+  // The tier's share of the sun's shadows (also when the tier changes while playing).
+  const applyShadows = Q => {
+    if (shadows.mapSize !== Q.sunShadowSize) shadows.mapSize = Q.sunShadowSize; // recreates the map, keeping its casters
+    if (shadows.numCascades !== Q.sunCascades) shadows.numCascades = Q.sunCascades;
+    [shadows.bias, shadows.normalBias] = Q.sunShadowBias;
+    shadows.filteringQuality = Q.sunShadowFilter === 'low' ? CascadedShadowGenerator.QUALITY_LOW : CascadedShadowGenerator.QUALITY_HIGH;
+    shadows.shadowMaxZ = Q.sunShadowDistance; // studs from the camera that get sun shadows
+  };
+  applyShadows(Q);
 
-  if (!post) return { engine, scene, sun, shadows, pipeline: null, ready, attachCamera() {} };
+  if (!post) return { engine, scene, sun, shadows, pipeline: null, ready, quality, attachCamera() {}, setTier(name) { this.quality = name; applyShadows(tier(name)); } };
   // Post: ACES tone mapping, slight contrast, gentle bloom on bright bits, FXAA.
   const pipeline = new DefaultRenderingPipeline('post', true, scene, []);
   pipeline.imageProcessingEnabled = true;
@@ -95,7 +100,12 @@ export function createRenderer(canvas, { skyUrl, quality = 'high', preserveDrawi
   pipeline.fxaaEnabled = true;
   pipeline.samples = Q.msaa;
 
-  return { engine, scene, sun, shadows, pipeline, ready, attachCamera(cam) { pipeline.addCamera(cam); } };
+  return {
+    engine, scene, sun, shadows, pipeline, ready, quality,
+    attachCamera(cam) { pipeline.addCamera(cam); },
+    /** A new fidelity tier while running: the sun's shadows and the anti-aliasing. */
+    setTier(name) { this.quality = name; const T = tier(name); applyShadows(T); pipeline.samples = T.msaa; },
+  };
 }
 
 // A skybox showing `env` (fog off, haze below the horizon). The time-of-day sky

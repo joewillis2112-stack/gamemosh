@@ -141,7 +141,7 @@ export function definitions(libs = {}, opts = {}, dm = null) {
   }
   out.push(`declare game: ${gameType}`, `declare workspace: ${wsType}`, `declare script: any`, `declare shared: { [any]: any }`);
   out.push(`declare Enum: { ${Object.keys(ENUMS).map(e => `${e}: { ${Object.keys(ENUMS[e]).map(i => `${i}: EnumItem`).join(', ')} }`).join(', ')} }`);
-  for (const f of ['wait', 'delay', 'spawn', 'tick', 'time', 'warn', 'settings']) { // Roblox's globals: typed where the VM has them
+  for (const f of ['wait', 'delay', 'spawn', 'tick', 'time', 'warn', 'settings', 'UserSettings']) { // Roblox's globals: typed where the VM has them
     const s = API.fns[f]; out.push(s && s.length === 1 ? `declare function ${f}(${paramList(s[0][0], names).join(', ')}): ${apiType(s[0][1], true, names)}` : `declare function ${f}(...: any): ...any`);
   }
   for (const [lib, keys] of Object.entries(libs)) if (!LUAU_LIBS.has(lib) && !DATATYPES.includes(lib) && lib !== 'Instance') out.push(libraryDecl(lib, keys));
