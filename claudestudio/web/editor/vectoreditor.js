@@ -17,12 +17,13 @@
 // (tap the bar to add one, its colour sampled there; pick one to colour it, move it or remove it),
 // fitted to the shape's bounds at an angle, until the annotator's handles on the canvas place it.
 // Text: point text at a click, in a font the page has or a web-safe one (the SVG names the family
-// with a generic fallback, so any device draws it). It isn't outlined, so it can't be combined.
+// with a generic fallback, so any device draws it). Create Outlines turns it into a path (its glyphs
+// traced by VectorCraft's Image Trace); Pathfinder outlines texts first, as Illustrator does.
 // The view is an <svg> of the document itself, so what's shown is what's written. Apply is one
 // undo step in the editor; inside, Undo takes back the last change.
 import * as G from '../vector/geom.js';
 import * as Grad from '../vector/gradient.js';
-import { pathfinder, loadPathops, pathopsReady } from '../vector/pathops.js';
+import { pathfinder, loadPathops, pathopsReady, trace } from '../vector/pathops.js';
 import { IMAGE_PROP } from './imageeditor.js';
 
 const NEW_SIZE = 512, UNDO_DEPTH = 50, META = 'claudestudio-vector';
@@ -56,6 +57,26 @@ export function shapeBounds(s) {
   const m = measureCtx.measureText(s.text || ' ');
   const asc = m.actualBoundingBoxAscent ?? s.size * 0.8, desc = m.actualBoundingBoxDescent ?? s.size * 0.2;
   return [s.at[0] - (m.actualBoundingBoxLeft || 0), s.at[1] - asc, s.at[0] + (m.actualBoundingBoxRight ?? m.width), s.at[1] + desc];
+}
+/** A text's outlines (Type › Create Outlines): its glyphs drawn large in black on white by the
+ *  browser (so any font it has works), traced with VectorCraft's Image Trace (Flat Logo: sub-pixel
+ *  edges, corners kept) and united into one compound path, in document units. Null if it failed.
+ *  Traced, not read from the font file (the page can't reach system fonts' outlines): within a
+ *  fraction of a pixel of the glyphs at the size they were traced. */
+export function textOutlines(s, scale = Math.min(Math.max(240 / s.size, 1), 16)) {
+  const b = shapeBounds(s), pad = 4, K = scale;
+  const W = Math.ceil((b[2] - b[0]) * K) + 2 * pad, H = Math.ceil((b[3] - b[1]) * K) + 2 * pad;
+  if (!(W > 2 * pad && H > 2 * pad) || W * H > 16e6) return null;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.fillStyle = '#000';
+  g.font = fontCss({ ...s, size: s.size * K }); g.textBaseline = 'alphabetic';
+  g.fillText(s.text, (s.at[0] - b[0]) * K + pad, (s.at[1] - b[1]) * K + pad);
+  const paths = trace(new Uint8Array(g.getImageData(0, 0, W, H).data.buffer), W, H, 1);
+  if (!paths || !paths.length) return null;
+  const toDoc = q => [b[0] + (q[0] - pad) / K, b[1] + (q[1] - pad) / K];
+  const docPaths = paths.map(path => path.map(sp => ({ closed: sp.closed, anchors: sp.anchors.map(a => ({ p: toDoc(a.p), in: toDoc(a.in), out: toDoc(a.out), kind: a.kind })) })));
+  const united = docPaths.length > 1 ? pathfinder('unite', docPaths) : [{ path: docPaths[0] }];
+  return united && united.length ? united[0].path : null;
 }
 /** One shape as SVG: its element, and its gradient's definition (id `gid`) if it has one. */
 export function shapeSvg(s, gid) {
@@ -194,13 +215,26 @@ export class VectorEditor {
     const all = this.selection; if (!all.length) return;
     this.snapshot(); for (const i of all.reverse()) this.doc.shapes.splice(i, 1); this.sel = -1; this.extra = []; this.render();
   }
+  /** Type › Create Outlines on the selected texts: each becomes a path with its paint (one undo step). */
+  async outlineSelection() {
+    const idx = this.selection.filter(i => this.doc.shapes[i].kind === 'text');
+    if (!idx.length) return this.say('Select a text to outline');
+    if (!pathopsReady()) { try { await loadPathops(); } catch { return this.say('The path operations failed to load'); } }
+    const done = idx.map(i => [i, textOutlines(this.doc.shapes[i])]);
+    if (done.some(([, p]) => !p)) return this.say("That text couldn't be outlined");
+    this.snapshot();
+    for (const [i, path] of done) { const t = this.doc.shapes[i]; this.doc.shapes[i] = { kind: 'path', live: null, path, fill: t.fill, stroke: t.stroke, strokeWidth: t.strokeWidth, corner: 0, cornerKind: 'Round', grad: t.grad }; }
+    this.render();
+  }
   /** Pathfinder `op` over the selected shapes: one path in their place (at the front one's place in the stack). */
   async combine(op) {
     const idx = this.selection;
     if (idx.length < 2) return this.say('Select two or more shapes (Shift-click, or Add) to combine them');
-    if (idx.some(i => this.doc.shapes[i].kind === 'text')) return this.say("Text can't be combined: it has no outlines");
     if (!pathopsReady()) { try { await loadPathops(); } catch { return this.say('The path operations failed to load'); } }
-    const shapes = idx.map(i => this.doc.shapes[i]), paint = s => JSON.stringify([s.fill, s.grad, s.stroke, s.strokeWidth]);
+    // Texts take part by their outlines (as Illustrator's Pathfinder turns type into outlines first).
+    const shapes = idx.map(i => { const s = this.doc.shapes[i]; if (s.kind !== 'text') return s; const path = textOutlines(s); return path && { ...s, kind: 'path', path }; });
+    if (shapes.some(s => !s)) return this.say("That text couldn't be outlined");
+    const paint = s => JSON.stringify([s.fill, s.grad, s.stroke, s.strokeWidth]);
     const keys = shapes.map(s => shapes.findIndex(t => paint(t) === paint(s))); // Merge joins shapes of one paint
     const res = pathfinder(op, shapes.map(shapePath), keys);
     if (!res) return this.say("Those shapes couldn't be combined");
@@ -392,7 +426,8 @@ export class VectorEditor {
       `<div class="ie-row"><label>Stroke <input type="color" data-v="stroke"></label><label class="grow">Width <input type="range" data-v="strokeWidth" min="0" max="40" step="1"></label></div>` +
       `<div class="ve-text"><div class="ie-row"><input type="text" data-v="text" class="grow" placeholder="Text" aria-label="Text"></div>` +
       `<div class="ie-row"><select data-v="font" title="Font">${Object.keys(FONTS).map(f => `<option value="${f}">${f}</option>`).join('')}</select><button data-v="bold" title="Bold"><b>B</b></button><button data-v="italic" title="Italic"><i>I</i></button></div>` +
-      `<label>Size <input type="range" data-v="size" min="8" max="200" step="1"></label></div>` +
+      `<label>Size <input type="range" data-v="size" min="8" max="200" step="1"></label>` +
+      `<div class="ie-row"><button data-ve="outline" title="Type › Create Outlines: the text becomes a path">Create Outlines</button></div></div>` +
       `<label>Corners <input type="range" data-v="corner" min="0" max="120" step="1"></label>` +
       `<div class="ie-row"><select data-v="cornerKind">${G.CORNER_KINDS.map(c => `<option value="${c}">${c.replace(/([a-z])([A-Z])/g, '$1 $2')}</option>`).join('')}</select></div>` +
       `<label>Sides <input type="range" data-v="sides" min="3" max="12" step="1"></label>` +
@@ -411,6 +446,7 @@ export class VectorEditor {
       this.note = '';
       if (b.dataset.stop !== undefined) { this.stop = +b.dataset.stop; this.render(); }
       else if (a === 'delstop') this.removeStop();
+      else if (a === 'outline') this.outlineSelection();
       else if (b.dataset.tool) this.setTool(b.dataset.tool);
       else if (b.dataset.pf) this.combine(b.dataset.pf);
       else if (b.dataset.v === 'bold' || b.dataset.v === 'italic') { const s = this.shape, k = b.dataset.v; this.setProp(k, !(s && s.kind === 'text' ? s[k] : this.style[k])); }

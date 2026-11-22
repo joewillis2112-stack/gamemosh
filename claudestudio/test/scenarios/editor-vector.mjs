@@ -170,6 +170,20 @@ export default async function (t) {
   const share = white / (shot.width * shot.height);
   check(/Georgia/.test(tb.family) && tb.weight === 'bold' && share > 0.15, `Bold sets it bold; it draws in white (${(share * 100).toFixed(0)}% of its box) with the family written as "${tb.family}"`);
   check(Math.abs((ours[2] - ours[0]) - (tb.box[2] - tb.box[0])) < 0.15 * (tb.box[2] - tb.box[0]) && ours[1] < 500 && ours[3] >= 495, `its measured box (${ours.map(Math.round)}) is the browser's (${tb.box.map(Math.round)}) give or take the side bearings`);
+  // Create Outlines: the glyphs become a path, traced from the browser's own drawing of them; what
+  // shows is the same letters (white pixels in the text's box, before and after, nearly all agree).
+  const whiteIn = async () => { const png = PNG.sync.read(await t.page.screenshot({ clip: { x: Math.floor(ta[0]), y: Math.floor(ta[1]), width: Math.ceil(tbb[0] - ta[0]), height: Math.ceil(tbb[1] - ta[1]) } })); return Array.from({ length: png.width * png.height }, (_, k) => png.data[k * 4] > 160 && png.data[k * 4 + 1] > 160 && png.data[k * 4 + 2] > 160); };
+  await btn('#vectoreditor [data-tool=select]'); await tap(await at(20, 20)); // nothing selected: no box or anchors over the letters
+  const wBefore = await whiteIn();
+  await tap(await at(90, 480)); // the H
+  await btn('#vectoreditor [data-ve=outline]'); await t.page.waitForFunction(() => window.editor.vectorEditor.doc.shapes[4].kind === 'path');
+  const ol = (await st()).doc.shapes[4];
+  await tap(await at(20, 20));
+  const wAfter = await whiteIn(), inter = wBefore.filter((v, k) => v && wAfter[k]).length, union = wBefore.filter((v, k) => v || wAfter[k]).length;
+  check(ol.kind === 'path' && ol.fill === '#ffffff' && ol.path.length >= 3 && inter / union > 0.9, `Create Outlines makes the text a path (${ol.path.length} contours, white): the same letters on screen (${(inter / union * 100).toFixed(1)}% of their pixels agree)`);
+  await btn('#vectoreditor [data-ve=undo]');
+  check((await st()).doc.shapes[4].kind === 'text', 'Undo brings the live text back');
+  await btn('#vectoreditor [data-tool=text]');
 
   // Pathfinder (VectorCraft's pathops in wasm): a magenta ellipse over the green triangle.
   await btn('#vectoreditor [data-tool=ellipse]');

@@ -40,6 +40,19 @@ export function runFlat(input) {
     throw e;
   } finally { try { X.free(p, n); } catch { /* the instance was replaced */ } }
 }
+/** Image Trace (VectorCraft's trace) of RGBA bytes, w x h: the flat output (see lib.rs). */
+export function traceFlat(rgba, w, h, preset = 1) {
+  if (!inst) throw new Error('pathops not loaded');
+  const X = inst.exports, n = rgba.length, p = X.alloc_bytes(n);
+  try {
+    new Uint8Array(X.memory.buffer, p, n).set(rgba);
+    const len = X.trace_run(p, w, h, preset);
+    return Array.from(new Float64Array(X.memory.buffer, X.out_ptr(), len));
+  } catch (e) { inst = new WebAssembly.Instance(module, {}); throw e; }
+  finally { try { X.free_bytes(p, n); } catch { /* replaced */ } }
+}
+/** Dark shapes on white in an RGBA raster, traced to paths (pixel coordinates); null if it failed. */
+export function trace(rgba, w, h, preset = 1) { try { const r = decode(traceFlat(rgba, w, h, preset)); return r && r.map(x => x.path); } catch { return null; } }
 /** Results as [{ key, path }]: key is the key (by default the index) of the input whose paint the result keeps. */
 export function decode(v) {
   if (v[0] < 0) return null;

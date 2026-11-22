@@ -35,6 +35,15 @@ for (let t = 0; t < 6; t++) {
 // The binding's failure path: a bad op, a truncated input (non-finite input is checked in the test: JSON has no NaN).
 cases.push({ op: 'pathfinder', name: 'bad op', flat: [9, 0] }, { op: 'pathfinder', name: 'truncated', flat: [0, 2, 0, 1, 1, 4, 0] });
 
+// Image Trace (text to outlines traces glyphs drawn black on white): shapes with soft edges.
+const raster = (w, h, cover) => { const px = []; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let n = 0; for (let k = 0; k < 16; k++) n += cover(x + (k % 4 + 0.5) / 4, y + (Math.floor(k / 4) + 0.5) / 4) ? 1 : 0; const v = Math.round(255 * (1 - n / 16)); px.push(v, v, v, 255); } return px; };
+const shapesT = [
+  [64, 48, (x, y) => Math.hypot(x - 32, y - 24) < 17 && Math.hypot(x - 32, y - 24) > 9], // a ring (an 'o')
+  [64, 48, (x, y) => (x > 12 && x < 20 && y > 6 && y < 42) || (x > 12 && x < 46 && y > 34 && y < 42)], // an 'L'
+  [72, 40, (x, y) => Math.abs((x - 36) - (y - 20) * 0.6) < 4 + y * 0.05 || (y > 8 && y < 13 && x > 10 && x < 62)], // a slanted stroke and a bar
+];
+for (const [w, h, cover] of shapesT) for (const preset of [0, 1]) cases.push({ op: 'trace', w, h, preset, rgba: raster(w, h, cover) });
+
 // Gradients.
 for (const kind of ['linear', 'radial']) for (const r of [[0, 0, 100, 50], [20, 30, 220, 330], [10, 10, 10, 90]]) for (const angle of [0, 45, 90, 135, -30, 200]) cases.push({ op: 'gradFit', kind, r, angle });
 const C = () => [r2(0, 1), r2(0, 1), r2(0, 1)];

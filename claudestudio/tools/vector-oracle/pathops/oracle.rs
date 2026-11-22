@@ -3,7 +3,7 @@
 //! wasm build (web/vector/pathops.wasm, lib.rs) takes, so test/vector.test.mjs can hold the wasm to
 //! the native answer; `grad*` cases go through vectorcraft-color's gradient model, which
 //! web/vector/gradient.js ports.
-use claudestudio_pathops::run;
+use claudestudio_pathops::{run, trace_rgba};
 use kurbo::{Point, Rect};
 use serde_json::{Value, json};
 use vectorcraft_color::gradient::{Gradient, GradientGeom, GradientKind, GradientStop, insert_stop, move_stop, remove_stop};
@@ -42,6 +42,11 @@ fn main() {
             "pathfinder" => {
                 let input: Vec<f64> = c["flat"].as_array().unwrap().iter().map(f).collect();
                 json!(run(&input))
+            }
+            // Image Trace of a raster (text to outlines): the flat output the wasm gives.
+            "trace" => {
+                let rgba: Vec<u8> = c["rgba"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect();
+                json!(trace_rgba(&rgba, c["w"].as_u64().unwrap() as u32, c["h"].as_u64().unwrap() as u32, c["preset"].as_u64().unwrap() as u32))
             }
             "gradFit" => {
                 let r = &c["r"];

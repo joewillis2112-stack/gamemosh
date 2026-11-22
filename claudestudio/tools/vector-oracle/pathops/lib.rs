@@ -73,6 +73,23 @@ fn encode(shapes: &[Shape]) -> Vec<f64> {
     o
 }
 
+/// Image Trace (VectorCraft's trace crate) of an RGBA8 raster: dark shapes on white, as paths in
+/// pixel coordinates, encoded as `run`'s output (key 0 each). `preset` 0: Black and White Logo,
+/// 1: Flat Logo (sub-pixel edges, sharp corners restored). Text to outlines draws its glyphs into
+/// such a raster and traces them.
+pub fn trace_rgba(rgba: &[u8], w: u32, h: u32, preset: u32) -> Vec<f64> {
+    if rgba.len() != w as usize * h as usize * 4 || w == 0 || h == 0 {
+        return vec![-1.0];
+    }
+    let img = vectorcraft_trace::Raster { width: w, height: h, rgba: rgba.to_vec() };
+    let name = if preset == 1 { "Flat Logo" } else { "Black and White Logo" };
+    let Some(mut params) = vectorcraft_trace::preset(name) else { return vec![-1.0] };
+    params.ignore_white = true;
+    let res = vectorcraft_trace::trace(&img, &params);
+    let shapes: Vec<Shape> = res.paths.into_iter().filter(|p| p.stroke.is_none() && p.color.iter().any(|&c| c < 245)).map(|p| Shape::new(p.path, FillRule::NonZero, 0)).collect();
+    encode(&shapes)
+}
+
 // ---- wasm exports: the caller allocates the input, calls `pathfinder`, reads `out_ptr`/`out_len`.
 static mut OUT: Vec<f64> = Vec::new();
 
@@ -97,6 +114,32 @@ pub unsafe extern "C" fn free(p: *mut f64, n: usize) {
 pub unsafe extern "C" fn pathfinder_run(p: *const f64, n: usize) -> usize {
     let input = unsafe { std::slice::from_raw_parts(p, n) };
     let out = run(input);
+    let len = out.len();
+    unsafe { OUT = out };
+    len
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc_bytes(n: usize) -> *mut u8 {
+    let mut v = vec![0u8; n];
+    let p = v.as_mut_ptr();
+    std::mem::forget(v);
+    p
+}
+
+/// # Safety
+/// `p` and `n` must come from one `alloc_bytes(n)` call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_bytes(p: *mut u8, n: usize) {
+    drop(unsafe { Vec::from_raw_parts(p, n, n) });
+}
+
+/// # Safety
+/// `p` must point at `w * h * 4` bytes (from `alloc_bytes`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn trace_run(p: *const u8, w: u32, h: u32, preset: u32) -> usize {
+    let rgba = unsafe { std::slice::from_raw_parts(p, w as usize * h as usize * 4) };
+    let out = trace_rgba(rgba, w, h, preset);
     let len = out.len();
     unsafe { OUT = out };
     len

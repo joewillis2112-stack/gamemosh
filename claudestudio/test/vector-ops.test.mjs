@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import * as G from '../web/vector/geom.js';
 import * as Grad from '../web/vector/gradient.js';
-import { loadPathops, runFlat, pathfinder } from '../web/vector/pathops.js';
+import { loadPathops, runFlat, pathfinder, traceFlat, trace } from '../web/vector/pathops.js';
 
 const cases = JSON.parse(fs.readFileSync('test/fixtures/vector/pathops-cases.json', 'utf8'));
 const oracle = JSON.parse(fs.readFileSync('test/fixtures/vector/pathops-oracle.json', 'utf8'));
@@ -28,6 +28,7 @@ cases.forEach((c, i) => {
   let ours, tol;
   switch (c.op) {
     case 'pathfinder': ours = runFlat(c.flat); tol = 1e-9; break;
+    case 'trace': ours = traceFlat(Uint8Array.from(c.rgba), c.w, c.h, c.preset); tol = 1e-9; break;
     case 'gradFit': ours = Grad.fit(c.kind, c.r, c.angle); ours = { start: ours.start, end: ours.end }; tol = 0; break;
     case 'gradSample': ours = c.t.map(t => { const [col, o] = Grad.sample(c.stops, t); return [...col, o]; }); tol = 0; break;
     case 'gradExpanded': ours = Grad.expanded(c.stops).map(([t, col, o]) => [t, ...col, o]); tol = 0; break;
@@ -73,6 +74,11 @@ const dis = pathfinder('intersect', [G.rectangle([0, 0, 50, 50]), G.rectangle([1
 check(Array.isArray(dis) && dis.length === 0, 'disjoint shapes intersect in nothing');
 check(pathfinder('unite', [[{ anchors: [G.corner([0, 0]), G.corner([NaN, 5]), G.corner([5, 5])], closed: true }]]) === null, 'a NaN coordinate is refused (null), not a crash');
 check(pathfinder('unite', sq) !== null, 'and the module still works after refusing it');
+
+// Image Trace by hand: the ring (an 'o', radii 17 and 9) traces to a ring of that area.
+const ringCase = cases.find(c => c.op === 'trace' && c.preset === 1), traced = trace(Uint8Array.from(ringCase.rgba), ringCase.w, ringCase.h, 1);
+const tArea = traced && traced.reduce((t, p) => t + area(p), 0), ringArea = Math.PI * (17 * 17 - 9 * 9);
+check(traced && traced.length === 1 && traced[0].length === 2 && Math.abs(tArea - ringArea) / ringArea < 0.02, `a traced ring is one shape, outside and hole, area ${tArea && tArea.toFixed(1)} (π(17²-9²) = ${ringArea.toFixed(1)})`);
 
 // Gradients by hand.
 const [mid] = Grad.sample([Grad.stop(0, [1, 1, 1]), Grad.stop(1, [0, 0, 0])], 0.5);
