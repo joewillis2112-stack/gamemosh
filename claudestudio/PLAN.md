@@ -78,6 +78,16 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 - Tests: `places/atmosphere-lab.luau`, `test/scenarios/atmosphere.mjs` (11 checks, default and low tiers; mutation-checked 5 of 5).
 - Every place gets a Baseplate Atmosphere, so the default look changed: lighter, sky-coloured distance instead of the old linear fog to a flat horizon colour.
 
+[Studio] **Graphics quality (2026-11-22):** the fidelity tier is chosen as Roblox chooses its graphics quality.
+- **Automatic**, the default, starts from the device: a software renderer or 2 GB of memory gets low, a small touch screen phone, anything else high. It then adapts to the frame time: down a tier after 3 s under 30 fps, up after 10 s over 55 fps, never past high. Ultra is only by choice. These thresholds are ours.
+- **The player's choice** is `UserSettings():GetService("UserGameSettings").SavedQualityLevel` (Automatic or levels 1–10; levels 1–3 low, 4–5 phone, 6–8 high, 9–10 ultra). It is saved per player, and scripts can read and set it.
+- **The in-game menu** (Esc or the top-left button) has Roblox's Graphics Mode and 10-step Graphics Quality, plus F10 and Shift+F10, as in Roblox's GameSettings.lua.
+- **Every system switches tier live:** sun shadows, MSAA, SSAO, sun-ray taps, the sky cube's size, lights per surface, local shadow maps, and particle budgets and shaders.
+- `?quality=` still fixes the tier, for tests.
+- `Instance:GetPropertyChangedSignal` was missing; it now exists.
+- Files: `runtime/graphics.js`, `runtime/menu.js`, `runtime/quality.js`.
+- Tests: `test/quality.test.mjs`; `test/scenarios/graphics.mjs` (desktop and phone, `--quality auto`).
+
 ## Architecture
 
 | Layer | What | Notes |

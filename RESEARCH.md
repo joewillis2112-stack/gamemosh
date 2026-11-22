@@ -468,6 +468,17 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **Destroyed glTF MeshParts leaked their materials (2026-11-21).** `instantiateModelsToScene(..., cloneMaterials = true)` clones materials and textures per part, and the entries' `dispose()` frees only the nodes. The stress scenario (`test/scenarios/stress.mjs`: make and destroy every kind of content, counts must stay flat) caught it, +4 materials and +4 textures per cycle. Decals with `rbxasset://` URLs were fetched and 404'd.
 - [Studio] **I edited files the running suite uses, three times (2026-11-21).** The rule alone didn't hold. The suite now runs on a snapshot of the tree (`tools/test-play.sh`), so edits made during a run can't reach it.
 
+- [Studio] **Live tier switching (2026-11-22).** Most systems read the tier each frame. Five need rebuilding:
+  - the sun's shadows: `mapSize` and `numCascades` setters, which keep their casters;
+  - SSAO, recreated when its ratio changes;
+  - the sun-rays shader, compiled per tap count, so the post passes rebuild when the tier changes;
+  - the sky cube, which needs a new texture that everything holding the old one follows (the skybox's GPU texture, the scene's environment, the below-horizon plugin, the lighting's harmonics);
+  - particle materials, whose soft-edge define is fixed when a material is made.
+
+  Check every one against the tier table in the page, and check a round trip returns the same picture.
+- [Studio] **A merge can shadow a method (2026-11-22, the editor agent).** The merged branch gave the image editor a property named `this.wheel`, which replaced its `wheel()` method. Nothing errored; wheel zoom just stopped.
+- [Studio] **Phone test gestures (2026-11-22, the editor agent).** A drag that lifts while still moving starts a fling, and Chrome then drops the next tap as the fling's cancel, so hold still before lifting. Wait on pointer events, not touch events, for a drag to end. Sample test pixels away from on-canvas handles.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
@@ -660,3 +671,4 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **2026-11-19 (Studio: styles):** ToonEffect, OutlineEffect, PixelEffect (our own Lighting effects), the shared post-pass order, 32-bit shared depth; worker branches merged (script docs and types, Paint and Adjust, solid modelling); the sun-rays test aims a Scriptable camera so it runs on phones.
 - [Studio] **2026-11-21 (Studio: review pass, asked by the user):** suite6 red (meshes-gltf, ShadowSoftness, post goldens, completions); local main backed up to `studio-unverified`, Atmosphere WIP to `studio-atmosphere-wip` (2/8 checks); datatypes agent done (branch unmerged), image and paint agents rate-limited. Review and next steps: `claudestudio/REVIEW_2026-11-21.md`.
 - [Studio] **2026-11-21 (Studio: fix pass and stress test, asked by the user):** suite6's four failures came from one root cause, the unregistered Toon plugin, now fixed. Atmosphere finished (aerial perspective, Haze, Glare, Color, Decay; mutation-checked). Stress and review found and fixed: no script timeout, a MeshPart material leak, the skybox hiding everything past 2000 studs, the pale band under the horizon, Camera Position/Orientation, rbxasset fetches. The harness is hardened (snapshot suite, watchdog, page errors on failure, suffixed shots, `--update` only on mismatch, unit-test timeouts, CSG, stress and unions in the suite). 77 goldens re-saved after review. See `claudestudio/REVIEW_2026-11-21.md`.
+- [Studio] **2026-11-22 (Studio: graphics quality):** Automatic tier (device guess, then frame time), Roblox's SavedQualityLevel and in-game menu, live tier switching in every system, GetPropertyChangedSignal; the image and vector editor agent's work merged (selections, Lanczos/Preserve Details, Divide/Trim/Merge/Crop, gradient stops and handles, traced text outlines), its unit tests verified.
