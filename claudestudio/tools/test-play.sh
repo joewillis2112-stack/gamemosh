@@ -119,6 +119,10 @@ timeout 600 node test/placefile.test.mjs | tail -1 | grep -q PASS && echo "place
 vt=$(timeout 900 npx vitest run web/modeling/kernel test/modeling.test.mjs test/csg.test.mjs 2>&1); echo "$vt" | grep -q "Tests .*passed" && ! echo "$vt" | grep -q "failed" && echo "modeling tests PASS ($(echo "$vt" | grep -o "Tests .*passed[^)]*"))" || { echo "FAILED: modeling tests"; fail=1; }
 timeout 600 node test/paint.test.mjs | tail -1 | grep -q PASS && echo "brush engine test PASS" || { echo "FAILED: brush engine test"; fail=1; }
 timeout 600 node test/vector.test.mjs | tail -1 | grep -q PASS && echo "vector geometry test PASS" || { echo "FAILED: vector geometry test"; fail=1; }
+timeout 600 node test/vector-ops.test.mjs | tail -1 | grep -q PASS && echo "vector booleans/gradients/trace test PASS" || { echo "FAILED: vector booleans/gradients/trace test"; fail=1; }
+timeout 600 node test/resample.test.mjs | tail -1 | grep -q PASS && echo "resample test PASS" || { echo "FAILED: resample test"; fail=1; }
+timeout 600 node test/selection.test.mjs | tail -1 | grep -q PASS && echo "selection test PASS" || { echo "FAILED: selection test"; fail=1; }
+timeout 600 node test/layerfile.test.mjs | tail -1 | grep -q PASS && echo "layer file test PASS" || { echo "FAILED: layer file test"; fail=1; }
 timeout 600 node test/develop.test.mjs | tail -1 | grep -q PASS && echo "develop test PASS" || { echo "FAILED: develop test"; fail=1; }
 timeout 600 node test/sequences.test.mjs | tail -1 | grep -q PASS && echo "particle datatypes test PASS" || { echo "FAILED: particle datatypes test"; fail=1; }
 timeout 600 node test/completions.test.mjs | tail -1 | grep -q PASS && echo "completions test PASS" || { echo "FAILED: completions test"; fail=1; }

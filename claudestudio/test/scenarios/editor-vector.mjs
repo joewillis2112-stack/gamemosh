@@ -147,6 +147,7 @@ export default async function (t) {
   await drag(await at(...g0.start), await at(g0.start[0] - 30, g0.start[1] + 20));
   const gs4 = await shapeAt(1), cAt = await pix(370, 412);
   check(gs4.grad.geom && Math.hypot(gs4.grad.geom.start[0] - (g0.start[0] - 30), gs4.grad.geom.start[1] - (g0.start[1] + 20)) < 3 && near(cAt, want(gs4, [370, 412]), tolSteep) && cAt[2] > 200, `dragging the centre handle moves the radial's centre (${gs4.grad.geom.start.map(Math.round)}): blue where it now is (${cAt} ≈ ${want(gs4, [370, 412])})`);
+  await t.golden('editor-vector-gradient'); // the annotator on the star and the stop bar in the panel
   await drag(await at(400, 380), await at(410, 380)); // moving the star carries the placed gradient with it
   const s5g = (await shapeAt(1)).grad.geom;
   check(Math.abs(s5g.start[0] - gs4.grad.geom.start[0] - 10) < 2, `moving the shape moves its placed gradient too (${s5g.start.map(Math.round)})`);
