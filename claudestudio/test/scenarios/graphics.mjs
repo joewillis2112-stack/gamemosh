@@ -91,7 +91,7 @@ export default async function (t) {
   // The game's keys stay out while it's open (desktop: hold W; the character doesn't move).
   if (!phone) {
     const p0 = await t.eval(() => window.studio.player.holder.position.asArray());
-    await t.page.keyboard.down('KeyW'); await t.sim(30); await t.page.keyboard.up('KeyW'); await t.sim(5);
+    await t.page.keyboard.down('KeyW'); await t.sim(30, 'live'); await t.page.keyboard.up('KeyW'); await t.sim(5, 'live'); // live: the keyboard as it is (sim's default holds still)
     const p1 = await t.eval(() => window.studio.player.holder.position.asArray());
     check(Math.hypot(p1[0] - p0[0], p1[2] - p0[2]) < 0.05, `W held with the menu open: the character stays (moved ${Math.hypot(p1[0] - p0[0], p1[2] - p0[2]).toFixed(3)} studs)`);
   }
@@ -120,6 +120,12 @@ export default async function (t) {
   await press('m.resume');
   u = await ui();
   check(!u.open && u.shown === 'none', 'Resume closes the menu');
+  if (!phone) { // the same W with the menu closed moves the character (so the check above means something)
+    const p0 = await t.eval(() => window.studio.player.holder.position.asArray());
+    await t.page.keyboard.down('KeyW'); await t.sim(30, 'live'); await t.page.keyboard.up('KeyW'); await t.sim(5, 'live');
+    const p1 = await t.eval(() => window.studio.player.holder.position.asArray()), moved = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]);
+    check(moved > 1, `with the menu closed, the same W moves the character (${moved.toFixed(2)} studs)`);
+  }
 
   // The choice survives a reload (saved for the player).
   t.logs.length = 0;
