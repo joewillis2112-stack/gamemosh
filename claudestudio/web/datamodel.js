@@ -9,6 +9,7 @@ import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
 import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
+import { Assemblies, isJoint } from './assembly.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -417,9 +418,26 @@ defineClass('BasePart', 'Instance', {
     Locked: ['bool', false],
     // studs/s and rad/s. Physics writes them for unanchored parts; on an anchored part they only carry what stands on it (a conveyor).
     AssemblyLinearVelocity: ['Vector3', [0, 0, 0]], AssemblyAngularVelocity: ['Vector3', [0, 0, 0]],
+    // Assemblies (web/assembly.js): parts joined by rigid joints move as one, from a root part.
+    Massless: ['bool', false], RootPriority: ['number', 0], AssemblyRootPart: ['Instance', null],
   },
   methods: {
     GetPivot(self) { return [self.props.CFrame]; },
+    GetRootPart(self) { self.dm.assemblies.flush(); return [self.props.AssemblyRootPart || self]; },
+    // The parts joined to this one by active rigid joints; recursive: its whole assembly, itself
+    // included (UNSURE: whether Roblox's list includes the part itself).
+    GetConnectedParts(self, recursive) {
+      const a = self.dm.assemblies.assemblyOf(self);
+      if (!a) return [[]];
+      if (recursive) return [a.parts.slice()];
+      const out = [];
+      for (const [p, [q]] of a.edges) { if (q === self) out.push(p); if (p === self) out.push(q); }
+      return [out];
+    },
+    GetJoints(self) {
+      const a = self.dm.assemblies.assemblyOf(self);
+      return [a ? [...a.edges.values()].map(([, j]) => j).filter(j => j.props.Part0 === self || j.props.Part1 === self) : []];
+    },
     PivotTo(self, cf) { if (!(cf instanceof CF)) throw new Error('Unable to cast value to CFrame'); self.dm.set(self, 'CFrame', cf); return []; },
     // Solid modelling (web/modeling/csg.js, through dm.hooks.csg): yields, and returns the new
     // operation with no Parent, as Roblox's do.
@@ -591,6 +609,16 @@ defineClass('Attachment', 'Instance', {
     WorldCFrame: ['CFrame'], WorldPosition: ['Vector3', [0, 0, 0]], WorldOrientation: ['Vector3', [0, 0, 0]], WorldAxis: ['Vector3', [1, 0, 0]], WorldSecondaryAxis: ['Vector3', [0, 1, 0]],
   },
 });
+// Joints (web/assembly.js holds what they do). JointInstance: Part1 sits at Part0 * C0 * C1:Inverse()
+// (a Motor turned CurrentAngle about Z between them, a Motor6D its Transform: what Animators write).
+// WeldConstraint keeps the offset its parts had when it became active. Active is the engine's (a
+// joint in a cycle, or joining two anchored assemblies, is inactive). ChildName mirrors Part1's Name.
+defineClass('JointInstance', 'Instance', { creatable: false, props: { Part0: ['Instance', null], Part1: ['Instance', null], C0: ['CFrame'], C1: ['CFrame'], Enabled: ['bool', true], Active: ['bool', false] } });
+defineClass('Weld', 'JointInstance', {});
+defineClass('Snap', 'JointInstance', {});
+defineClass('Motor', 'JointInstance', { props: { CurrentAngle: ['number', 0], DesiredAngle: ['number', 0], MaxVelocity: ['number', 0] } });
+defineClass('Motor6D', 'Motor', { props: { Transform: ['CFrame'], ChildName: ['string', ''] } });
+defineClass('WeldConstraint', 'Instance', { props: { Part0: ['Instance', null], Part1: ['Instance', null], Enabled: ['bool', true], Active: ['bool', false] } });
 // Local lights: direct children of a BasePart (mashup-research/ROBLOX_LIGHTING_2026-10-09.md
 // section 7). Instance.new defaults from rbx-dom's reflection database; Range is
 // clamped to 120 studs and Angle to [0, 180] when set (Roblox clamps them). Drawn
@@ -836,6 +864,7 @@ export class DataModel {
     this.game.props.Name = 'Game';
     this.services = {};
     this.workspace = this.service('Workspace');
+    this.assemblies = new Assemblies(this, isA); // rigid joints (web/assembly.js)
     this.service('Lighting');
     // workspace.CurrentCamera, as Roblox gives every place one.
     const cam = this.create('Camera');
@@ -993,10 +1022,13 @@ export class DataModel {
     if (lookup(inst.ClassName, 'props', 'Orientation')) { const [ox, oy, oz] = cf.toOrientation(); next.Orientation = new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)); }
     const changed = Object.keys(next).filter(k => !sameValue(P[k], next[k]));
     if (!changed.length) return;
+    const part = isA(inst.ClassName, 'BasePart');
+    if (part && key === 'CFrame') this.assemblies.moveWith(inst, cf); // its assembly moves with it
     Object.assign(P, next);
     if (inst.ClassName === 'Attachment') { const R = cf.m; Object.assign(P, { Axis: new V3(R[3], R[6], R[9]), SecondaryAxis: new V3(R[4], R[7], R[10]) }); this.attachmentWorld(inst); }
     else for (const c of inst.children) if (c.ClassName === 'Attachment') this.attachmentWorld(c);
     this.notify(inst, 'CFrame');
+    if (part && key !== 'CFrame') this.assemblies.reweld(inst); // Position, Orientation: it moves alone; its WeldConstraints re-take their offsets
     for (const k of changed) this.fire(inst, 'Changed', [k]);
   }
   // An attachment's frame in the world: its part's CFrame times its own (refreshed on every read).
@@ -1206,7 +1238,8 @@ export const STUDIO_OWN = new Map([
   ['PixelEffect.Colors', 'Levels per colour channel (2 to 32) for a limited palette; 0 keeps every colour.'],
   ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
 ]);
-const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
+const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
+const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
@@ -1331,6 +1364,7 @@ export function makeHost(dm, log = console.log) {
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
       // A layout's AbsoluteContentSize is current when read (Roblox: 'updates as soon as it's read'): lay out now.
       if (key === 'AbsoluteContentSize' && dm.hooks.layoutNow) dm.hooks.layoutNow();
+      if (ASSEMBLY_READS.has(key)) dm.assemblies.flush(); // joints placed before a placement is read
       if (key in inst.props) {
         if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
         const ty = typeOf(inst.ClassName, key);

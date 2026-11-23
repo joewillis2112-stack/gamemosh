@@ -14,6 +14,7 @@ const SERVICES = ['Workspace', 'Lighting', 'ReplicatedStorage', 'ServerScriptSer
 
 // Every property of every instance under the saved services, as comparable text (refs as paths).
 function dump(dm) {
+  dm.assemblies.flush(); // derived state (AssemblyRootPart, joints' Active) current, as any read makes it
   const path = i => { const p = []; for (let a = i; a && a !== dm.game; a = a.parent) p.unshift(a.props.Name); return p.join('.'); };
   const out = [];
   const walk = i => {

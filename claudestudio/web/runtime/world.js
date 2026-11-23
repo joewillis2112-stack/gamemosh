@@ -8,6 +8,8 @@ import { Vector3, Color3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody.js';
+import { PhysicsShapeContainer, PhysicsShapeBox, PhysicsShapeSphere, PhysicsShapeConvexHull } from '@babylonjs/core/Physics/v2/physicsShape.js';
 import { PhysicsShapeType, PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import { partShape } from './shapes.js';
 import { PHYSICAL } from './physprops.js';
@@ -101,6 +103,14 @@ export class World {
     dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
     this.terrain = new TerrainView(scene, dm, shadows); // workspace.Terrain (runtime/terrain.js)
+    // Assemblies (web/assembly.js): an unanchored one of several parts is one Havok body (a compound
+    // of its parts' shapes) on its root; the other parts follow the root. Parts of an anchored one
+    // don't move (e.fixed).
+    this.compounds = new Map(); // root part -> { node, body, shape, children }
+    this.pendingCompounds = new Set(); // roots whose compound is to be (re)built before the next step
+    this.syncing = false; // while physics writes placements (they move meshes only)
+    dm.assemblies.onRebuild = () => this.reassemble();
+    this.reassemble();
   }
 
   // Each part owns its material, updated in place when Color or Material
@@ -282,6 +292,7 @@ export class World {
       for (const m of own) m.dispose(false, true, true);
     }
     if (p) { p.agg && p.agg.dispose(); (p.decals || []).forEach(d => { d.material && d.material.dispose(true, true); d.dispose(); }); p.mat && p.mat.dispose(); p.mesh.dispose(); this.parts.delete(inst); }
+    if (this.compounds.has(inst)) this.compound(inst); // a loose assembly's root left: its body goes
     for (const c of inst.children) this.removed(c);
   }
   inWorkspace(inst) { for (let p = inst; p; p = p.parent) if (p === this.dm.workspace) return true; return false; }
@@ -508,10 +519,15 @@ export class World {
     if (e.agg) { e.agg.dispose(); e.agg = null; }
     const P = inst.props;
     if (!this.inWorkspace(inst) || !this.scene.getPhysicsEngine()) return;
+    // Joined to other parts: an assembly with an anchored part doesn't move (all its parts are fixed);
+    // an unanchored one is one body, built on its root (compound()).
+    const a = this.dm.assemblies.assemblyOf(inst), joined = !!a && a.parts.length > 1;
+    e.fixed = !!P.Anchored || (joined && a.anchored);
+    if (joined && !a.anchored) { this.pendingCompounds.add(a.root); return; }
     // An anchored part that doesn't collide has nothing to simulate. An
     // unanchored one still falls (Roblox), it just collides with nothing:
     // a body with empty collision masks, which rays skip too.
-    if (!P.CanCollide && P.Anchored) return;
+    if (!P.CanCollide && e.fixed) return;
     const wedge = inst.ClassName === 'WedgePart' || P.Shape === 'Wedge';
     // Wedges and cylinders collide as their own convex hulls (a cylinder as a box let players stand on its corners).
     let type = P.Shape === 'Ball' ? PhysicsShapeType.SPHERE : wedge || P.Shape === 'Cylinder' ? PhysicsShapeType.CONVEX_HULL : PhysicsShapeType.BOX;
@@ -526,7 +542,7 @@ export class World {
     // Rubber and a few others.
     const [density, elasticity, , friction] = PHYSICAL[P.Material] || PHYSICAL.Plastic, S = P.Size;
     const volume = e.meshPart ? e.meshPart.volume * S.x * S.y * S.z : P.Shape === 'Ball' ? Math.PI / 6 * Math.min(S.x, S.y, S.z) ** 3 : P.Shape === 'Cylinder' ? Math.PI / 4 * Math.min(S.y, S.z) ** 2 * S.x : wedge ? S.x * S.y * S.z / 2 : S.x * S.y * S.z;
-    const mass = P.Anchored ? 0 : density * volume;
+    const mass = e.fixed ? 0 : density * volume;
     e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction, restitution: elasticity }, this.scene);
     e.agg.shape.material = { friction, restitution: elasticity, frictionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN, restitutionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN };
     if (!P.CanCollide) { e.agg.shape.filterMembershipMask = 0; e.agg.shape.filterCollideMask = 0; }
@@ -554,7 +570,9 @@ export class World {
       case 'Transparency': return this.visibility(inst, e);
       case 'CFrame':
         this.transform(inst, e);
-        if (e.agg && inst.props.Anchored) {
+        if (this.syncing) return; // physics (or an assembly following it) moved it: the mesh only
+        if (e.asm && !e.fixed) { this.pendingCompounds.add(e.asm.root); return; } // a script moved a loose assembly: rebuilt where it is now (keeping its velocity)
+        if (e.agg && e.fixed) {
           // A script moving an anchored part: its body follows the mesh (kinematic), no rebuild.
           if (!e.moving) { e.agg.body.setMotionType(PhysicsMotionType.ANIMATED); e.agg.body.disablePreStep = false; e.moving = true; }
           return;
@@ -588,7 +606,7 @@ export class World {
   // parts no velocity, so they don't carry what stands on them; here they do.
   trackMotion(dt) {
     for (const [inst, e] of this.parts) {
-      if (!inst.props.Anchored) { inst.kin = null; e.prevCF = null; continue; }
+      if (!e.fixed) { inst.kin = null; e.prevCF = null; continue; }
       const cf = inst.props.CFrame, prev = e.prevCF;
       e.prevCF = cf;
       if (!prev || prev === cf || dt <= 0) { inst.kin = null; continue; }
@@ -604,11 +622,88 @@ export class World {
     }
   }
 
+  // The assembly graph changed: parts whose assembly changed get their bodies again; loose
+  // assemblies whose root or parts changed get their compound again.
+  reassemble() {
+    for (const [inst, e] of this.parts) {
+      const a = this.dm.assemblies.of.get(inst), joined = !!a && a.parts.length > 1;
+      const sig = joined ? `${a.anchored ? 'A' : 'D'}${a.parts.length}` : '';
+      const root = joined ? a.root : null;
+      if (e.asmSig === sig && e.asmRoot === root) { e.asm = joined ? a : null; continue; }
+      e.asmSig = sig; e.asmRoot = root; e.asm = joined ? a : null;
+      this.body(inst, e);
+    }
+    for (const root of [...this.compounds.keys()]) { const a = this.dm.assemblies.of.get(root); if (!a || a.root !== root || a.parts.length < 2 || a.anchored) this.pendingCompounds.add(root); }
+  }
+  /** Before each physics step: the joint graph current, every pending compound built. */
+  prePhysics() {
+    this.dm.assemblies.flush();
+    for (const root of this.pendingCompounds) this.compound(root);
+    this.pendingCompounds.clear();
+  }
+  // One part's collision shape for a compound, in its own frame, at its size: a box, a ball, or the
+  // hull of its mesh (a wedge, a cylinder, a MeshPart; Havok bakes the mesh's scale in), with its
+  // material's density (Havok sums them: mass = density x volume, as for a lone part), friction and
+  // elasticity. A Massless part adds (almost) nothing.
+  shapeOf(inst, e) {
+    const P = inst.props, S = P.Size, wedge = inst.ClassName === 'WedgePart' || P.Shape === 'Wedge';
+    const [density, elasticity, , friction] = PHYSICAL[P.Material] || PHYSICAL.Plastic;
+    let s;
+    if (P.Shape === 'Ball') s = new PhysicsShapeSphere(Vector3.Zero(), Math.min(S.x, S.y, S.z) / 2, this.scene);
+    else if (wedge || P.Shape === 'Cylinder' || (e.meshPart && e.meshPart.render.length && P.CollisionFidelity !== 'Box')) { e.mesh.computeWorldMatrix(true); s = new PhysicsShapeConvexHull(e.mesh, this.scene); }
+    else s = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(S.x, S.y, S.z), this.scene);
+    s.density = P.Massless ? 1e-6 : density;
+    s.material = { friction, restitution: elasticity, frictionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN, restitutionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN };
+    if (!P.CanCollide) { s.filterMembershipMask = 0; s.filterCollideMask = 0; }
+    return s;
+  }
+  // A loose assembly's body: an unscaled node at the root's CFrame, a container of every part's shape
+  // at its offset from the root. A rebuilt one keeps the old one's velocity.
+  compound(root) {
+    const old = this.compounds.get(root);
+    let lv = null, av = null;
+    if (old) { lv = old.body.getLinearVelocity(); av = old.body.getAngularVelocity(); old.body.dispose(); for (const c of old.children) c.dispose(); old.shape.dispose(); old.node.dispose(); this.compounds.delete(root); }
+    const a = this.dm.assemblies.assemblyOf(root);
+    if (!a || a.root !== root || a.parts.length < 2 || a.anchored || root.destroyed || !this.inWorkspace(root) || !this.scene.getPhysicsEngine()) return;
+    const rc = root.props.CFrame, [rx, ry, rz, rw] = rc.toQuat(), inv = rc.inverse();
+    const node = new TransformNode(root.Name + '/assembly', this.scene);
+    node.position.set(rc.x, rc.y, rc.z); node.rotationQuaternion = new Quaternion(rx, ry, rz, rw);
+    const shape = new PhysicsShapeContainer(this.scene), children = [];
+    for (const p of a.parts) {
+      const pe = this.parts.get(p);
+      if (!pe) continue;
+      if (pe.agg) { pe.agg.dispose(); pe.agg = null; }
+      const s = this.shapeOf(p, pe), r = inv.mul(p.props.CFrame), [x, y, z, w] = r.toQuat();
+      shape.addChild(s, new Vector3(r.x, r.y, r.z), new Quaternion(x, y, z, w));
+      children.push(s);
+    }
+    const body = new PhysicsBody(node, PhysicsMotionType.DYNAMIC, false, this.scene);
+    body.shape = shape;
+    if (lv) { body.setLinearVelocity(lv); body.setAngularVelocity(av); }
+    this.compounds.set(root, { node, body, shape, children });
+  }
+
   syncFromPhysics() {
     const floor = this.dm.workspace.props.FallenPartsDestroyHeight;
     const fallen = [];
+    // Loose assemblies: the root from its body, the rest placed from it through their joints.
+    this.syncing = true;
+    try {
+      for (const [root, c] of this.compounds) {
+        const a = this.dm.assemblies.of.get(root);
+        if (!a || a.root !== root) continue;
+        const n = c.node, p = n.position, q = n.rotationQuaternion;
+        if (p.y < floor) { fallen.push(...a.parts); continue; }
+        const cf = CF.fromQuat(p.x, p.y, p.z, q.x, q.y, q.z, q.w), [ox, oy, oz] = cf.toOrientation();
+        Object.assign(root.props, { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(ox, oy, oz) });
+        this.dm.notify(root, 'CFrame');
+        this.dm.assemblies.place(a);
+        const lv = c.body.getLinearVelocity(), av = c.body.getAngularVelocity(), LV = new V3(lv.x, lv.y, lv.z), AV = new V3(av.x, av.y, av.z);
+        for (const m of a.parts) { m.props.AssemblyLinearVelocity = LV; m.props.AssemblyAngularVelocity = AV; const me = this.parts.get(m); if (me) partShape(m, me.mesh.rotationQuaternion, me.shape); }
+      }
+    } finally { this.syncing = false; }
     for (const [inst, e] of this.parts) {
-      if (inst.props.Anchored || !e.agg) continue;
+      if (e.fixed || !e.agg) continue;
       const m = e.mesh;
       if (m.position.y < floor) { fallen.push(inst); continue; } // Roblox destroys parts that fall this far
       // Physics-driven: written straight to the props (no Changed per frame, as in Roblox).

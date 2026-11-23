@@ -41,6 +41,7 @@ run --noshots --scenario test/scenarios/cframe.mjs
 run --noshots --scenario test/scenarios/runservice.mjs
 run --noshots --scenario test/scenarios/platforms.mjs
 run --noshots --scenario test/scenarios/physics.mjs
+run --noshots --scenario test/scenarios/joints.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs
@@ -127,6 +128,7 @@ if [ -d .cache/fidelity/assets ]; then
 else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
 timeout 600 node test/text.test.mjs | tail -1 | grep -q PASS && echo "text outlines test PASS" || { echo "FAILED: text outlines test"; fail=1; }
 timeout 600 node test/quality.test.mjs | tail -1 | grep -q PASS && echo "graphics quality test PASS" || { echo "FAILED: graphics quality test"; fail=1; }
+timeout 600 node test/assembly.test.mjs | tail -1 | grep -q PASS && echo "joints and assemblies test PASS" || { echo "FAILED: joints and assemblies test"; fail=1; }
 timeout 600 node test/library.test.mjs | tail -1 | grep -q PASS && echo "toolbox catalog test PASS" || { echo "FAILED: toolbox catalog test"; fail=1; }
 timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
 timeout 600 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
