@@ -122,7 +122,9 @@ export default async function (t) {
 
   // A model with a flat base (a road tile) sits its lift above the surface, so its asphalt doesn't
   // z-fight with the floor.
+  // (The models inserted so far go first: the garage stands where the camera looks.)
   const ROAD = 'kenney/city-builder/road-straight';
+  await E(names => { const ed = window.editor; ed.commands.run('delete', { items: ed.dm.workspace.children.filter(c => names.includes(c.props.Name)) }); }, [ins.name, kname]);
   await search('road straight');
   await tap(`#toolbox [data-item="${ROAD}"]`);
   const road = await E(id => { const ed = window.editor, p = ed.commands.selection.items[0], it = ed.toolbox.items.find(i => i.id === id); return { lift: it.lift, bottom: p.props.CFrame.y - p.props.Size.y / 2, x: p.props.CFrame.x, z: p.props.CFrame.z, name: p.props.Name }; }, ROAD);
