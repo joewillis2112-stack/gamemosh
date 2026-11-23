@@ -360,6 +360,11 @@ defineClass('UIGradient', 'UIComponent', { props: {
   Color: ['ColorSequence', '0 1 1 1 0 1 1 1 1 0 '], Transparency: ['NumberSequence', '0 0 0 1 0 0 '], Offset: ['Vector2', [0, 0]], Rotation: ['number', 0], Enabled: ['bool', true],
 } });
 defineClass('UIAspectRatioConstraint', 'UIComponent', { props: { AspectRatio: ['number', 1], AspectType: ['Enum.AspectType', 'FitWithinMaxSize'], DominantAxis: ['Enum.DominantAxis', 'Width'] } });
+// UIScale (classes/UIScale.yaml): multiplies its parent's AbsoluteSize, and everything inside it, by
+// Scale. UISizeConstraint (classes/UISizeConstraint.yaml): keeps its parent between MinSize and MaxSize
+// pixels, over any size a layout gives it. Both drawn by runtime/gui.js.
+defineClass('UIScale', 'UIComponent', { props: { Scale: ['number', 1] } });
+defineClass('UISizeConstraint', 'UIComponent', { props: { MinSize: ['Vector2', [0, 0]], MaxSize: ['Vector2', [Infinity, Infinity]] } });
 defineClass('UITextSizeConstraint', 'UIComponent', { props: { MinTextSize: ['number', 1], MaxTextSize: ['number', 100] } });
 
 // Per-player containers, and StarterPlayer's two script folders.

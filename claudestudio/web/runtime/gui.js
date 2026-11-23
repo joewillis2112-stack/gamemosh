@@ -113,9 +113,13 @@ export class Gui {
       guis.forEach((g, i) => {
         const top = g.props.IgnoreGuiInset ? 0 : GUI_INSET;
         const e = this.element(g, this.root, seen);
-        Object.assign(e.el.style, { left: '0px', top: top + 'px', width: W + 'px', height: H - top + 'px', zIndex: String(i + 1), display: g.props.Enabled ? 'block' : 'none' });
+        // A UIScale in a ScreenGui: its children are laid out on a screen 1/Scale the size, then everything is
+        // drawn Scale times bigger from the top left, so they still reach the screen's edges (OURS: our
+        // reading; Roblox doesn't document UIScale under a LayerCollector).
+        const k = scaleOf(g);
+        Object.assign(e.el.style, { left: '0px', top: top + 'px', width: W / k + 'px', height: (H - top) / k + 'px', zIndex: String(i + 1), display: g.props.Enabled ? 'block' : 'none', transformOrigin: '0 0', transform: k !== 1 ? `scale(${k})` : '' });
         this.setAbs(g, 0, top - GUI_INSET, W, H - top);
-        if (g.props.Enabled) this.layoutChildren(g, e.el, W, H - top, 0, top - GUI_INSET, seen);
+        if (g.props.Enabled) this.layoutChildren(g, e.el, W / k, (H - top) / k, 0, top - GUI_INSET, seen, k);
       });
     }
     // A focused TextBox that left the screen (destroyed, hidden, its ScreenGui off) lets go of the keyboard.
@@ -153,7 +157,8 @@ export class Gui {
     if (!o || o.x !== v.x || o.y !== v.y) { inst.props[k] = v; this.dm.fire(inst, 'Changed', [k]); }
   }
 
-  // A GuiObject's size after its constraints (UIAspectRatioConstraint).
+  // A GuiObject's size after its constraints: UIAspectRatioConstraint, then UISizeConstraint (MinSize to
+  // MaxSize pixels, over any size a layout gives; OURS: the order, and a MinSize above MaxSize gives MaxSize).
   constrain(c, cw, ch) {
     const ar = child(c, 'UIAspectRatioConstraint');
     if (ar) { // keep width/height = AspectRatio; FitWithinMaxSize shrinks the larger side to fit
@@ -161,6 +166,8 @@ export class Gui {
       if (en(ar.props.AspectType) === 'FitWithinMaxSize') { if (cw / ch > r) cw = ch * r; else ch = cw / r; }
       else if (en(ar.props.DominantAxis) === 'Width') ch = cw / r; else cw = ch * r;
     }
+    const sc = child(c, 'UISizeConstraint');
+    if (sc) { const lo = sc.props.MinSize, hi = sc.props.MaxSize; cw = Math.min(Math.max(cw, lo.x), hi.x); ch = Math.min(Math.max(ch, lo.y), hi.y); }
     return [cw, ch];
   }
 
@@ -194,18 +201,23 @@ export class Gui {
     return { kids, rects, layout, content, extent: { x: ex, y: ey } };
   }
 
-  // Children of a container whose content box is w x h at absolute (ax, ay).
-  layoutChildren(parent, parentEl, w, h, ax, ay, seen) { this.placeKids(this.measureKids(parent, w, h), parentEl, ax, ay, seen); }
-  placeKids(m, parentEl, ax, ay, seen) {
-    if (m.layout) this.setV2(m.layout, 'AbsoluteContentSize', m.content.x, m.content.y);
-    if (m.content && m.content.cells) { this.setV2(m.layout, 'AbsoluteCellCount', ...m.content.cells); this.setV2(m.layout, 'AbsoluteCellSize', ...m.content.cell); }
+  // Children of a container whose content box is w x h, with its origin at absolute (ax, ay); k: screen
+  // pixels per unit of the box (the UIScales above it multiplied).
+  layoutChildren(parent, parentEl, w, h, ax, ay, seen, k = 1) { this.placeKids(this.measureKids(parent, w, h), parentEl, ax, ay, seen, k); }
+  placeKids(m, parentEl, ax, ay, seen, k = 1) {
+    if (m.layout) this.setV2(m.layout, 'AbsoluteContentSize', m.content.x * k, m.content.y * k);
+    if (m.content && m.content.cells) { this.setV2(m.layout, 'AbsoluteCellCount', ...m.content.cells); this.setV2(m.layout, 'AbsoluteCellSize', m.content.cell[0] * k, m.content.cell[1] * k); }
     for (const c of m.kids) {
       const r = m.rects.get(c), e = this.element(c, parentEl, seen);
+      // A UIScale scales the object, and all inside it, about its AnchorPoint (OURS: the point; the docs
+      // say only that it multiplies AbsoluteSize). Inside, layout stays in the object's own units.
+      const s = e.uiScale = scaleOf(c), A = c.props.AnchorPoint;
+      const x = r.x + A.x * r.w * (1 - s), y = r.y + A.y * r.h * (1 - s);
       this.draw(c, e, r);
-      this.setAbs(c, ax + r.x, ay + r.y, r.w, r.h);
+      this.setAbs(c, ax + x * k, ay + y * k, r.w * s * k, r.h * s * k);
       if (!c.props.Visible) continue;
-      if (c.ClassName === 'ScrollingFrame') this.scrollLayout(c, e, r, ax + r.x, ay + r.y, seen);
-      else this.layoutChildren(c, e.el, r.w, r.h, ax + r.x, ay + r.y, seen);
+      if (c.ClassName === 'ScrollingFrame') this.scrollLayout(c, e, r, ax + x * k, ay + y * k, seen, k * s);
+      else this.layoutChildren(c, e.el, r.w, r.h, ax + x * k, ay + y * k, seen, k * s);
     }
   }
 
@@ -269,7 +281,7 @@ export class Gui {
   // the gutters of the bars on show; a bar shows when scrolling is on, its axis is allowed and the
   // canvas is longer than the window. Bars and insets depend on each other, so this settles in a few
   // passes. CanvasPosition is kept within 0..canvas-window (OURS: clamped when laid out).
-  scrollLayout(sf, e, r, absX, absY, seen) {
+  scrollLayout(sf, e, r, absX, absY, seen, k = 1) {
     const P = sf.props, W = r.w, H = r.h;
     const T = P.ScrollingEnabled ? Math.max(0, Math.round(P.ScrollBarThickness)) : 0; // no bars, so no gutters, when scrolling is off
     const dir = en(P.ScrollingDirection), canX = dir !== 'Y', canY = dir !== 'X';
@@ -295,13 +307,13 @@ export class Gui {
     const rangeX = Math.max(0, cw - winW), rangeY = Math.max(0, ch - winH);
     const cp = P.CanvasPosition, cx = clamp(cp.x, 0, rangeX), cy = clamp(cp.y, 0, rangeY);
     if (cx !== cp.x || cy !== cp.y) this.setV2(sf, 'CanvasPosition', cx, cy);
-    this.setV2(sf, 'AbsoluteCanvasSize', cw, ch);
-    this.setV2(sf, 'AbsoluteWindowSize', winW, winH);
+    this.setV2(sf, 'AbsoluteCanvasSize', cw * k, ch * k);
+    this.setV2(sf, 'AbsoluteWindowSize', winW * k, winH * k);
     const left = en(P.VerticalScrollBarPosition) === 'Left', originX = left ? insetX : 0;
-    e.scroll = { canX, canY, rangeX, rangeY, winW, winH, cw, ch };
+    e.scroll = { canX, canY, rangeX, rangeY, winW, winH, cw, ch, k }; // k: screen px per canvas px (UIScale)
     const over = e.over || { x: 0, y: 0 }; // elastic overscroll while a touch pulls past an end (drawn, not in CanvasPosition)
     Object.assign(e.canvas.style, { left: Math.round(originX - cx - over.x) + 'px', top: Math.round(-cy - over.y) + 'px', width: cw + 'px', height: ch + 'px' });
-    this.placeKids(m, e.canvas, absX + originX - cx, absY - cy, seen);
+    this.placeKids(m, e.canvas, absX + (originX - cx) * k, absY - cy * k, seen, k);
     // The bars: only the thumb is drawn (Roblox's bars are their three images), over the canvas.
     const bar = (b, on, x, y, w, h, track, win, canvas, pos, range) => {
       b.el.style.display = on ? 'block' : 'none';
@@ -338,7 +350,7 @@ export class Gui {
       });
       thumb.addEventListener('pointermove', ev => {
         const d = b.drag; if (!d || d.id !== ev.pointerId) return;
-        const moved = (axis === 'y' ? ev.clientY : ev.clientX) - d.at, k = b.free > 0 ? b.range / b.free : 0;
+        const moved = ((axis === 'y' ? ev.clientY : ev.clientX) - d.at) / (e.scroll ? e.scroll.k : 1), k = b.free > 0 ? b.range / b.free : 0;
         const p = inst.props.CanvasPosition, v = clamp((axis === 'y' ? d.start.y : d.start.x) + moved * k, 0, b.range);
         this.dm.set(inst, 'CanvasPosition', axis === 'y' ? new V2(p.x, v) : new V2(v, p.y));
       });
@@ -378,7 +390,7 @@ export class Gui {
       const s = this.els.get(f)?.scroll;
       if (!s || !f.props.ScrollingEnabled) continue;
       const sideways = !dx && !(s.canY && s.rangeY > 0);
-      if (this.scrollBy(f, sideways ? dy : dx, sideways ? 0 : dy)) { ev.stopPropagation(); return; }
+      if (this.scrollBy(f, (sideways ? dy : dx) / s.k, (sideways ? 0 : dy) / s.k)) { ev.stopPropagation(); return; }
     }
   }
   // Touch drags (pointer events, seen by the root before any button): once a finger has moved SLOP px,
@@ -410,7 +422,7 @@ export class Gui {
     ev.preventDefault();
     const f = d.frame, e = this.els.get(f), s = e && e.scroll;
     if (!s) return;
-    const want = { x: s.canX ? d.start.x - (ev.clientX - d.x0) : d.start.x, y: s.canY ? d.start.y - (ev.clientY - d.y0) : d.start.y };
+    const want = { x: s.canX ? d.start.x - (ev.clientX - d.x0) / s.k : d.start.x, y: s.canY ? d.start.y - (ev.clientY - d.y0) / s.k : d.start.y };
     const at = { x: clamp(want.x, 0, s.rangeX), y: clamp(want.y, 0, s.rangeY) };
     const eb = en(f.props.ElasticBehavior), give = axis => eb === 'Always' || (eb === 'WhenScrollable' && (axis === 'x' ? s.rangeX : s.rangeY) > 0) ? 0.5 : 0;
     e.over = { x: (want.x - at.x) * give('x'), y: (want.y - at.y) * give('y') };
@@ -451,7 +463,14 @@ export class Gui {
     set('display', P.Visible ? 'flex' : 'none');
     set('left', r.x + 'px'); set('top', r.y + 'px'); set('width', Math.max(0, r.w) + 'px'); set('height', Math.max(0, r.h) + 'px');
     set('zIndex', String(P.ZIndex));
-    set('transform', P.Rotation ? `rotate(${P.Rotation}deg)` : '');
+    // Rotation turns the object about its (scaled) centre; a UIScale scales it about its AnchorPoint.
+    const sc = e.uiScale ?? 1;
+    if (sc === 1) { set('transformOrigin', '50% 50%'); set('transform', P.Rotation ? `rotate(${P.Rotation}deg)` : ''); }
+    else {
+      const ax = P.AnchorPoint.x * r.w, ay = P.AnchorPoint.y * r.h, cx = ax + (r.w / 2 - ax) * sc, cy = ay + (r.h / 2 - ay) * sc;
+      set('transformOrigin', '0 0');
+      set('transform', (P.Rotation ? `translate(${cx}px, ${cy}px) rotate(${P.Rotation}deg) translate(${-cx}px, ${-cy}px) ` : '') + `translate(${ax}px, ${ay}px) scale(${sc}) translate(${-ax}px, ${-ay}px)`);
+    }
     set('overflow', P.ClipsDescendants ? 'hidden' : 'visible');
     const bgA = 1 - P.BackgroundTransparency;
     const hover = e.hover && P.AutoButtonColor ? (e.down ? 0.7 : 0.85) : 1; // ours: Roblox's tint amounts are undocumented
@@ -675,6 +694,8 @@ export class Gui {
 // own colours) and its transparency multiplies the opacity; envelopes are ignored (the docs). Drawn as a
 // CSS linear-gradient with stops at every keypoint and between them (CSS mixes premultiplied).
 const GRADIENT_ON = new Set(['Frame', 'TextLabel', 'TextButton', 'ImageLabel', 'ImageButton']); // not ScrollingFrame or TextBox (the docs)
+// UIScale: its Scale (none: 1; below 0: 0, OURS).
+function scaleOf(inst) { const u = inst.children.find(c => c.ClassName === 'UIScale'); return u ? Math.max(0, u.props.Scale) : 1; }
 function gradientOf(inst) { if (!GRADIENT_ON.has(inst.ClassName)) return null; const g = inst.children.find(c => c.ClassName === 'UIGradient'); return g && g.props.Enabled ? g.props : null; }
 function seqAt(k, t, val) {
   if (t <= k[0][0]) return val(k[0]);
