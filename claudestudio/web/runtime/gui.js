@@ -13,32 +13,16 @@
 import { V2, EnumItem, isA } from '../datamodel.js';
 
 import { PlayerList } from './playerlist.js';
+import { ENUM_FONTS, fontFromEnum, cssFont } from '../fonts.js';
 
 export const GUI_INSET = 58;
 // Every family in assets/fonts (families.json: its files, weights and licences).
 import FAMILIES from '../../assets/fonts/families.json' with { type: 'json' };
 const FONTS = Object.values(FAMILIES).flatMap(f => f.files.map(x => [f.family, x.file, x.weight, x.style]));
-// Enum.Font -> [family, weight, style], following Roblox's own table (creator-docs, Font datatype:
-// each Enum.Font's rbxasset://fonts/families/*.json). Where Roblox's family isn't open or couldn't be
-// found, an open stand-in (families.json says which): Builder Sans -> Nunito, Gotham -> Montserrat
-// (Roblox's own mapping), Highway -> Overpass, Garamond -> EB Garamond, SciFi -> Orbitron,
-// Antique -> Cinzel. Unknown names fall back to Arimo (Legacy).
-const FONT_MAP = {
-  Legacy: ['Arimo', 400], Arial: ['Arimo', 400], ArialBold: ['Arimo', 700], Arimo: ['Arimo', 400], ArimoBold: ['Arimo', 700],
-  SourceSans: ['Source Sans 3', 400], SourceSansBold: ['Source Sans 3', 700], SourceSansLight: ['Source Sans 3', 300],
-  SourceSansItalic: ['Source Sans 3', 400, 'italic'], SourceSansSemibold: ['Source Sans 3', 600],
-  Gotham: ['Montserrat', 400], GothamMedium: ['Montserrat', 500], GothamBold: ['Montserrat', 700], GothamBlack: ['Montserrat', 900],
-  Arcade: ['Press Start 2P', 400], FredokaOne: ['Fredoka', 600], Roboto: ['Roboto', 400], RobotoCondensed: ['Roboto Condensed', 400],
-  RobotoMono: ['Roboto Mono', 400], Nunito: ['Nunito', 400], Oswald: ['Oswald', 400], Bangers: ['Bangers', 400],
-  BuilderSans: ['Nunito', 400], BuilderSansMedium: ['Nunito', 500], BuilderSansBold: ['Nunito', 700], BuilderSansExtraBold: ['Nunito', 800],
-  AmaticSC: ['Amatic SC', 400], Antique: ['Cinzel', 400], Bodoni: ['Accanthis ADF Std No3', 400], Cartoon: ['Comic Neue Angular', 400],
-  Code: ['Inconsolata', 400], Creepster: ['Creepster', 400], DenkOne: ['Denk One', 400], Fantasy: ['Balthazar', 400],
-  Fondamento: ['Fondamento', 400], Garamond: ['EB Garamond', 400], GrenzeGotisch: ['Grenze Gotisch', 400], Highway: ['Overpass', 400],
-  IndieFlower: ['Indie Flower', 400], JosefinSans: ['Josefin Sans', 400], Jura: ['Jura', 400], Kalam: ['Kalam', 400],
-  LuckiestGuy: ['Luckiest Guy', 400], Merriweather: ['Merriweather', 400], Michroma: ['Michroma', 400], PatrickHand: ['Patrick Hand', 400],
-  PermanentMarker: ['Permanent Marker', 400], Sarpanch: ['Sarpanch', 400], SciFi: ['Orbitron', 400], SpecialElite: ['Special Elite', 400],
-  TitilliumWeb: ['Titillium Web', 400], Ubuntu: ['Ubuntu', 400],
-};
+// What draws a font: a text object's FontFace (Roblox's family, weight and style) -> a bundled CSS family
+// (web/fonts.js: Roblox's own families where open, labelled stand-ins elsewhere; unknown ones in Arimo).
+// FONT_MAP: the same for each Enum.Font (RichText's face=, the fonts the CoreGui uses).
+const FONT_MAP = Object.fromEntries(Object.keys(ENUM_FONTS).map(n => [n, cssFont(fontFromEnum(n))]));
 const css = (c, a = 1) => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
 const child = (inst, cls) => inst.children.find(c => c.ClassName === cls);
 const en = v => v && v.name || v; // an enum property's item name (stored as a name or an EnumItem)
@@ -95,7 +79,7 @@ export class Gui {
   fontsReady() {
     const used = new Set(['Arimo', 'Source Sans 3', 'Montserrat', 'Nunito']);
     const pg = this.players.player && child(this.players.player, 'PlayerGui');
-    const walk = i => { const f = i.props && i.props.Font; if (f) used.add((FONT_MAP[f.name || f] || FONT_MAP.Legacy)[0]); i.children.forEach(walk); };
+    const walk = i => { const f = i.props && i.props.FontFace; if (f) used.add(cssFont(f)[0]); i.children.forEach(walk); };
     if (pg) walk(pg);
     return Promise.all([...used].map(f => document.fonts.load(`16px '${f}'`))).then(() => document.fonts.ready).then(() => { this.fitCache = new Map(); this.dirty = true; });
   }
@@ -520,14 +504,13 @@ export class Gui {
       // The gradient's colours multiply the image; its transparency and the image's own alpha mask it.
       backgroundImage: url ? `${tint}, ${img}` : 'none', backgroundSize: `100% 100%, ${size}`, backgroundRepeat: `no-repeat, ${repeat}`, backgroundPosition: 'center', backgroundBlendMode: 'multiply, normal',
       maskImage: url ? `${img}, ${alpha}` : 'none', maskSize: `${size}, 100% 100%`, maskRepeat: `${repeat}, no-repeat`, maskPosition: 'center', maskComposite: 'intersect',
-      webkitMaskImage: url ? `${img}, ${alpha}` : 'none', webkitMaskSize: `${size}, 100% 100%`, webkitMaskRepeat: `${repeat}, no-repeat`, webkitMaskPosition: 'center', webkitMaskComposite: 'source-in',
       opacity: String(1 - P.ImageTransparency),
     });
     return bgImage;
   }
 
   drawText(inst, P, e, r, set, stroke) {
-    const [family, weight, style] = FONT_MAP[P.Font] || FONT_MAP.Legacy;
+    const [family, weight, style] = P.FontFace ? cssFont(P.FontFace) : FONT_MAP[P.Font] || FONT_MAP.Legacy;
     // Line height goes inside the font shorthand (which would otherwise reset it).
     const font = `${style || 'normal'} ${weight} SIZEpx/${P.LineHeight} '${family}', Arimo, sans-serif`;
     // A TextBox with no text shows its PlaceholderText, in PlaceholderColor3.

@@ -11,6 +11,7 @@
 // - Vector3.FromNormalId, Vector3.FromAxis.
 // - CFrame: lookAlong, fromRotationBetweenVectors, fromEulerAngles(rx, ry, rz, order),
 //   :ToEulerAngles(order), :AngleBetween(other).
+// - Font: Roblox's font datatype (see its section below).
 // Included by binding.cpp after Color3, CFrame, Vector2 and EnumItem.
 #include "brickcolor_table.h"
 
@@ -235,6 +236,91 @@ static int cf_fromRotationBetweenVectors(lua_State* L) {
 }
 #undef R
 
+// ------------------------------------------------------------------ Font
+// Roblox's Font datatype (creator-docs datatypes/Font.yaml): a family (an rbxasset:// or rbxassetid://
+// id), a FontWeight and a FontStyle. Font.new(family, weight?, style?), Font.fromEnum(Enum.Font) (the
+// DataModel's table, web/fonts.js: one table for the VM, the properties and the GUI; Enum.Font.Unknown
+// errors, as the docs say), Font.fromName(name, weight?, style?) (letters, digits, _ and - only, made
+// rbxasset://fonts/families/<name>.json), Font.fromId(id, weight?, style?). Family, Weight, Style and
+// Bold read and write: setting Weight sets Bold (SemiBold or thicker), setting Bold sets Weight Bold or
+// Regular (the docs). A mutable value, as Roblox's is: a FontFace read from a label is a copy.
+// OURS: tostring's form; whether Roblox lets Family be set (here it can).
+static const char* FONT_MT = "Font";
+struct FontV { int weight, style; char family[240]; };
+static const struct { const char* name; int value; } FONT_WEIGHT_ITEMS[] = {
+    { "Thin", 100 }, { "ExtraLight", 200 }, { "Light", 300 }, { "Regular", 400 }, { "Medium", 500 }, { "SemiBold", 600 }, { "Bold", 700 }, { "ExtraBold", 800 }, { "Heavy", 900 } };
+static const char* font_weight_name(int w) { for (auto& e : FONT_WEIGHT_ITEMS) if (e.value == w) return e.name; return "Regular"; }
+static void push_font(lua_State* L, const char* family, int weight, int style) {
+    FontV* f = (FontV*)lua_newuserdata(L, sizeof(FontV));
+    f->weight = weight; f->style = style;
+    strncpy(f->family, family, sizeof f->family - 1); f->family[sizeof f->family - 1] = 0;
+    luaL_getmetatable(L, FONT_MT); lua_setmetatable(L, -2);
+}
+static FontV* to_font(lua_State* L, int idx) { return to_ud<FontV>(L, idx, FONT_MT); }
+// An Enum.FontWeight argument (an item, its name or its value), or `def` when absent.
+static int font_weight_arg(lua_State* L, int idx, int def) {
+    if (lua_isnoneornil(L, idx)) return def;
+    std::string n = enum_arg(L, idx, "FontWeight");
+    for (auto& e : FONT_WEIGHT_ITEMS) if (n == e.name) return e.value;
+    luaL_error(L, "invalid argument #%d (%s is not a FontWeight)", idx, n.c_str()); return def;
+}
+static int font_style_arg(lua_State* L, int idx, int def) {
+    if (lua_isnoneornil(L, idx)) return def;
+    std::string n = enum_arg(L, idx, "FontStyle");
+    if (n == "Normal") return 0;
+    if (n == "Italic") return 1;
+    luaL_error(L, "invalid argument #%d (%s is not a FontStyle)", idx, n.c_str()); return def;
+}
+static int font_new(lua_State* L) {
+    const char* fam = luaL_checkstring(L, 1);
+    push_font(L, fam, font_weight_arg(L, 2, 400), font_style_arg(L, 3, 0)); return 1;
+}
+static int font_fromName(lua_State* L) {
+    const char* n = luaL_checkstring(L, 1);
+    if (!*n) luaL_error(L, "invalid argument #1 to 'fromName' (the name is empty)");
+    for (const char* c = n; *c; c++) if (!(isalnum((unsigned char)*c) || *c == '_' || *c == '-')) luaL_error(L, "invalid argument #1 to 'fromName' (a name may only contain letters, digits, _ and -)");
+    std::string fam = std::string("rbxasset://fonts/families/") + n + ".json";
+    push_font(L, fam.c_str(), font_weight_arg(L, 2, 400), font_style_arg(L, 3, 0)); return 1;
+}
+static int font_fromId(lua_State* L) {
+    double id = luaL_checknumber(L, 1);
+    std::string fam = "rbxassetid://" + fmt_num(std::floor(id));
+    push_font(L, fam.c_str(), font_weight_arg(L, 2, 400), font_style_arg(L, 3, 0)); return 1;
+}
+static int push_ret(lua_State* L, int i, int self, const char* key);
+EM_JS(int, js_font_from_enum, (const char* name), { return Module.studio.fontFromEnum(UTF8ToString(name)); });
+static int font_fromEnum(lua_State* L) {
+    EnumItem* e = to_enum(L, 1);
+    if (!e || strcmp(e->type, "Font")) luaL_error(L, "invalid argument #1 to 'fromEnum' (Enum.Font expected)");
+    if (!strcmp(e->name, "Unknown")) luaL_error(L, "invalid argument #1 to 'fromEnum' (Enum.Font.Unknown has no font)");
+    if (!js_font_from_enum(e->name)) luaL_error(L, "invalid argument #1 to 'fromEnum' (no font for Enum.Font.%s)", e->name);
+    push_ret(L, 0, 0, ""); return 1;
+}
+static int font_index(lua_State* L) {
+    FontV* f = to_font(L, 1); if (!f) luaL_typeerror(L, 1, "Font");
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "Family")) { lua_pushstring(L, f->family); return 1; }
+    if (!strcmp(k, "Weight")) { push_enum(L, "FontWeight", font_weight_name(f->weight), f->weight); return 1; }
+    if (!strcmp(k, "Style")) { push_enum(L, "FontStyle", f->style ? "Italic" : "Normal", f->style); return 1; }
+    if (!strcmp(k, "Bold")) { lua_pushboolean(L, f->weight >= 600); return 1; }
+    luaL_error(L, "%s is not a valid member of Font", k); return 0;
+}
+static int font_newindex(lua_State* L) {
+    FontV* f = to_font(L, 1); if (!f) luaL_typeerror(L, 1, "Font");
+    const char* k = luaL_checkstring(L, 2);
+    if (!strcmp(k, "Family")) { const char* s = luaL_checkstring(L, 3); strncpy(f->family, s, sizeof f->family - 1); f->family[sizeof f->family - 1] = 0; return 0; }
+    if (!strcmp(k, "Weight")) { f->weight = font_weight_arg(L, 3, f->weight); return 0; }
+    if (!strcmp(k, "Style")) { f->style = font_style_arg(L, 3, f->style); return 0; }
+    if (!strcmp(k, "Bold")) { f->weight = lua_toboolean(L, 3) ? 700 : 400; return 0; }
+    luaL_error(L, "%s is not a valid member of Font", k); return 0;
+}
+static int font_eq(lua_State* L) { FontV* a = to_font(L, 1); FontV* b = to_font(L, 2); lua_pushboolean(L, a && b && a->weight == b->weight && a->style == b->style && !strcmp(a->family, b->family)); return 1; }
+static int font_tostring(lua_State* L) {
+    FontV* f = to_font(L, 1); if (!f) luaL_typeerror(L, 1, "Font");
+    std::string s = std::string("Font { Family = ") + f->family + ", Weight = " + font_weight_name(f->weight) + ", Style = " + (f->style ? "Italic" : "Normal") + " }";
+    lua_pushstring(L, s.c_str()); return 1;
+}
+
 static void register_more_types(lua_State* L) {
     struct MM { const char* k; lua_CFunction f; };
     auto meta = [&](const char* name, std::initializer_list<MM> mm) {
@@ -247,12 +333,14 @@ static void register_more_types(lua_State* L) {
     meta(BRICKCOLOR_MT, { { "__index", bc_index }, { "__newindex", ro_newindex }, { "__eq", bc_eq }, { "__tostring", bc_tostring } });
     meta(RECT_MT, { { "__index", rect_index }, { "__newindex", ro_newindex }, { "__eq", rect_eq }, { "__tostring", rect_tostring } });
     meta(REGION3_MT, { { "__index", region3_index }, { "__newindex", ro_newindex }, { "__tostring", region3_tostring } });
+    meta(FONT_MT, { { "__index", font_index }, { "__newindex", font_newindex }, { "__eq", font_eq }, { "__tostring", font_tostring } });
     lua_newtable(L);
     fns({ { "new", bc_new }, { "palette", bc_palette }, { "random", bc_random }, { "White", bc_white }, { "Gray", bc_gray }, { "DarkGray", bc_darkgray },
           { "Black", bc_black }, { "Red", bc_red }, { "Yellow", bc_yellow }, { "Green", bc_green }, { "Blue", bc_blue } });
     lua_setglobal(L, "BrickColor");
     lua_newtable(L); fns({ { "new", rect_new } }); lua_setglobal(L, "Rect");
     lua_newtable(L); fns({ { "new", region3_new } }); lua_setglobal(L, "Region3");
+    lua_newtable(L); fns({ { "new", font_new }, { "fromEnum", font_fromEnum }, { "fromName", font_fromName }, { "fromId", font_fromId } }); lua_setglobal(L, "Font");
     lua_getglobal(L, "Vector3"); fns({ { "FromNormalId", vec_fromNormalId }, { "FromAxis", vec_fromAxis } }); lua_pop(L, 1);
     lua_getglobal(L, "CFrame"); lua_setreadonly(L, -1, false);
     fns({ { "lookAlong", cf_lookAlong }, { "fromRotationBetweenVectors", cf_fromRotationBetweenVectors }, { "fromEulerAngles", cf_fromEulerAngles } });
