@@ -107,6 +107,10 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  // ScrollingFrame's (API dump).
+  AutomaticSize: { None: 0, X: 1, Y: 2, XY: 3 }, ScrollingDirection: { X: 1, Y: 2, XY: 4 }, ElasticBehavior: { WhenScrollable: 0, Always: 1, Never: 2 },
+  ScrollBarInset: { None: 0, ScrollBar: 1, Always: 2 }, VerticalScrollBarPosition: { Right: 0, Left: 1 },
+  StartCorner: { TopLeft: 0, TopRight: 1, BottomLeft: 2, BottomRight: 3 },
   LightingStyle: { Realistic: 0, Soft: 1 },
   CollisionFidelity: { Default: 0, Hull: 1, Box: 2, PreciseConvexDecomposition: 3 }, RenderFidelity: { Automatic: 0, Precise: 1, Performance: 2 },
   // From Roblox's API dump (Roblox-Client-Tracker, v0.719).
@@ -126,8 +130,10 @@ function enumItem(type, nameOrValue) {
 const CLASSES = {};
 /** A signal a method returns (GetPropertyChangedSignal): its instance and event name. */
 export class SignalRef { constructor(inst, ev) { this.inst = inst; this.ev = ev; } }
-function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false } = {}) {
-  CLASSES[name] = { name, base, props, methods, events, creatable, service };
+// defaults: a class's own default for a property an ancestor defines (a ScrollingFrame clips), so the
+// property is listed once, under the class that has it.
+function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false, defaults = {} } = {}) {
+  CLASSES[name] = { name, base, props, methods, events, creatable, service, defaults };
 }
 function lookup(cls, field, key) {
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (key in c[field]) return c[field][key];
@@ -277,6 +283,23 @@ defineClass('GuiObject', 'GuiBase2d', {
   events: ['MouseEnter', 'MouseLeave', 'InputBegan', 'InputEnded'],
 });
 defineClass('Frame', 'GuiObject');
+// ScrollingFrame (classes/ScrollingFrame.yaml; defaults from Roblox's reflection data, rbx-dom v0.745).
+// Its children sit on a canvas of AbsoluteCanvasSize (CanvasSize against the frame's size, less a
+// scroll bar's gutter where an inset says so; AutomaticCanvasSize grows it to the children), seen
+// through a window of AbsoluteWindowSize (the frame less the gutters of the bars on show), moved by
+// CanvasPosition. The scroll bar images are Roblox's own textures: a flat stand-in is drawn unless
+// an image is given (runtime/gui.js).
+defineClass('ScrollingFrame', 'GuiObject', {
+  defaults: { ClipsDescendants: true },
+  props: {
+    AbsoluteCanvasSize: ['Vector2', [0, 0]], AbsoluteWindowSize: ['Vector2', [0, 0]], AutomaticCanvasSize: ['Enum.AutomaticSize', 'None'],
+    CanvasPosition: ['Vector2', [0, 0]], CanvasSize: ['UDim2', [0, 0, 2, 0]], ElasticBehavior: ['Enum.ElasticBehavior', 'WhenScrollable'],
+    HorizontalScrollBarInset: ['Enum.ScrollBarInset', 'None'], VerticalScrollBarInset: ['Enum.ScrollBarInset', 'None'], VerticalScrollBarPosition: ['Enum.VerticalScrollBarPosition', 'Right'],
+    ScrollBarImageColor3: ['Color3', [1, 1, 1]], ScrollBarImageTransparency: ['number', 0], ScrollBarThickness: ['number', 12],
+    ScrollingDirection: ['Enum.ScrollingDirection', 'XY'], ScrollingEnabled: ['bool', true],
+    TopImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-top.png'], MidImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-middle.png'], BottomImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-bottom.png'],
+  },
+});
 const TEXT = {
   Text: ['string', 'Label'], TextColor3: ['Color3', rgb(27, 42, 53)], TextSize: ['number', 8], Font: ['Enum.Font', 'Legacy'],
   TextScaled: ['bool', false], TextWrapped: ['bool', false], TextXAlignment: ['Enum.TextXAlignment', 'Center'], TextYAlignment: ['Enum.TextYAlignment', 'Center'],
@@ -290,12 +313,45 @@ defineClass('ImageLabel', 'GuiObject', { props: { ...IMAGE } });
 defineClass('GuiButton', 'GuiObject', { creatable: false, props: { AutoButtonColor: ['bool', true], Active: ['bool', true] }, events: ['Activated', 'MouseButton1Click', 'MouseButton1Down', 'MouseButton1Up'] });
 defineClass('TextButton', 'GuiButton', { props: { ...TEXT, Text: ['string', 'Button'] } });
 defineClass('ImageButton', 'GuiButton', { props: { ...IMAGE } });
+// TextBox (classes/TextBox.yaml; defaults from rbx-dom v0.745): a tap or click focuses it (one at a
+// time), CaptureFocus too; while focused the player types into Text (Changed fires per keystroke) and
+// the game's keys stay out; Enter (not MultiLine, where it starts a new line) or ReleaseFocus(true)
+// submits, clicking elsewhere or ReleaseFocus() doesn't. Focused, then FocusLost(enterPressed, input)
+// (the InputObject is nil: there are no InputObjects here). ClearTextOnFocus empties Text on focus;
+// TextEditable false keeps it as it is; an empty Text shows PlaceholderText in PlaceholderColor3.
+defineClass('TextBox', 'GuiObject', {
+  defaults: { Active: true },
+  props: {
+    ...TEXT, Text: ['string', 'TextBox'], ClearTextOnFocus: ['bool', true], MultiLine: ['bool', false], TextEditable: ['bool', true],
+    PlaceholderText: ['string', ''], PlaceholderColor3: ['Color3', [0.5, 0.5, 0.5]], ShowNativeInput: ['bool', true],
+  },
+  methods: {
+    CaptureFocus(self) { self.dm.focusTextBox(self); return []; },
+    ReleaseFocus(self, submitted) { self.dm.releaseTextBox(self, !!submitted); return []; },
+    IsFocused(self) { return [self.dm.focusedTextBox === self]; },
+  },
+  events: ['Focused', 'FocusLost'],
+});
 // Modifiers: children of a GuiObject that change how it's drawn or laid out.
 defineClass('UIComponent', 'Instance', { creatable: false });
 defineClass('UICorner', 'UIComponent', { props: { CornerRadius: ['UDim', [0, 8]] } });
 defineClass('UIStroke', 'UIComponent', { props: { Thickness: ['number', 1], Color: ['Color3', [0, 0, 0]], Transparency: ['number', 0], ApplyStrokeMode: ['Enum.ApplyStrokeMode', 'Contextual'], Enabled: ['bool', true] } });
 defineClass('UIPadding', 'UIComponent', { props: { PaddingTop: ['UDim', [0, 0]], PaddingBottom: ['UDim', [0, 0]], PaddingLeft: ['UDim', [0, 0]], PaddingRight: ['UDim', [0, 0]] } });
-defineClass('UIListLayout', 'UIComponent', { props: { FillDirection: ['Enum.FillDirection', 'Vertical'], HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'], Padding: ['UDim', [0, 0]] } });
+// Layouts (UIGridStyleLayout): AbsoluteContentSize is the space the laid-out children take, padding
+// between them included, written by the layout pass (and brought up to date when a script reads it).
+defineClass('UILayout', 'UIComponent', { creatable: false });
+defineClass('UIGridStyleLayout', 'UILayout', { creatable: false, props: { AbsoluteContentSize: ['Vector2', [0, 0]] } });
+defineClass('UIListLayout', 'UIGridStyleLayout', { props: { FillDirection: ['Enum.FillDirection', 'Vertical'], HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'], Padding: ['UDim', [0, 0]] } });
+// UIGridLayout (classes/UIGridLayout.yaml; defaults from rbx-dom v0.745): equal cells of CellSize, CellPadding
+// apart, filling lines along FillDirection (as many as fit, at most FillDirectionMaxCells when that is
+// above 0) from StartCorner; the block of cells aligned in the parent. A child's own Size is replaced
+// by the cell's, unless a constraint of its own sizes it. AbsoluteCellCount and AbsoluteCellSize are
+// written by the layout pass (runtime/gui.js).
+defineClass('UIGridLayout', 'UIGridStyleLayout', { props: {
+  CellPadding: ['UDim2', [0, 5, 0, 5]], CellSize: ['UDim2', [0, 100, 0, 100]], FillDirection: ['Enum.FillDirection', 'Horizontal'], FillDirectionMaxCells: ['number', 0],
+  HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'],
+  StartCorner: ['Enum.StartCorner', 'TopLeft'], AbsoluteCellCount: ['Vector2', [0, 0]], AbsoluteCellSize: ['Vector2', [100, 100]],
+} });
 defineClass('UIAspectRatioConstraint', 'UIComponent', { props: { AspectRatio: ['number', 1], AspectType: ['Enum.AspectType', 'FitWithinMaxSize'], DominantAxis: ['Enum.DominantAxis', 'Width'] } });
 defineClass('UITextSizeConstraint', 'UIComponent', { props: { MinTextSize: ['number', 1], MaxTextSize: ['number', 100] } });
 
@@ -734,6 +790,7 @@ export class Instance {
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
       for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : d;
     }
+    for (let c = CLASSES[cls], seen = new Set(); c; c = CLASSES[c.base]) for (const [k, v] of Object.entries(c.defaults)) if (!seen.has(k)) { seen.add(k); this.props[k] = v; }
     this.props.Name = cls;
     if (isA(cls, 'BasePart')) defineBrickColor(this.props);
     if (cls === 'Terrain') this.voxels = new Voxels();
@@ -1035,6 +1092,22 @@ export class DataModel {
     for (const c of map.values()) for (const [k, v] of Object.entries(c.props)) if (v instanceof Instance && map.has(v)) c.props[k] = map.get(v);
     return root;
   }
+  // TextBox focus (one at a time). ClearTextOnFocus empties Text before Focused fires (OURS: the order).
+  // Watchers hear (box, 'Focus'); the GUI shows the box's text field and gives it the keyboard.
+  focusTextBox(tb) {
+    if (this.focusedTextBox === tb || tb.destroyed) return;
+    if (this.focusedTextBox) this.releaseTextBox(this.focusedTextBox, false);
+    this.focusedTextBox = tb;
+    if (tb.props.ClearTextOnFocus) this.set(tb, 'Text', '');
+    this.notify(tb, 'Focus');
+    this.fire(tb, 'Focused', []);
+  }
+  releaseTextBox(tb, enterPressed) {
+    if (this.focusedTextBox !== tb) return;
+    this.focusedTextBox = null;
+    this.notify(tb, 'Focus');
+    this.fire(tb, 'FocusLost', [!!enterPressed, null]);
+  }
   watch(fn) { this.watchers.push(fn); }
   onEvent(fn) { this.eventHooks.push(fn); }
 
@@ -1103,7 +1176,7 @@ export const STUDIO_OWN = new Map([
   ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
 ]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
-'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
@@ -1221,6 +1294,8 @@ export function makeHost(dm, log = console.log) {
       if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
       if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
+      // A layout's AbsoluteContentSize is current when read (Roblox: 'updates as soon as it's read'): lay out now.
+      if (key === 'AbsoluteContentSize' && dm.hooks.layoutNow) dm.hooks.layoutNow();
       if (key in inst.props) {
         if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
         const ty = typeOf(inst.ClassName, key);

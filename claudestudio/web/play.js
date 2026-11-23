@@ -100,6 +100,7 @@ async function main() {
   const controls = new Controls(canvas, camera);
   const menu = new Menu(gui.root, graphics); // Esc or the top-left button: Graphics Mode and Quality
   menu.onOpen = () => controls.keys.clear();
+  gui.onFocus = () => controls.keys.clear(); // a TextBox took the keyboard: held movement keys let go
   gui.small = controls.isTouch;
   players.onSpawn = () => camera.snapBehind();
   camSync.pre(); camera.update(0); camSync.write(); // the Camera's properties before the first frame
@@ -144,7 +145,7 @@ async function main() {
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);
     camSync.apply();
     rigs.update(dt);
-    gui.update();
+    gui.update(dt);
     lighting.update();
     localLights.update();
     particles.update(dt);
