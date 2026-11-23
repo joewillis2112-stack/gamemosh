@@ -69,9 +69,6 @@ export class Gui {
     dm.watch(() => { this.dirty = true; });
     dm.watch((inst, key) => { if (key === 'Focus') this.syncFocus(); }); // a TextBox gained or lost focus
     this.onFocus = null; // set by the game: drop held keys when a TextBox takes the keyboard
-    // A press anywhere but the focused TextBox's field lets it go (the 3D view cancels its pointerdown, so
-    // the field wouldn't blur by itself).
-    addEventListener('pointerdown', ev => { const f = this.dm.focusedTextBox, e = f && this.els.get(f); if (e && e.field && ev.target !== e.field.el) e.field.el.blur(); }, { capture: true });
     dm.hooks.layoutNow = () => this.update(); // a script reading AbsoluteContentSize gets this frame's layout
     this.small = false; // a touch device: the player list shows one stat column
     this.playerList = new PlayerList(dm, players, this.root, () => { this.dirty = true; });
@@ -458,8 +455,13 @@ export class Gui {
     set('overflow', P.ClipsDescendants ? 'hidden' : 'visible');
     const bgA = 1 - P.BackgroundTransparency;
     const hover = e.hover && P.AutoButtonColor ? (e.down ? 0.7 : 0.85) : 1; // ours: Roblox's tint amounts are undocumented
-    const bg = P.BackgroundColor3;
-    set('backgroundColor', bgA > 0 ? css({ r: bg.r * hover, g: bg.g * hover, b: bg.b * hover }, bgA) : 'transparent');
+    const bg = P.BackgroundColor3, bgc = { r: bg.r * hover, g: bg.g * hover, b: bg.b * hover };
+    // A UIGradient blends into the background, the text and the image (not the children): the background
+    // becomes the gradient itself.
+    const grad = gradientOf(inst);
+    e.grad = grad;
+    set('backgroundColor', bgA > 0 && !grad ? css(bgc, bgA) : 'transparent');
+    let bgImage = grad && bgA > 0 ? gradientCss(grad, r.w, r.h, bgc, bgA) : '';
     // Border (outside the box, faded with the background), UICorner, UIStroke.
     const corner = child(inst, 'UICorner'), stroke = child(inst, 'UIStroke');
     const rad = corner ? Math.min(corner.props.CornerRadius.s * Math.min(r.w, r.h) + corner.props.CornerRadius.o, Math.min(r.w, r.h) / 2) : 0;
@@ -470,22 +472,39 @@ export class Gui {
     const sp = stroke && stroke.props.Enabled ? stroke.props : null;
     if (sp && (sp.ApplyStrokeMode === 'Border' || !isText)) shadows.push(`0 0 0 ${sp.Thickness}px ${css(sp.Color, 1 - sp.Transparency)}`);
     set('boxShadow', shadows.join(','));
-    if ('Image' in P) this.drawImage(P, e, set);
+    if ('Image' in P) bgImage = this.drawImage(P, e, set, r, bgImage);
+    set('backgroundImage', bgImage);
     if (isText) this.drawText(inst, P, e, r, set, sp && sp.ApplyStrokeMode === 'Contextual' ? sp : null);
     if (isA(inst.ClassName, 'GuiButton')) set('pointerEvents', P.Active && P.Visible ? 'auto' : 'none');
-    // A ScrollingFrame takes the wheel and touch drags over it (so they don't reach the 3D view).
     if (inst.ClassName === 'TextBox') set('pointerEvents', P.Visible ? 'auto' : 'none');
+    // A ScrollingFrame takes the wheel and touch drags over it (so they don't reach the 3D view).
     if (inst.ClassName === 'ScrollingFrame') { set('pointerEvents', P.Visible && (P.ScrollingEnabled || P.Active) ? 'auto' : 'none'); set('touchAction', 'none'); }
   }
 
-  drawImage(P, e, set) {
+  // Returns the element's background image: the image, or (under a UIGradient) the background's
+  // gradient, with the image in a layer of its own that the gradient tints and fades.
+  drawImage(P, e, set, r, bgImage) {
     // Images by URL (a path in the game, https or data:). Roblox asset ids can't be fetched here.
     const url = P.Image && !/^rbxasset/.test(P.Image) ? P.Image : '';
-    set('backgroundImage', url ? `url("${url}")` : '');
-    set('backgroundSize', { Stretch: '100% 100%', Fit: 'contain', Crop: 'cover', Tile: 'auto', Slice: '100% 100%' }[P.ScaleType] || '100% 100%');
-    set('backgroundRepeat', P.ScaleType === 'Tile' ? 'repeat' : 'no-repeat');
-    set('backgroundPosition', 'center');
-    set('opacity', String(1 - P.ImageTransparency));
+    const size = { Stretch: '100% 100%', Fit: 'contain', Crop: 'cover', Tile: 'auto', Slice: '100% 100%' }[P.ScaleType] || '100% 100%', repeat = P.ScaleType === 'Tile' ? 'repeat' : 'no-repeat';
+    if (!e.grad) {
+      if (e.img) { e.img.remove(); e.img = null; }
+      set('backgroundSize', size); set('backgroundRepeat', repeat); set('backgroundPosition', 'center');
+      set('opacity', String(1 - P.ImageTransparency));
+      return url ? `url("${url}")` : '';
+    }
+    set('backgroundSize', '100% 100%'); set('backgroundRepeat', 'no-repeat'); set('opacity', '1');
+    if (!e.img) { e.img = document.createElement('div'); Object.assign(e.img.style, { position: 'absolute', inset: '0', pointerEvents: 'none', borderRadius: 'inherit' }); e.el.insertBefore(e.img, e.el.firstChild); }
+    const tint = gradientCss(e.grad, r.w, r.h, { r: 1, g: 1, b: 1 }, 1, true), alpha = gradientCss(e.grad, r.w, r.h, { r: 0, g: 0, b: 0 }, 1);
+    const img = url ? `url("${url}")` : 'none';
+    Object.assign(e.img.style, {
+      // The gradient's colours multiply the image; its transparency and the image's own alpha mask it.
+      backgroundImage: url ? `${tint}, ${img}` : 'none', backgroundSize: `100% 100%, ${size}`, backgroundRepeat: `no-repeat, ${repeat}`, backgroundPosition: 'center', backgroundBlendMode: 'multiply, normal',
+      maskImage: url ? `${img}, ${alpha}` : 'none', maskSize: `${size}, 100% 100%`, maskRepeat: `${repeat}, no-repeat`, maskPosition: 'center', maskComposite: 'intersect',
+      webkitMaskImage: url ? `${img}, ${alpha}` : 'none', webkitMaskSize: `${size}, 100% 100%`, webkitMaskRepeat: `${repeat}, no-repeat`, webkitMaskPosition: 'center', webkitMaskComposite: 'source-in',
+      opacity: String(1 - P.ImageTransparency),
+    });
+    return bgImage;
   }
 
   drawText(inst, P, e, r, set, stroke) {
@@ -525,6 +544,14 @@ export class Gui {
       e.cache.text = text; e.cache.rich = rich;
       if (rich) e.span.innerHTML = richText(text); else e.span.textContent = text;
     }
+    // Under a UIGradient the text is filled with the gradient laid over the whole box (the span shows its
+    // own part of it, clipped to the glyphs).
+    const g = e.grad && !box ? e.grad : null, ss = e.span.style;
+    if (g) {
+      const gc = gradientCss(g, r.w, r.h, placeholder ? P.PlaceholderColor3 : P.TextColor3, 1 - P.TextTransparency);
+      Object.assign(ss, { backgroundImage: gc, backgroundSize: `${r.w}px ${r.h}px`, backgroundRepeat: 'no-repeat', backgroundPosition: `${-e.span.offsetLeft}px ${-e.span.offsetTop}px`, webkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' });
+    } else if (e.spanGrad) Object.assign(ss, { backgroundImage: '', backgroundSize: '', backgroundRepeat: '', backgroundPosition: '', webkitBackgroundClip: '', backgroundClip: '', color: '' });
+    e.spanGrad = !!g;
     e.font = font.replace('SIZE', size);
     if (box) this.drawField(inst, P, e, e.font);
   }
@@ -637,6 +664,37 @@ export class Gui {
     });
     for (const t of ['touchstart', 'touchmove', 'touchend']) el.addEventListener(t, ev => ev.stopPropagation(), { passive: true });
   }
+}
+
+// UIGradient (classes/UIGradient.yaml). The gradient lives in the object's own box, in shares of its
+// size: t = ((u - 0.5 - Offset.X) cos R + (v - 0.5 - Offset.Y) sin R) * max(|cos R|, |sin R|) + 0.5, for
+// (u, v) in 0..1 and R the clockwise Rotation, so at any rotation the line through the centre meets the
+// box's edges at t = 0 and 1 ('the beginning and end control points snap to the edges'; OURS: our
+// reading of it, and working in shares of the size, so 45 degrees runs corner to corner on any box).
+// Its colour multiplies the object's (OURS: 'blended' read as multiplied, so white shows the gradient's
+// own colours) and its transparency multiplies the opacity; envelopes are ignored (the docs). Drawn as a
+// CSS linear-gradient with stops at every keypoint and between them (CSS mixes premultiplied).
+const GRADIENT_ON = new Set(['Frame', 'TextLabel', 'TextButton', 'ImageLabel', 'ImageButton']); // not ScrollingFrame or TextBox (the docs)
+function gradientOf(inst) { if (!GRADIENT_ON.has(inst.ClassName)) return null; const g = inst.children.find(c => c.ClassName === 'UIGradient'); return g && g.props.Enabled ? g.props : null; }
+function seqAt(k, t, val) {
+  if (t <= k[0][0]) return val(k[0]);
+  for (let i = 1; i < k.length; i++) if (t <= k[i][0]) { const a = k[i - 1], b = k[i], f = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 1, x = val(a), y = val(b); return x.map((v, j) => v + (y[j] - v) * f); }
+  return val(k[k.length - 1]);
+}
+function gradientCss(G, W, H, base, alpha, opaque = false) {
+  if (!(W > 0 && H > 0)) return '';
+  const th = G.Rotation * Math.PI / 180, c = Math.cos(th), s = Math.sin(th), m = Math.max(Math.abs(c), Math.abs(s));
+  const gx = c * m / W, gy = s * m / H, gl = Math.hypot(gx, gy), dx = gx / gl, dy = gy / gl; // t's gradient in pixels, and its direction
+  const deg = Math.atan2(dx, -dy) * 180 / Math.PI, L = Math.abs(W * dx) + Math.abs(H * dy); // CSS's angle, and its gradient line's length
+  const off = (G.Offset.x * c + G.Offset.y * s) * m;
+  const at = t => ((t - 0.5 + off) / (gl * L) + 0.5) * 100;
+  const times = [...new Set([...G.Color.k.map(k => k[0]), ...G.Transparency.k.map(k => k[0])])].sort((a, b) => a - b), ts = [];
+  times.forEach((t, i) => { ts.push(t); if (i + 1 < times.length) for (let j = 1; j < 4; j++) ts.push(t + (times[i + 1] - t) * j / 4); });
+  const stops = ts.map(t => {
+    const [r, g, b] = seqAt(G.Color.k, t, k => [k[1].r, k[1].g, k[1].b]), [tr] = seqAt(G.Transparency.k, t, k => [k[1]]);
+    return `${css({ r: r * base.r, g: g * base.g, b: b * base.b }, opaque ? 1 : alpha * (1 - tr))} ${at(t).toFixed(4)}%`;
+  });
+  return `linear-gradient(${deg.toFixed(4)}deg, ${stops.join(', ')})`;
 }
 
 // RichText: Roblox's tags (b, i, u, s, br, font color/size/face, stroke is not drawn),

@@ -352,6 +352,13 @@ defineClass('UIGridLayout', 'UIGridStyleLayout', { props: {
   HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'],
   StartCorner: ['Enum.StartCorner', 'TopLeft'], AbsoluteCellCount: ['Vector2', [0, 0]], AbsoluteCellSize: ['Vector2', [100, 100]],
 } });
+// UIGradient (classes/UIGradient.yaml; defaults from rbx-dom v0.745): blends a colour and a transparency
+// gradient into its parent's own drawing (its background, text and image; not its children), along
+// Rotation (clockwise degrees from left to right), moved by Offset (in shares of the parent's size).
+// Drawn by runtime/gui.js. Scale, TileMode and Type aren't implemented (Linear, Clamp, Scale 1 only).
+defineClass('UIGradient', 'UIComponent', { props: {
+  Color: ['ColorSequence', '0 1 1 1 0 1 1 1 1 0 '], Transparency: ['NumberSequence', '0 0 0 1 0 0 '], Offset: ['Vector2', [0, 0]], Rotation: ['number', 0], Enabled: ['bool', true],
+} });
 defineClass('UIAspectRatioConstraint', 'UIComponent', { props: { AspectRatio: ['number', 1], AspectType: ['Enum.AspectType', 'FitWithinMaxSize'], DominantAxis: ['Enum.DominantAxis', 'Width'] } });
 defineClass('UITextSizeConstraint', 'UIComponent', { props: { MinTextSize: ['number', 1], MaxTextSize: ['number', 100] } });
 
