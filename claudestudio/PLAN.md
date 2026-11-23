@@ -104,6 +104,15 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 
 [Studio] **GUI gaps found (2026-11-22):** these Roblox classes aren't implemented: `ScrollingFrame`, `UIGridLayout`, `TextBox`, `UIGradient`, `UIScale`, `UISizeConstraint`, `BillboardGui`, `SurfaceGui`, `ViewportFrame`, `CanvasGroup`. `Enum.Font.Unknown` and the `Font` datatype (`FontFace`) are missing too.
 
+[Studio] **GUI classes (2026-11-23):** done, each with a lab place and a scenario (desktop and phone), mutation-checked; choices Roblox doesn't document are marked OURS in `web/runtime/gui.js`.
+- `ScrollingFrame`: CanvasSize (never smaller than the window), CanvasPosition (clamped), AutomaticCanvasSize, ScrollingDirection, ScrollBarThickness, ScrollBarImageColor3/Transparency (a flat stand-in for Roblox's bar images), ScrollingEnabled, ElasticBehavior, the scroll bar insets and VerticalScrollBarPosition, AbsoluteCanvasSize and AbsoluteWindowSize; clipping; the wheel, thumb drags, touch drags with a fling and elastic overscroll. A drag that scrolls doesn't click the button it started on.
+- `UIGridLayout` (CellSize, CellPadding, FillDirection, FillDirectionMaxCells, SortOrder, alignment, StartCorner, AbsoluteCellCount/Size), and AbsoluteContentSize for both layouts (current when a script reads it).
+- `TextBox`: a real text field while focused (phones raise their keyboard), Text set per keystroke, placeholder, ClearTextOnFocus, TextEditable, MultiLine, CaptureFocus/ReleaseFocus/IsFocused, Focused/FocusLost; the game's keys are sunk while typing; Escape lets go without opening the menu.
+- `UIGradient` (Color, Transparency, Rotation, Offset, Enabled) on the background, text and image, in the object's own box; `UIScale` (about the AnchorPoint; in a ScreenGui, the whole screen); `UISizeConstraint`.
+- Fonts: the `Font` datatype in the VM (new, fromEnum, fromName, fromId; Family, Weight, Style, Bold), `Enum.Font.Unknown`, `Enum.FontWeight`, `Enum.FontStyle`, `FontFace` kept in step with `Font`; `web/fonts.js` maps Roblox's family ids to the bundled families. Place files save FontFace.
+- UIPadding now insets a text object's own text, as in Roblox.
+- Not done: `BillboardGui`, `SurfaceGui`, `ViewportFrame`, `CanvasGroup`; UIGradient's Scale, TileMode and Type; TextBox CursorPosition/SelectionStart; ScrollingFrame's ScrollToTop and the velocity methods; UIGridLayout cells spanning several cells.
+
 ## Architecture
 
 | Layer | What | Notes |

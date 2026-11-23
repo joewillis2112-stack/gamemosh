@@ -50,6 +50,18 @@ run --noshots --place places/obby.luau --scenario test/scenarios/obby.mjs
 run --place places/obby.luau --scenario test/scenarios/obby-look.mjs
 run --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
 run --phone --place places/gui-lab.luau --scenario test/scenarios/gui.mjs
+run --place places/scroll-lab.luau --scenario test/scenarios/gui-scroll.mjs
+run --phone --place places/scroll-lab.luau --scenario test/scenarios/gui-scroll.mjs
+run --place places/grid-lab.luau --scenario test/scenarios/gui-grid.mjs
+run --phone --place places/grid-lab.luau --scenario test/scenarios/gui-grid.mjs
+run --place places/textbox-lab.luau --scenario test/scenarios/gui-textbox.mjs
+run --phone --place places/textbox-lab.luau --scenario test/scenarios/gui-textbox.mjs
+run --place places/gradient-lab.luau --scenario test/scenarios/gui-gradient.mjs
+run --phone --place places/gradient-lab.luau --scenario test/scenarios/gui-gradient.mjs
+run --place places/scale-lab.luau --scenario test/scenarios/gui-scale.mjs
+run --phone --place places/scale-lab.luau --scenario test/scenarios/gui-scale.mjs
+run --scenario test/scenarios/gui-fontface.mjs
+run --phone --scenario test/scenarios/gui-fontface.mjs
 run --place places/mesh-lab.luau --scenario test/scenarios/meshes-gltf.mjs
 run --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
 run --phone --place places/leaderstats-lab.luau --scenario test/scenarios/leaderstats.mjs
