@@ -35,7 +35,7 @@ print("grid", grid.AbsoluteContentSize.X, grid.AbsoluteContentSize.Y, grid.Absol
 
 -- Columns of at most 3 (Vertical, FillDirectionMaxCells 3), sorted by Name.
 local cols = Instance.new("Frame")
-cols.Name = "Columns" cols.Position = UDim2.fromOffset(16, 290) cols.Size = UDim2.fromOffset(150, 120)
+cols.Name = "Columns" cols.Position = UDim2.fromOffset(16, 290) cols.Size = UDim2.fromOffset(150, 140) -- room for 4 a column: the 3 is the limit
 cols.BackgroundColor3 = Color3.fromRGB(230, 230, 236) cols.BorderSizePixel = 0 cols.Parent = gui
 local g2 = Instance.new("UIGridLayout", cols)
 g2.FillDirection = Enum.FillDirection.Vertical g2.FillDirectionMaxCells = 3 g2.CellSize = UDim2.fromOffset(30, 30) g2.CellPadding = UDim2.fromOffset(4, 4)
@@ -55,7 +55,7 @@ local ar = Instance.new("UIAspectRatioConstraint", wide) ar.AspectRatio = 2
 
 -- A panel that follows its grid's AbsoluteContentSize, as creators size containers to a grid.
 local panel = Instance.new("Frame")
-panel.Name = "Panel" panel.Position = UDim2.fromOffset(16, 424) panel.Size = UDim2.fromOffset(130, 10)
+panel.Name = "Panel" panel.Position = UDim2.fromOffset(16, 444) panel.Size = UDim2.fromOffset(130, 10)
 panel.BackgroundColor3 = Color3.fromRGB(20, 20, 24) panel.BorderSizePixel = 0 panel.Parent = gui
 local g4 = Instance.new("UIGridLayout", panel) g4.CellSize = UDim2.fromOffset(40, 40) g4.CellPadding = UDim2.fromOffset(5, 5)
 g4:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()

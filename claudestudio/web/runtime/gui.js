@@ -495,11 +495,16 @@ export class Gui {
     // A TextBox with no text shows its PlaceholderText, in PlaceholderColor3.
     const box = inst.ClassName === 'TextBox', placeholder = box && P.Text === '';
     const text = placeholder ? P.PlaceholderText : P.Text;
+    // UIPadding insets the object's own text too (as it insets its children).
+    const pd = child(inst, 'UIPadding'), Q = pd && pd.props;
+    const pad = Q ? [Q.PaddingTop.s * r.h + Q.PaddingTop.o, Q.PaddingRight.s * r.w + Q.PaddingRight.o, Q.PaddingBottom.s * r.h + Q.PaddingBottom.o, Q.PaddingLeft.s * r.w + Q.PaddingLeft.o] : [0, 0, 0, 0];
+    set('padding', pad.map(v => v + 'px').join(' '));
+    e.pad = pad;
     let size = P.TextSize;
     const lim = child(inst, 'UITextSizeConstraint');
     const min = lim ? lim.props.MinTextSize : 1, max = lim ? lim.props.MaxTextSize : 100;
     const wrap = P.TextWrapped || P.TextScaled;
-    if (P.TextScaled) size = this.fitText(text, font, r.w, r.h, min, max);
+    if (P.TextScaled) size = this.fitText(text, font, Math.max(0, r.w - pad[1] - pad[3]), Math.max(0, r.h - pad[0] - pad[2]), min, max);
     else if (lim) size = Math.min(max, Math.max(min, size));
     set('font', font.replace('SIZE', size));
     set('color', css(placeholder ? P.PlaceholderColor3 : P.TextColor3, 1 - P.TextTransparency));
@@ -538,13 +543,15 @@ export class Gui {
     if (el.value !== P.Text) el.value = P.Text; // a script changed Text while the player types
     el.readOnly = !P.TextEditable;
     el.placeholder = P.PlaceholderText;
-    const ya = en(P.TextYAlignment), lineH = parseFloat(font.split(' ')[2]) * P.LineHeight;
+    const pd = e.pad || [0, 0, 0, 0], ya = en(P.TextYAlignment), lineH = parseFloat(font.split(' ')[2]) * P.LineHeight;
     Object.assign(el.style, {
       display: 'block', font, color: css(P.TextColor3, 1 - P.TextTransparency), textAlign: { Left: 'left', Center: 'center', Right: 'right' }[en(P.TextXAlignment)],
       whiteSpace: P.TextWrapped || !f.multi ? 'pre-wrap' : 'pre',
       // One line sits where TextYAlignment puts it; a MultiLine field starts at the top (OURS).
-      top: f.multi || ya === 'Top' ? '0' : ya === 'Bottom' ? `calc(100% - ${lineH}px)` : `calc(50% - ${lineH / 2}px)`,
-      height: f.multi ? '100%' : lineH + 'px',
+      // Inside the box's UIPadding, like its text.
+      left: pd[3] + 'px', width: `calc(100% - ${pd[1] + pd[3]}px)`,
+      top: f.multi || ya === 'Top' ? pd[0] + 'px' : ya === 'Bottom' ? `calc(100% - ${lineH + pd[2]}px)` : `calc(${(pd[0] - pd[2]) / 2}px + 50% - ${lineH / 2}px)`,
+      height: f.multi ? `calc(100% - ${pd[0] + pd[2]}px)` : lineH + 'px',
     });
     el.style.setProperty('--ph', css(P.PlaceholderColor3, 1 - P.TextTransparency));
   }
@@ -556,7 +563,7 @@ export class Gui {
     if (!multi) { el.type = 'text'; el.enterKeyHint = 'done'; }
     el.className = 'cs-tb';
     el.autocomplete = 'off'; el.spellcheck = false;
-    Object.assign(el.style, { position: 'absolute', left: '0', width: '100%', boxSizing: 'border-box', margin: '0', padding: '0', border: '0', outline: 'none', background: 'transparent', resize: 'none', pointerEvents: 'auto', overflow: 'hidden', lineHeight: 'inherit' });
+    Object.assign(el.style, { position: 'absolute', boxSizing: 'border-box', margin: '0', padding: '0', border: '0', outline: 'none', background: 'transparent', resize: 'none', pointerEvents: 'auto', overflow: 'hidden', lineHeight: 'inherit' });
     el.addEventListener('input', () => { if (this.dm.focusedTextBox === tb) this.dm.set(tb, 'Text', el.value); });
     el.addEventListener('keydown', ev => {
       ev.stopPropagation(); // the game's keys stay out while typing

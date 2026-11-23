@@ -38,10 +38,11 @@ export function helpers(t) {
   const near = (a, b, tol = 6) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
   let cdp = null;
   const touch = async (type, pts) => { cdp = cdp || await t.page.context().newCDPSession(t.page); await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts }); };
-  // A finger from (x, y) moving by (dx, dy) in n steps, `hold` ms still before it lifts (no fling).
-  const drag = async (x, y, dx, dy, { n = 6, id = 1, hold = 150, step = 20 } = {}) => {
+  // A finger from (x, y) moving by (dx, dy) in n steps, `hold` ms still before it lifts (no fling). With
+  // tick, a frame runs after each step (the GUI lays out again, as it does every frame in a live game).
+  const drag = async (x, y, dx, dy, { n = 6, id = 1, hold = 150, step = 20, tick = false } = {}) => {
     await touch('touchStart', [{ x, y, id }]);
-    for (let i = 1; i <= n; i++) { await touch('touchMove', [{ x: x + dx * i / n, y: y + dy * i / n, id }]); await t.page.waitForTimeout(step); }
+    for (let i = 1; i <= n; i++) { await touch('touchMove', [{ x: x + dx * i / n, y: y + dy * i / n, id }]); await t.page.waitForTimeout(step); if (tick) await t.sim(1, 'live'); }
     if (hold) await t.page.waitForTimeout(hold);
     await touch('touchEnd', []);
     await t.page.waitForTimeout(60);

@@ -96,7 +96,7 @@ export default async function (t) {
     // Drag up 180 px in 6 steps, starting near row 1's bottom: the first step lifts it past the slop, the
     // other five move the canvas with the finger, so the finger lifts 30 px up row 1, still on it (a press
     // and release on the button: only the scroll tells it apart from a click).
-    await drag(r1.x + 60, r1.y + 36, 0, -180); await t.sim(3);
+    await drag(r1.x + 60, r1.y + 36, 0, -180, { tick: true }); await t.sim(3);
     const p1 = await pos('List');
     check(Math.abs(p1 - 150) < 0.5, `a finger drag scrolls the list with the finger (150 px after the first step: ${p1})`);
     const r1b = await box('Item1');
