@@ -56,6 +56,10 @@ export default async function (t) {
   const bodies = await W(() => { const s = window.studio, ws = s.dm.workspace, get = n => ws.children.find(c => c.Name === n); const c = s.world.compounds.get(get('T2')) || s.world.compounds.get(get('T1')); return { n: s.world.compounds.size, tAgg: !!s.world.parts.get(get('T1')).agg || !!s.world.parts.get(get('T2')).agg, mass: c && c.body.getMassProperties().mass }; });
   const want = 1 * 8 * 1 * 0.7 + 6 * 1 * 6 * 7.85;
   check(bodies.n >= 4 && !bodies.tAgg, `each loose assembly is one body (${bodies.n} compound bodies; no per-part bodies in the tower)`);
+  // One body per node: a body built twice for one part (a rebuild inside a rebuild) once left two
+  // fighting on one mesh (a stack popped, slides and shoves were damped).
+  const dup = await W(() => { const seen = new Map(); for (const b of window.studio.scene.getPhysicsEngine().getBodies()) seen.set(b.transformNode, (seen.get(b.transformNode) || 0) + 1); return [...seen.values()].filter(n => n > 1).length; });
+  check(dup === 0, `no node carries two physics bodies (${dup} do)`);
   check(bodies.mass && Math.abs(bodies.mass - want) / want < 0.01, `its mass is its parts' (density x volume): ${bodies.mass && bodies.mass.toFixed(1)} vs ${want.toFixed(1)}`);
 
   // Run, checking the offsets every 10 frames.

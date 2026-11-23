@@ -521,7 +521,10 @@ export class World {
     if (!this.inWorkspace(inst) || !this.scene.getPhysicsEngine()) return;
     // Joined to other parts: an assembly with an anchored part doesn't move (all its parts are fixed);
     // an unanchored one is one body, built on its root (compound()).
-    const a = this.dm.assemblies.assemblyOf(inst), joined = !!a && a.parts.length > 1;
+    // (Read without flushing: a flush rebuilds bodies, this one included. A stale graph is put right
+    // by the next flush, which rebuilds the parts whose assembly changed.)
+    const A = this.dm.assemblies, a = A.stale ? null : A.of.get(inst), joined = !!a && a.parts.length > 1;
+    e.asmSig = this.asmSig(a); e.asmRoot = joined ? a.root : null; e.asm = joined ? a : null;
     e.fixed = !!P.Anchored || (joined && a.anchored);
     if (joined && !a.anchored) { this.pendingCompounds.add(a.root); return; }
     // An anchored part that doesn't collide has nothing to simulate. An
@@ -627,14 +630,12 @@ export class World {
   reassemble() {
     for (const [inst, e] of this.parts) {
       const a = this.dm.assemblies.of.get(inst), joined = !!a && a.parts.length > 1;
-      const sig = joined ? `${a.anchored ? 'A' : 'D'}${a.parts.length}` : '';
-      const root = joined ? a.root : null;
-      if (e.asmSig === sig && e.asmRoot === root) { e.asm = joined ? a : null; continue; }
-      e.asmSig = sig; e.asmRoot = root; e.asm = joined ? a : null;
-      this.body(inst, e);
+      if (e.asmSig === this.asmSig(a) && e.asmRoot === (joined ? a.root : null)) { e.asm = joined ? a : null; continue; }
+      this.body(inst, e); // records the assembly it was built for
     }
     for (const root of [...this.compounds.keys()]) { const a = this.dm.assemblies.of.get(root); if (!a || a.root !== root || a.parts.length < 2 || a.anchored) this.pendingCompounds.add(root); }
   }
+  asmSig(a) { return a && a.parts.length > 1 ? `${a.anchored ? 'A' : 'D'}${a.parts.length}` : ''; }
   /** Before each physics step: the joint graph current, every pending compound built. */
   prePhysics() {
     this.dm.assemblies.flush();

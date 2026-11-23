@@ -8,6 +8,7 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { V3, CF, Instance } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
+import { CharacterBody } from './charbody.js';
 
 const DEG = Math.PI / 180;
 
@@ -84,6 +85,8 @@ export class Players {
     this.dm.setParent(this.dm.create('Animator'), hum); // as Roblox gives every character's Humanoid
     this.dm.setParent(root, model);
     model.props.PrimaryPart = root;
+    // R6's body parts and Motor6Ds, following the drawn rig (runtime/charbody.js).
+    this.body = new CharacterBody(this.dm, this.char, model, root);
     // StarterCharacterScripts go into the new character.
     this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterCharacterScripts'), model);
     this.model = model; this.humanoid = hum; this.root = root;
@@ -92,6 +95,7 @@ export class Players {
     this.char.respawn(foot, yaw);
     this.char.setVisible(true);
     this.syncRoot();
+    this.body.update();
     player.props.Character = model;
     this.dm.setParent(model, this.dm.workspace);
     const cam = this.dm.workspace.props.CurrentCamera; // Roblox's camera scripts follow the new Humanoid
@@ -205,6 +209,7 @@ export class Players {
     }
     const c = this.char;
     this.syncRoot();
+    this.body.update();
     const md = c.moveDir;
     this.humanoid.props.MoveDirection = new V3(md.x, 0, md.z);
     this.humanoid.props.FloorMaterial = c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';
