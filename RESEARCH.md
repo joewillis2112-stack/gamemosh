@@ -497,6 +497,14 @@ A working log for this repo. It records common themes, what has been learned, mi
   - jsDelivr `@main` follows the repository, so a placed model could change under a game. Pin to a commit. `api.github.com` is refused through this proxy, but `git ls-remote` works.
   - Check `pgrep` before starting a background job again. A `nohup … &` at the end of a command whose earlier step failed still started, and two gates ran over the same files.
 
+- [Studio] **GUI classes (2026-11-23, the GUI agent: ScrollingFrame, UIGridLayout, TextBox, UIGradient, UIScale, UISizeConstraint, Font).**
+  - A drag test must step frames while the finger moves, or the layout never moves under it and "a scroll doesn't click" passes either way.
+  - A box that fits only N cells hides a bug in a limit of N: give a limit room to matter (like a clamp hiding a mutation).
+  - In Chrome `mask-image` and `-webkit-mask-image` are aliases: mutating one is undone by the other, so set only one.
+  - Set a test's threshold from what the rule predicts: a text gradient spans the label's whole box, not just the glyphs.
+  - JSON turns an infinite Vector2 (UISizeConstraint.MaxSize) into null; place files now carry infinities explicitly.
+  - In a worktree-isolated agent, long inline heredocs and `cd` into the scratchpad are refused: write scripts to files and run them by path.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
