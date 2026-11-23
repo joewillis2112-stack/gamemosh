@@ -8,8 +8,9 @@ import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
 import { BrickColor, defineBrickColor } from './brickcolor.js';
-export { CF, BrickColor };
-export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21 };
+import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
+export { CF, BrickColor, Font };
+export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
 export class UDim { constructor(s = 0, o = 0) { this.s = Math.fround(s); this.o = Math.trunc(o); } }
 export class UDim2 { constructor(xs = 0, xo = 0, ys = 0, yo = 0) { this.xs = Math.fround(xs); this.xo = Math.trunc(xo); this.ys = Math.fround(ys); this.yo = Math.trunc(yo); } }
@@ -101,12 +102,17 @@ export const ENUMS = {
   EasingDirection: { In: 0, Out: 1, InOut: 2 },
   PlaybackState: { Begin: 0, Delayed: 1, Playing: 2, Paused: 3, Completed: 4, Cancelled: 5 },
   // UI (values from the creator docs' enum pages)
-  Font: {Legacy:  0,  Arial:  1,  ArialBold:  2,  SourceSans:  3,  SourceSansBold:  4,  SourceSansLight:  5,  SourceSansItalic:  6,  Bodoni:  7,  Garamond:  8,  Cartoon:  9,  Code:  10,  Highway:  11,  SciFi:  12,  Arcade:  13,  Fantasy:  14,  Antique:  15,  SourceSansSemibold:  16,  Gotham:  17,  GothamMedium:  18,  GothamBold:  19,  GothamBlack:  20,  AmaticSC:  21,  Bangers:  22,  Creepster:  23,  DenkOne:  24,  Fondamento:  25,  FredokaOne:  26,  GrenzeGotisch:  27,  IndieFlower:  28,  JosefinSans:  29,  Jura:  30,  Kalam:  31,  LuckiestGuy:  32,  Merriweather:  33,  Michroma:  34,  Nunito:  35,  Oswald:  36,  PatrickHand:  37,  PermanentMarker:  38,  Roboto:  39,  RobotoCondensed:  40,  RobotoMono:  41,  Sarpanch:  42,  SpecialElite:  43,  TitilliumWeb:  44,  Ubuntu:  45,  BuilderSans:  46,  BuilderSansMedium:  47,  BuilderSansBold:  48,  BuilderSansExtraBold:  49,  Arimo:  50,  ArimoBold:  51},
+  Font: {Legacy:  0,  Arial:  1,  ArialBold:  2,  SourceSans:  3,  SourceSansBold:  4,  SourceSansLight:  5,  SourceSansItalic:  6,  Bodoni:  7,  Garamond:  8,  Cartoon:  9,  Code:  10,  Highway:  11,  SciFi:  12,  Arcade:  13,  Fantasy:  14,  Antique:  15,  SourceSansSemibold:  16,  Gotham:  17,  GothamMedium:  18,  GothamBold:  19,  GothamBlack:  20,  AmaticSC:  21,  Bangers:  22,  Creepster:  23,  DenkOne:  24,  Fondamento:  25,  FredokaOne:  26,  GrenzeGotisch:  27,  IndieFlower:  28,  JosefinSans:  29,  Jura:  30,  Kalam:  31,  LuckiestGuy:  32,  Merriweather:  33,  Michroma:  34,  Nunito:  35,  Oswald:  36,  PatrickHand:  37,  PermanentMarker:  38,  Roboto:  39,  RobotoCondensed:  40,  RobotoMono:  41,  Sarpanch:  42,  SpecialElite:  43,  TitilliumWeb:  44,  Ubuntu:  45,  BuilderSans:  46,  BuilderSansMedium:  47,  BuilderSansBold:  48,  BuilderSansExtraBold:  49,  Arimo:  50,  ArimoBold:  51, Unknown: 100},
+  FontWeight: { ...FONT_WEIGHTS }, FontStyle: { ...FONT_STYLES },
   TextXAlignment: { Left: 0, Right: 1, Center: 2 }, TextYAlignment: { Top: 0, Center: 1, Bottom: 2 },
   FillDirection: { Horizontal: 0, Vertical: 1 }, HorizontalAlignment: { Center: 0, Left: 1, Right: 2 }, VerticalAlignment: { Center: 0, Top: 1, Bottom: 2 },
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  // ScrollingFrame's (API dump).
+  AutomaticSize: { None: 0, X: 1, Y: 2, XY: 3 }, ScrollingDirection: { X: 1, Y: 2, XY: 4 }, ElasticBehavior: { WhenScrollable: 0, Always: 1, Never: 2 },
+  ScrollBarInset: { None: 0, ScrollBar: 1, Always: 2 }, VerticalScrollBarPosition: { Right: 0, Left: 1 },
+  StartCorner: { TopLeft: 0, TopRight: 1, BottomLeft: 2, BottomRight: 3 },
   LightingStyle: { Realistic: 0, Soft: 1 },
   CollisionFidelity: { Default: 0, Hull: 1, Box: 2, PreciseConvexDecomposition: 3 }, RenderFidelity: { Automatic: 0, Precise: 1, Performance: 2 },
   // From Roblox's API dump (Roblox-Client-Tracker, v0.719).
@@ -126,8 +132,10 @@ function enumItem(type, nameOrValue) {
 const CLASSES = {};
 /** A signal a method returns (GetPropertyChangedSignal): its instance and event name. */
 export class SignalRef { constructor(inst, ev) { this.inst = inst; this.ev = ev; } }
-function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false } = {}) {
-  CLASSES[name] = { name, base, props, methods, events, creatable, service };
+// defaults: a class's own default for a property an ancestor defines (a ScrollingFrame clips), so the
+// property is listed once, under the class that has it.
+function defineClass(name, base, { props = {}, methods = {}, events = [], creatable = true, service = false, defaults = {} } = {}) {
+  CLASSES[name] = { name, base, props, methods, events, creatable, service, defaults };
 }
 function lookup(cls, field, key) {
   for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) if (key in c[field]) return c[field][key];
@@ -277,11 +285,30 @@ defineClass('GuiObject', 'GuiBase2d', {
   events: ['MouseEnter', 'MouseLeave', 'InputBegan', 'InputEnded'],
 });
 defineClass('Frame', 'GuiObject');
+// ScrollingFrame (classes/ScrollingFrame.yaml; defaults from Roblox's reflection data, rbx-dom v0.745).
+// Its children sit on a canvas of AbsoluteCanvasSize (CanvasSize against the frame's size, less a
+// scroll bar's gutter where an inset says so; AutomaticCanvasSize grows it to the children), seen
+// through a window of AbsoluteWindowSize (the frame less the gutters of the bars on show), moved by
+// CanvasPosition. The scroll bar images are Roblox's own textures: a flat stand-in is drawn unless
+// an image is given (runtime/gui.js).
+defineClass('ScrollingFrame', 'GuiObject', {
+  defaults: { ClipsDescendants: true },
+  props: {
+    AbsoluteCanvasSize: ['Vector2', [0, 0]], AbsoluteWindowSize: ['Vector2', [0, 0]], AutomaticCanvasSize: ['Enum.AutomaticSize', 'None'],
+    CanvasPosition: ['Vector2', [0, 0]], CanvasSize: ['UDim2', [0, 0, 2, 0]], ElasticBehavior: ['Enum.ElasticBehavior', 'WhenScrollable'],
+    HorizontalScrollBarInset: ['Enum.ScrollBarInset', 'None'], VerticalScrollBarInset: ['Enum.ScrollBarInset', 'None'], VerticalScrollBarPosition: ['Enum.VerticalScrollBarPosition', 'Right'],
+    ScrollBarImageColor3: ['Color3', [1, 1, 1]], ScrollBarImageTransparency: ['number', 0], ScrollBarThickness: ['number', 12],
+    ScrollingDirection: ['Enum.ScrollingDirection', 'XY'], ScrollingEnabled: ['bool', true],
+    TopImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-top.png'], MidImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-middle.png'], BottomImage: ['string', 'rbxasset://textures/ui/Scroll/scroll-bottom.png'],
+  },
+});
 const TEXT = {
   Text: ['string', 'Label'], TextColor3: ['Color3', rgb(27, 42, 53)], TextSize: ['number', 8], Font: ['Enum.Font', 'Legacy'],
   TextScaled: ['bool', false], TextWrapped: ['bool', false], TextXAlignment: ['Enum.TextXAlignment', 'Center'], TextYAlignment: ['Enum.TextYAlignment', 'Center'],
   TextTransparency: ['number', 0], TextStrokeTransparency: ['number', 1], TextStrokeColor3: ['Color3', [0, 0, 0]], RichText: ['bool', false],
   LineHeight: ['number', 1], TextTruncate: ['Enum.TextTruncate', 'None'],
+  // FontFace and Font are one setting seen two ways (Roblox keeps them in step: DataModel.set).
+  FontFace: ['Font', ['rbxasset://fonts/families/LegacyArial.json', 'Regular', 'Normal']],
 };
 const IMAGE = { Image: ['string', ''], ImageColor3: ['Color3', [1, 1, 1]], ImageTransparency: ['number', 0], ScaleType: ['Enum.ScaleType', 'Stretch'] };
 defineClass('TextLabel', 'GuiObject', { props: { ...TEXT } });
@@ -290,13 +317,58 @@ defineClass('ImageLabel', 'GuiObject', { props: { ...IMAGE } });
 defineClass('GuiButton', 'GuiObject', { creatable: false, props: { AutoButtonColor: ['bool', true], Active: ['bool', true] }, events: ['Activated', 'MouseButton1Click', 'MouseButton1Down', 'MouseButton1Up'] });
 defineClass('TextButton', 'GuiButton', { props: { ...TEXT, Text: ['string', 'Button'] } });
 defineClass('ImageButton', 'GuiButton', { props: { ...IMAGE } });
+// TextBox (classes/TextBox.yaml; defaults from rbx-dom v0.745): a tap or click focuses it (one at a
+// time), CaptureFocus too; while focused the player types into Text (Changed fires per keystroke) and
+// the game's keys stay out; Enter (not MultiLine, where it starts a new line) or ReleaseFocus(true)
+// submits, clicking elsewhere or ReleaseFocus() doesn't. Focused, then FocusLost(enterPressed, input)
+// (the InputObject is nil: there are no InputObjects here). ClearTextOnFocus empties Text on focus;
+// TextEditable false keeps it as it is; an empty Text shows PlaceholderText in PlaceholderColor3.
+defineClass('TextBox', 'GuiObject', {
+  defaults: { Active: true },
+  props: {
+    ...TEXT, Text: ['string', 'TextBox'], ClearTextOnFocus: ['bool', true], MultiLine: ['bool', false], TextEditable: ['bool', true],
+    PlaceholderText: ['string', ''], PlaceholderColor3: ['Color3', [0.5, 0.5, 0.5]], ShowNativeInput: ['bool', true],
+  },
+  methods: {
+    CaptureFocus(self) { self.dm.focusTextBox(self); return []; },
+    ReleaseFocus(self, submitted) { self.dm.releaseTextBox(self, !!submitted); return []; },
+    IsFocused(self) { return [self.dm.focusedTextBox === self]; },
+  },
+  events: ['Focused', 'FocusLost'],
+});
 // Modifiers: children of a GuiObject that change how it's drawn or laid out.
 defineClass('UIComponent', 'Instance', { creatable: false });
 defineClass('UICorner', 'UIComponent', { props: { CornerRadius: ['UDim', [0, 8]] } });
 defineClass('UIStroke', 'UIComponent', { props: { Thickness: ['number', 1], Color: ['Color3', [0, 0, 0]], Transparency: ['number', 0], ApplyStrokeMode: ['Enum.ApplyStrokeMode', 'Contextual'], Enabled: ['bool', true] } });
 defineClass('UIPadding', 'UIComponent', { props: { PaddingTop: ['UDim', [0, 0]], PaddingBottom: ['UDim', [0, 0]], PaddingLeft: ['UDim', [0, 0]], PaddingRight: ['UDim', [0, 0]] } });
-defineClass('UIListLayout', 'UIComponent', { props: { FillDirection: ['Enum.FillDirection', 'Vertical'], HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'], Padding: ['UDim', [0, 0]] } });
+// Layouts (UIGridStyleLayout): AbsoluteContentSize is the space the laid-out children take, padding
+// between them included, written by the layout pass (and brought up to date when a script reads it).
+defineClass('UILayout', 'UIComponent', { creatable: false });
+defineClass('UIGridStyleLayout', 'UILayout', { creatable: false, props: { AbsoluteContentSize: ['Vector2', [0, 0]] } });
+defineClass('UIListLayout', 'UIGridStyleLayout', { props: { FillDirection: ['Enum.FillDirection', 'Vertical'], HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'], Padding: ['UDim', [0, 0]] } });
+// UIGridLayout (classes/UIGridLayout.yaml; defaults from rbx-dom v0.745): equal cells of CellSize, CellPadding
+// apart, filling lines along FillDirection (as many as fit, at most FillDirectionMaxCells when that is
+// above 0) from StartCorner; the block of cells aligned in the parent. A child's own Size is replaced
+// by the cell's, unless a constraint of its own sizes it. AbsoluteCellCount and AbsoluteCellSize are
+// written by the layout pass (runtime/gui.js).
+defineClass('UIGridLayout', 'UIGridStyleLayout', { props: {
+  CellPadding: ['UDim2', [0, 5, 0, 5]], CellSize: ['UDim2', [0, 100, 0, 100]], FillDirection: ['Enum.FillDirection', 'Horizontal'], FillDirectionMaxCells: ['number', 0],
+  HorizontalAlignment: ['Enum.HorizontalAlignment', 'Left'], VerticalAlignment: ['Enum.VerticalAlignment', 'Top'], SortOrder: ['Enum.SortOrder', 'Name'],
+  StartCorner: ['Enum.StartCorner', 'TopLeft'], AbsoluteCellCount: ['Vector2', [0, 0]], AbsoluteCellSize: ['Vector2', [100, 100]],
+} });
+// UIGradient (classes/UIGradient.yaml; defaults from rbx-dom v0.745): blends a colour and a transparency
+// gradient into its parent's own drawing (its background, text and image; not its children), along
+// Rotation (clockwise degrees from left to right), moved by Offset (in shares of the parent's size).
+// Drawn by runtime/gui.js. Scale, TileMode and Type aren't implemented (Linear, Clamp, Scale 1 only).
+defineClass('UIGradient', 'UIComponent', { props: {
+  Color: ['ColorSequence', '0 1 1 1 0 1 1 1 1 0 '], Transparency: ['NumberSequence', '0 0 0 1 0 0 '], Offset: ['Vector2', [0, 0]], Rotation: ['number', 0], Enabled: ['bool', true],
+} });
 defineClass('UIAspectRatioConstraint', 'UIComponent', { props: { AspectRatio: ['number', 1], AspectType: ['Enum.AspectType', 'FitWithinMaxSize'], DominantAxis: ['Enum.DominantAxis', 'Width'] } });
+// UIScale (classes/UIScale.yaml): multiplies its parent's AbsoluteSize, and everything inside it, by
+// Scale. UISizeConstraint (classes/UISizeConstraint.yaml): keeps its parent between MinSize and MaxSize
+// pixels, over any size a layout gives it. Both drawn by runtime/gui.js.
+defineClass('UIScale', 'UIComponent', { props: { Scale: ['number', 1] } });
+defineClass('UISizeConstraint', 'UIComponent', { props: { MinSize: ['Vector2', [0, 0]], MaxSize: ['Vector2', [Infinity, Infinity]] } });
 defineClass('UITextSizeConstraint', 'UIComponent', { props: { MinTextSize: ['number', 1], MaxTextSize: ['number', 100] } });
 
 // Per-player containers, and StarterPlayer's two script folders.
@@ -732,8 +804,9 @@ export class Instance {
     this.children = [];
     this.props = {};
     for (let c = CLASSES[cls]; c; c = CLASSES[c.base]) {
-      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : d;
+      for (const [k, [ty, d]] of Object.entries(c.props)) if (!(k in this.props)) this.props[k] = ty === 'Vector3' ? new V3(...d) : ty === 'Color3' ? new C3(...d) : ty === 'CFrame' ? new CF() : ty === 'UDim2' ? new UDim2(...(d || [])) : ty === 'UDim' ? new UDim(...(d || [])) : ty === 'Vector2' ? new V2(...(d || [])) : ty === 'NumberRange' ? new NumberRange(...String(d).trim().split(/\s+/).map(Number)) : ty === 'NumberSequence' ? NumberSequence.parse(d) : ty === 'ColorSequence' ? ColorSequence.parse(d) : ty === 'Font' ? new Font(...d) : d;
     }
+    for (let c = CLASSES[cls], seen = new Set(); c; c = CLASSES[c.base]) for (const [k, v] of Object.entries(c.defaults)) if (!seen.has(k)) { seen.add(k); this.props[k] = v; }
     this.props.Name = cls;
     if (isA(cls, 'BasePart')) defineBrickColor(this.props);
     if (cls === 'Terrain') this.voxels = new Voxels();
@@ -877,6 +950,20 @@ export class DataModel {
       this.notify(inst, 'ClockTime');
       for (const k of changed) this.fire(inst, 'Changed', [k]);
       this.fire(inst, 'LightingChanged', [false]);
+      return;
+    }
+    // A text object's Font and FontFace follow each other (TextLabel.FontFace's docs): FontFace takes the
+    // Font's family, weight and style (Font.fromEnum); Font becomes the item that FontFace matches, or
+    // Unknown. Setting Font to Unknown changes nothing (OURS: it names no font). Each changed one fires its
+    // Changed, FontFace first (OURS: the order).
+    if ((key === 'Font' || key === 'FontFace') && 'FontFace' in inst.props && 'Font' in inst.props) {
+      const face = key === 'Font' ? fontFromEnum(value) : value, item = key === 'Font' ? value : enumFromFont(value);
+      if (!face) return;
+      const changed = [];
+      if (!sameValue(inst.props.FontFace, face)) { inst.props.FontFace = face; changed.push('FontFace'); }
+      if (inst.props.Font !== item) { inst.props.Font = item; changed.push('Font'); }
+      for (const k of changed) this.notify(inst, k);
+      for (const k of changed) this.fire(inst, 'Changed', [k]);
       return;
     }
     if (inst.ClassName === 'Camera' && key === 'FieldOfView') value = Math.min(Math.max(+value || 0, 1), 120);
@@ -1035,6 +1122,22 @@ export class DataModel {
     for (const c of map.values()) for (const [k, v] of Object.entries(c.props)) if (v instanceof Instance && map.has(v)) c.props[k] = map.get(v);
     return root;
   }
+  // TextBox focus (one at a time). ClearTextOnFocus empties Text before Focused fires (OURS: the order).
+  // Watchers hear (box, 'Focus'); the GUI shows the box's text field and gives it the keyboard.
+  focusTextBox(tb) {
+    if (this.focusedTextBox === tb || tb.destroyed) return;
+    if (this.focusedTextBox) this.releaseTextBox(this.focusedTextBox, false);
+    this.focusedTextBox = tb;
+    if (tb.props.ClearTextOnFocus) this.set(tb, 'Text', '');
+    this.notify(tb, 'Focus');
+    this.fire(tb, 'Focused', []);
+  }
+  releaseTextBox(tb, enterPressed) {
+    if (this.focusedTextBox !== tb) return;
+    this.focusedTextBox = null;
+    this.notify(tb, 'Focus');
+    this.fire(tb, 'FocusLost', [!!enterPressed, null]);
+  }
   watch(fn) { this.watchers.push(fn); }
   onEvent(fn) { this.eventHooks.push(fn); }
 
@@ -1072,6 +1175,7 @@ function sameValue(a, b) {
   if (a instanceof UDim2 && b instanceof UDim2) return a.xs === b.xs && a.xo === b.xo && a.ys === b.ys && a.yo === b.yo;
   if (a instanceof UDim && b instanceof UDim) return a.s === b.s && a.o === b.o;
   if (a instanceof V2 && b instanceof V2) return a.x === b.x && a.y === b.y;
+  if (a instanceof Font) return a.equals(b);
   if (a instanceof NumberRange && b instanceof NumberRange) return a.min === b.min && a.max === b.max;
   if ((a instanceof NumberSequence && b instanceof NumberSequence) || (a instanceof ColorSequence && b instanceof ColorSequence)) return a.toString() === b.toString();
   return false;
@@ -1103,7 +1207,7 @@ export const STUDIO_OWN = new Map([
   ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
 ]);
 const READ_ONLY = new Set(['Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
-'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
@@ -1168,6 +1272,7 @@ export function makeHost(dm, log = console.log) {
       else if (v instanceof TweenInfo) o.push({ t: T.TWEENINFO, n: v.time, s: v.style + ',' + v.dir, v: [v.repeat, v.reverses ? 1 : 0, v.delay] });
       else if (v instanceof EnumItem) o.push({ t: T.ENUM, s: v.type + '.' + v.name, n: v.value });
       else if (v instanceof BrickColor) o.push({ t: T.BRICKCOLOR, n: v.number });
+      else if (v instanceof Font) o.push({ t: T.FONT, s: v.family, n: FONT_WEIGHTS[v.weight] ?? 400, v: [FONT_STYLES[v.style] ?? 0, 0, 0] });
       else if (v instanceof SignalRef) o.push({ t: T.SIGNAL, n: v.inst.handle, s: v.ev });
       else if (Array.isArray(v)) { o.push({ t: T.LIST, n: v.length }); v.forEach(x => host.put(o, x)); }
       else o.push({ t: T.NIL });
@@ -1207,11 +1312,14 @@ export function makeHost(dm, log = console.log) {
         case T.ENUM: { const [type, name] = a.s.split('.'); return new EnumItem(type, name, a.n); }
         case T.INST: return dm.byHandle[a.n];
         case T.BRICKCOLOR: return BrickColor.byNumber(a.n);
+        case T.FONT: return new Font(a.s, Object.keys(FONT_WEIGHTS).find(k => FONT_WEIGHTS[k] === a.n) || 'Regular', a.v[0] ? 'Italic' : 'Normal');
       }
       return null;
     },
     err(msg) { host.ret = [{ t: T.ERR, s: msg }]; },
     enumType(type) { return !!ENUMS[type]; },
+    // Font.fromEnum (the VM's Font datatype asks for the table here): 1 with the Font in ret, or 0.
+    fontFromEnum(name) { const f = fontFromEnum(name); host.ret = f ? host.put([], f) : []; return f ? 1 : 0; },
     enumValue(type, name) { const E = ENUMS[type]; return E && name in E ? E[name] : null; },
     enumItems(type) { const E = ENUMS[type] || {}; host.ret = Object.entries(E).map(([k, v]) => ({ t: T.ENUM, s: type + '.' + k, n: v })); return host.ret.length; },
     global(name) { return name === 'game' ? dm.game.handle : name === 'workspace' ? dm.workspace.handle : name === 'UserSettings' ? dm.userSettings().handle : 0; },
@@ -1221,6 +1329,8 @@ export function makeHost(dm, log = console.log) {
       if (ALIASES[key] && ALIASES[key] in inst.props) key = ALIASES[key];
       if (key === 'Parent') { host.ret = host.put([], inst.parent); return 1; }
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
+      // A layout's AbsoluteContentSize is current when read (Roblox: 'updates as soon as it's read'): lay out now.
+      if (key === 'AbsoluteContentSize' && dm.hooks.layoutNow) dm.hooks.layoutNow();
       if (key in inst.props) {
         if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
         const ty = typeOf(inst.ClassName, key);
@@ -1259,6 +1369,7 @@ export function makeHost(dm, log = console.log) {
         return dm.set(inst, 'Color', v.color);
       }
       if (ty === 'CFrame' && !(v instanceof CF)) return host.err(`Unable to assign property ${key}. CFrame expected`);
+      if (ty === 'Font' && !(v instanceof Font)) return host.err(`Unable to assign property ${key}. Font expected`);
       for (const [name, C] of [['UDim2', UDim2], ['UDim', UDim], ['Vector2', V2], ['NumberRange', NumberRange], ['NumberSequence', NumberSequence], ['ColorSequence', ColorSequence]]) if (ty === name && !(v instanceof C)) return host.err(`Unable to assign property ${key}. ${name} expected`);
       if (ty.startsWith('Enum.')) {
         // An EnumItem of this type, its name, or its number, as Roblox accepts.

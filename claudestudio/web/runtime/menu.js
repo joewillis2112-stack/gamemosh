@@ -61,12 +61,15 @@ export class Menu {
     shade.addEventListener('click', e => { if (e.target === shade) this.toggle(false); });
     root.append(shade, button);
     // Esc opens and closes it; F10 / Shift+F10 step the level (Manual). While open, the game's keys stay out.
+    // Keys typed into a TextBox's field are the TextBox's (its Escape lets go of it; runtime/gui.js).
+    const typing = e => e.target && e.target.classList && e.target.classList.contains('cs-tb');
     addEventListener('keydown', e => {
+      if (typing(e)) return;
       if (e.code === 'Escape' && !e.repeat) { e.preventDefault(); this.toggle(); }
       else if (e.code === 'F10') { e.preventDefault(); if (this.graphics.manager.level) this.setSlider(this.slider + (e.shiftKey ? -1 : 1)); }
       else if (this.open) { e.stopImmediatePropagation(); }
     }, { capture: true });
-    addEventListener('keyup', e => { if (this.open) e.stopImmediatePropagation(); }, { capture: true });
+    addEventListener('keyup', e => { if (this.open && !typing(e)) e.stopImmediatePropagation(); }, { capture: true });
     graphics.onChange = () => this.draw();
     this.draw();
   }

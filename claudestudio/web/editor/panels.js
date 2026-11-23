@@ -3,7 +3,7 @@
 // changes (at most once a frame). Every edit is a command, so it can be undone.
 // Each Explorer row has Studio's + (Insert Object, under that row: onAdd); double-clicking a row
 // opens it (a script in the script editor: onOpen); a script's Properties offer Edit Script.
-import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, BrickColor, propertiesOf } from '../datamodel.js';
+import { ENUMS, V3, V2, C3, UDim, UDim2, NumberRange, NumberSequence, ColorSequence, BrickColor, Font, propertiesOf } from '../datamodel.js';
 
 // Studio shows these services in the Explorer, in this order (others it hides).
 const SHOWN = ['Workspace', 'Players', 'Lighting', 'ReplicatedFirst', 'ReplicatedStorage', 'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack', 'StarterPlayer', 'SoundService'];
@@ -132,6 +132,12 @@ export class Properties {
 // ("time value envelope" per keypoint, checked with Roblox's rules).
 const nums = s => { const m = String(s).match(/-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/gi); return m ? m.map(Number) : []; };
 const TEXT_TYPES = {
+  // A Font as 'Family, Weight, Style' with the family's short name (Oswald, Bold, Italic); a full rbxasset or
+  // rbxassetid id is kept as typed. Weight and Style may be left out (Regular, Normal).
+  Font: {
+    show: f => `${(/^rbxasset:\/\/fonts\/families\/(.+)\.json$/.exec(f.family) || [0, f.family])[1]}, ${f.weight}, ${f.style}`,
+    parse: s => { const [fam, w = 'Regular', st = 'Normal'] = String(s).split(',').map(x => x.trim()); if (!fam || !(w in ENUMS.FontWeight) || !(st in ENUMS.FontStyle)) return null; return new Font(/^rbxasset(id)?:\/\//.test(fam) ? fam : `rbxasset://fonts/families/${fam}.json`, w, st); },
+  },
   UDim: { show: u => `{${fmt(u.s)}, ${u.o}}`, parse: s => { const n = nums(s); return n.length === 2 ? new UDim(n[0], n[1]) : null; } },
   UDim2: { show: u => `{${fmt(u.xs)}, ${u.xo}},{${fmt(u.ys)}, ${u.yo}}`, parse: s => { const n = nums(s); return n.length === 4 ? new UDim2(...n) : null; } },
   NumberRange: {
