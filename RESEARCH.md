@@ -505,6 +505,11 @@ A working log for this repo. It records common themes, what has been learned, mi
   - JSON turns an infinite Vector2 (UISizeConstraint.MaxSize) into null; place files now carry infinities explicitly.
   - In a worktree-isolated agent, long inline heredocs and `cd` into the scratchpad are refused: write scripts to files and run them by path.
 
+- [Studio] **Joints and the R6 body (2026-11-23).**
+  - A lazily rebuilt graph whose rebuild calls back into the code that asked for it re-enters. `World.body()` flushed the assembly graph, the flush rebuilt bodies, `body()` included, and one part ended up with two Havok bodies on its mesh. Symptoms: a stack of boxes popped 8 studs high, slides and shoves were damped. Code the flush calls must read the graph without flushing. A check that no node carries two bodies catches it.
+  - Roblox (2026) gives new R15 avatars AnimationConstraints instead of Motor6Ds when StarterPlayer.AvatarJointUpgrade is on, the default for new experiences. Motor6D stays for R6, older games and mechanical rigs.
+  - Kenney's blocky model isn't R6-proportioned, so the R6 parts are R6-sized stand-ins. Each sits at a constant offset from its drawn limb (checked in the part's own frame while walking). The torso's drawn bounding box includes its children (head and arms), so its centre isn't a fair comparison.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
