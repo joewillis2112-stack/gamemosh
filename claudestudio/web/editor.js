@@ -35,6 +35,7 @@ import { PaintTools } from './editor/paint.js';
 import { SOLID_COMMANDS } from './editor/solid.js';
 import { ImageEditor } from './editor/imageeditor.js';
 import { VectorEditor } from './editor/vectoreditor.js';
+import { Toolbox } from './editor/toolbox.js';
 import { ScriptEditor } from './editor/scripteditor.js';
 import { LIBRARY_PROBE, parseLibraries } from './editor/completions.js';
 import { creatableClasses } from './datamodel.js';
@@ -59,7 +60,7 @@ async function main() {
   let capture = null; // while set, the VM's prints go here instead (asking it for its libraries)
   const vm = await startLuau(createLuau, dm, (s, lvl) => capture ? capture.push(s) : (lvl === 2 ? console.error : console.log)('[luau] ' + s), { runScripts: false }); // edit mode: Scripts don't run
   capture = []; vm.run('libraries', LIBRARY_PROBE); const libs = parseLibraries(capture); capture = null;
-  const world = new World(scene, dm, R.shadows);
+  const world = new World(scene, dm, R.shadows, { quality });
   // The place: a Luau script that builds it (run once, as its starting content), or a
   // place file (.json, or 'session': the one handed over by Open or by Play's Stop).
   const placeSrc = q.get('place') || '../places/baseplate.luau';
@@ -83,7 +84,7 @@ async function main() {
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality, localLights }); // Studio runs emitters while editing too
-  graphics.add(lighting, localLights, particles);
+  graphics.add(lighting, localLights, particles, world);
   const highlights = new Highlights(scene, dm, world, { rigs }); // and shows Highlights
   const styles = new Styles(scene, dm, camera.cam, { sun: R.sun }); // and the place's look (ToonEffect, OutlineEffect, PixelEffect)
   await lighting.settled();
@@ -177,6 +178,8 @@ async function main() {
   // The Vector Editor: shapes and pen paths into the same image properties, as SVG (web/editor/vectoreditor.js).
   const vectorEditor = new VectorEditor({ dm, world, commands, panel: document.getElementById('vectoreditor'), onState: s => { if (s.message) toast(s.message); } });
   paintTools.onVector = () => vectorEditor.open(); // the Paint bar's Vector… button
+  // The Toolbox: free models (assets/library, through the asset gate) inserted at their real size.
+  const toolbox = new Toolbox({ panel: document.getElementById('toolbox'), commands });
   camera.busy = () => gizmos.dragging || modal.active || !!edit.modal || !!edit.dragging || !!anim.drag || terrainTools.painting || paintTools.painting;
   // The point under a screen position (for orbiting and the wheel).
   const pickPoint = (x, y) => { const h = scene.pick(x, y, m => !!(m.metadata && m.metadata.instance) && m.isVisible, false, camera.cam); return h && h.hit ? h.pickedPoint : null; };
@@ -223,7 +226,9 @@ async function main() {
     play: () => { scriptEditor.close(); sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },
     open: () => document.getElementById('openFile').click(),
+    toolbox: () => toolbox.toggle(),
   };
+  toolbox.onState = on => ui.querySelector('[data-act=toolbox]').classList.toggle('on', on);
   document.getElementById('openFile').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     const file = JSON.parse(await f.text());
@@ -276,7 +281,7 @@ async function main() {
   await scene.whenReadyAsync();
   setTool('select');
   window.editor = {
-    dm, vm, world, scene, R, graphics, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, styles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, solid, imageEditor, vectorEditor, scriptEditor, V3, C3, CF, ready: true,
+    dm, vm, world, scene, R, graphics, camera, commands, gizmos, explorer, properties, lighting, particles, highlights, styles, setTool, instanceAt, actions, modal, edit, anim, rigs, terrainTools, paintTools, solid, imageEditor, vectorEditor, scriptEditor, toolbox, V3, C3, CF, ready: true,
     frames(n) { for (let i = 0; i < n; i++) scene.render(); },
   };
   // Back from Play by an Output link (?open=Service.Path.Script&line=N): open that script at that line.

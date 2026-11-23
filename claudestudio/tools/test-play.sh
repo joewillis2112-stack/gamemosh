@@ -105,6 +105,8 @@ run --page editor --scenario test/scenarios/editor-adjust.mjs
 run --page editor --phone --scenario test/scenarios/editor-adjust.mjs
 run --page editor --scenario test/scenarios/editor-script.mjs
 run --page editor --phone --scenario test/scenarios/editor-script.mjs
+run --page editor --scenario test/scenarios/editor-toolbox.mjs
+run --page editor --phone --scenario test/scenarios/editor-toolbox.mjs
 run --page editor --scenario test/scenarios/editor-props.mjs
 run --page editor --phone --scenario test/scenarios/editor-props.mjs
 if [ -d .cache/fidelity/assets ]; then
@@ -113,6 +115,7 @@ if [ -d .cache/fidelity/assets ]; then
 else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
 timeout 600 node test/text.test.mjs | tail -1 | grep -q PASS && echo "text outlines test PASS" || { echo "FAILED: text outlines test"; fail=1; }
 timeout 600 node test/quality.test.mjs | tail -1 | grep -q PASS && echo "graphics quality test PASS" || { echo "FAILED: graphics quality test"; fail=1; }
+timeout 600 node test/library.test.mjs | tail -1 | grep -q PASS && echo "toolbox catalog test PASS" || { echo "FAILED: toolbox catalog test"; fail=1; }
 timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }
 timeout 600 node test/tween.test.mjs | tail -1 | grep -q PASS && echo "tween test PASS" || { echo "FAILED: tween test"; fail=1; }
 timeout 600 node test/raycast.test.mjs | tail -1 | grep -q PASS && echo "raycast test PASS" || { echo "FAILED: raycast test"; fail=1; }

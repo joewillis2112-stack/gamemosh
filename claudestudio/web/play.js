@@ -49,7 +49,7 @@ async function main() {
   const output = q.get('from') === 'editor' ? new Output() : null;
   const log = (s, lvl) => { (lvl === 2 ? console.error : console.log)('[luau] ' + s); if (output) output.add(s, lvl); };
   const vm = await startLuau(createLuau, dm, log);
-  const world = new World(scene, dm, R.shadows);
+  const world = new World(scene, dm, R.shadows, { quality });
   // The place: a Luau script that builds it, or a place file (.json, or 'session':
   // the one the editor just handed over for Play).
   const placeSrc = q.get('place') || '../places/baseplate.luau';
@@ -93,7 +93,7 @@ async function main() {
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality, localLights });
-  graphics.add(lighting, localLights, particles);
+  graphics.add(lighting, localLights, particles, world);
   const styles = new Styles(scene, dm, camera.cam, { sun: R.sun });
   const highlights = new Highlights(scene, dm, world, { rigs, localCharacter: () => { const h = players.humanoid; return h && !h.destroyed && h.parent ? { model: h.parent, meshes: player.meshes } : null; } });
   await lighting.settled(); // the sky drawn into the environment for the starting time
