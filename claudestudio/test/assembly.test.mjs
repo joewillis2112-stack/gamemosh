@@ -92,6 +92,14 @@ E.CFrame = E.CFrame + Vector3.new(0, 10, 0)
 check(near(F.Position, Fpos), "and its parts move alone")
 O.Parent = nil
 check(O.AssemblyRootPart == nil, "AssemblyRootPart is nil outside the Workspace")
+-- Model:PivotTo on a welded model moves each part once (not once per part set).
+local mdl = Instance.new("Model"); mdl.Parent = workspace
+local P1 = part("P1", Vector3.new(100, 5, 0)); P1.Parent = mdl
+local P2 = part("P2", Vector3.new(103, 5, 0)); P2.Parent = mdl
+local wp = Instance.new("WeldConstraint"); wp.Part0 = P1; wp.Part1 = P2; wp.Parent = P1
+mdl.PrimaryPart = P1
+mdl:PivotTo(CFrame.new(0, 50, 0))
+check(near(P1.Position, Vector3.new(0, 50, 0)) and near(P2.Position, Vector3.new(3, 50, 0)), "Model:PivotTo moves a welded model once, rigidly")
 local ok = pcall(function() m.Active = false end)
 check(not ok, "Active is read-only")
 `);

@@ -402,7 +402,10 @@ defineClass('Model', 'Instance', {
     PivotTo(self, cf) {
       if (!(cf instanceof CF)) throw new Error('Unable to cast value to CFrame');
       const delta = cf.mul(modelPivot(self).inverse());
-      for (const p of partsOf(self)) self.dm.set(p, 'CFrame', delta.mul(p.props.CFrame));
+      // Every target first: setting one part's CFrame moves its whole assembly (web/assembly.js), so a
+      // part read after another was set would be moved twice.
+      const targets = partsOf(self).map(p => [p, delta.mul(p.props.CFrame)]);
+      for (const [p, t] of targets) self.dm.set(p, 'CFrame', t);
       return [];
     },
   },

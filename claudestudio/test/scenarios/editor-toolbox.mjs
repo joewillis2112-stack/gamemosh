@@ -95,6 +95,8 @@ export default async function (t) {
   check(await E(n => !window.editor.dm.workspace.children.some(c => c.props.Name === n), ins.name), 'undo removes it');
   await E(() => window.editor.commands.run('redo'));
   check((await loaded(ins.name)).ok, 'redo puts it back, loaded');
+  // (A few frames more: the reloaded model's textures and its shadow settle before the shot.)
+  await t.page.waitForTimeout(300); await E(() => window.editor.frames(10));
   if (!phone) await t.golden('editor-toolbox', { text: true });
 
   // A second copy; deleting the first leaves the second's textures whole (they're shared).
@@ -126,10 +128,11 @@ export default async function (t) {
   const ROAD = 'kenney/city-builder/road-straight';
   await E(names => { const ed = window.editor; ed.commands.run('delete', { items: ed.dm.workspace.children.filter(c => names.includes(c.props.Name)) }); }, [ins.name, kname]);
   await search('road straight');
+  // What the camera's ray meets (Insert's own rule): the surface the road must sit its lift above.
+  const hit = await E(() => { const ed = window.editor, v = ed.commands.view(), h = ed.dm.raycast(v.origin, new ed.V3(v.dir.x * 64, v.dir.y * 64, v.dir.z * 64)); return h.length ? { y: h[1].y, ny: h[2].y, what: h[0].props.Name } : null; });
   await tap(`#toolbox [data-item="${ROAD}"]`);
-  const road = await E(id => { const ed = window.editor, p = ed.commands.selection.items[0], it = ed.toolbox.items.find(i => i.id === id); return { lift: it.lift, bottom: p.props.CFrame.y - p.props.Size.y / 2, x: p.props.CFrame.x, z: p.props.CFrame.z, name: p.props.Name }; }, ROAD);
-  const under = await E(r => Math.max(...window.editor.dm.workspace.children.filter(c => c.props.Name !== r.name && c.props.Size && c.props.CFrame && Math.abs(c.props.CFrame.x - r.x) <= c.props.Size.x / 2 && Math.abs(c.props.CFrame.z - r.z) <= c.props.Size.z / 2).map(c => c.props.CFrame.y + c.props.Size.y / 2).filter(y => y <= r.bottom + 0.05)), road);
-  check(road.lift > 0 && Math.abs(road.bottom - under - road.lift) < 1e-6, `a road tile sits its lift (${road.lift}) above what it's on (${(road.bottom - under).toFixed(3)})`);
+  const road = await E(id => { const ed = window.editor, p = ed.commands.selection.items[0], it = ed.toolbox.items.find(i => i.id === id); return { lift: it.lift, bottom: p.props.CFrame.y - p.props.Size.y / 2, name: p.props.Name }; }, ROAD);
+  check(hit && hit.ny > 0.99 && road.lift > 0 && Math.abs(road.bottom - hit.y - road.lift) < 1e-6, `a road tile sits its lift (${road.lift}) above the surface the view meets (${hit && hit.what}: ${hit && (road.bottom - hit.y).toFixed(3)})`);
   check((await loaded(road.name)).ok, 'and loads');
 
   // Closing: Escape in the search box, the ×.
