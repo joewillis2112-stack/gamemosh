@@ -18,6 +18,19 @@ const srv = serve();
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--js-flags=--expose-gc', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 720 } });
 const page = await ctx.newPage();
+// The Toolbox's CDNs, offline and fixed: Poly Haven's and Kenney's files from test/fixtures/library
+// (any resolution asked for is served by the 1k files, so a tier's request is still seen); anything
+// not in the fixtures is a 404 (and fails the run).
+const FIX = new URL('../test/fixtures/library/', import.meta.url).pathname;
+const fixture = (route, file) => file && fs.existsSync(file) ? route.fulfill({ path: file, headers: { 'access-control-allow-origin': '*' } }) : route.fulfill({ status: 404, body: 'not a fixture' });
+await ctx.route('https://dl.polyhaven.org/**', route => {
+  const m = /\/Models\/gltf\/\d+k\/([^/]+)\/(.+)$/.exec(decodeURIComponent(new URL(route.request().url()).pathname));
+  return fixture(route, m && path.join(FIX, 'polyhaven', m[1], m[2].replace(/_\d+k(\.\w+)$/, '_1k$1')));
+});
+await ctx.route('https://cdn.jsdelivr.net/**', route => {
+  const m = /\/gh\/KenneyNL\/Starter-Kit-([^@/]+)@[0-9a-f]{40}\/(.+)$/.exec(decodeURIComponent(new URL(route.request().url()).pathname));
+  return fixture(route, m && path.join(FIX, 'kenney', m[1].toLowerCase(), /\/Textures\//.test(m[2]) ? 'Textures' : '', path.basename(m[2]))); // a kit's models, and their shared Textures/
+});
 const logs = [];
 page.on('console', m => logs.push(m.type() + ' ' + m.text()));
 page.on('pageerror', e => logs.push('pageerror ' + e.message));

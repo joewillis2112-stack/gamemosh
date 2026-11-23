@@ -15,7 +15,7 @@ const url = q.get('asset');
 const targetHeight = parseFloat(q.get('height') || '5'); // studs
 const animName = q.get('anim') || '';
 const animT = parseFloat(q.get('t') || '0'); // 0..1 through the clip
-const W = 512, H = 512;
+const W = +q.get('px') || 512, H = W; // ?px: a smaller render (the library gate's sheets and thumbnails)
 
 const canvas = document.getElementById('c');
 canvas.width = W; canvas.height = H;
@@ -28,15 +28,19 @@ cam.fov = 0.6; cam.minZ = 0.05; cam.maxZ = 3000;
 scene.activeCamera = cam;
 R.attachCamera(cam);
 
-async function main() {
+// One asset: loaded into the scene, measured, rendered; its result, and a dispose that removes it
+// (so one page can gate many assets: window.turntable, ?batch).
+async function run(url) {
   await R.ready;
   const cut = url.lastIndexOf('/') + 1;
-  const res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene);
+  const res = await SceneLoader.LoadAssetContainerAsync(url.slice(0, cut), url.slice(cut), scene);
+  res.addAllToScene();
   const root = res.meshes[0];
   // Rest pose, recorded once: clips only key some channels, so every pose
   // change starts from rest (a clip must never inherit the last clip's pose).
   res.animationGroups.forEach(g => g.stop());
-  const posed = res.transformNodes.concat(res.meshes);
+  // (Not the root: the normalisation below scales and places it, and a return to rest must keep that.)
+  const posed = res.transformNodes.concat(res.meshes).filter(n => n !== root);
   const rest = posed.map(n => [n.position.clone(), n.rotationQuaternion ? n.rotationQuaternion.clone() : null, n.rotation.clone(), n.scaling.clone()]);
   const toRest = () => {
     res.animationGroups.forEach(g => g.stop());
@@ -60,7 +64,8 @@ async function main() {
   root.computeWorldMatrix(true);
   let { min, max } = root.getHierarchyBoundingVectors(true);
   const rawSize = max.subtract(min);
-  const s = targetHeight / rawSize.y;
+  // ?meters: a glTF at its own size (glTF is in metres; 1 stud = 0.28 m), as a library model is placed.
+  const s = q.get('meters') ? 1 / 0.28 : targetHeight / rawSize.y;
   root.scaling.scaleInPlace(s);
   root.computeWorldMatrix(true);
   ({ min, max } = root.getHierarchyBoundingVectors(true));
@@ -114,9 +119,9 @@ async function main() {
 
   // Five views. glTF characters face +Z.
   const h = max.y - min.y, w = Math.max(max.x - min.x, max.z - min.z, h * 0.6);
-  const radius = Math.max(h, w) * 1.9 / (+q.get('zoom') || 1);
+  const radius = Math.max(h, w) * 2.4 / (+q.get('zoom') || 1); // with room for the near side bulging towards the lens
+  cam.target = new Vector3(0, h / 2, 0); // first: setting an ArcRotateCamera's target recomputes its radius from where it is
   cam.radius = radius;
-  cam.target = new Vector3(0, h / 2, 0);
   const views = [
     ['front', Math.PI / 2, Math.PI / 2.15],
     ['side (its left, from +X)', 0, Math.PI / 2.15],
@@ -131,6 +136,7 @@ async function main() {
     for (let i = 0; i < 6; i++) views.push([`${strip} ${i}/6`, q.get('stripalpha') !== null ? +q.get('stripalpha') : Math.PI / 3, Math.PI / 2.3, sc, i / 6]);
   }
   if (q.get('extra')) views.push(['below-angled', Math.PI / 2 + 0.5, Math.PI * 0.72], ['three-quarter', Math.PI / 4, Math.PI / 2.6]);
+  if (q.get('thumb')) views.push(['three-quarter', Math.PI / 4, Math.PI / 2.6]); // a library thumbnail
   const shots = [];
   for (const [name, alpha, beta, sclip, st] of views) {
     cam.alpha = alpha; cam.beta = beta;
@@ -159,9 +165,11 @@ async function main() {
     `raw ${metrics.rawSize.join(' x ')}  scale ${metrics.scale}`, `meshes ${metrics.meshes}  tris ${metrics.triangles}`,
     ...metrics.inwardFaces.map(([n, a, t]) => `  ${n}: ${a}/${t} faces point inward`), 'loop pop (0 = seamless): ' + Object.entries(loopPop).filter(([k]) => /idle|walk|sprint/.test(k)).map(([k, v]) => k + ' ' + v).join(', ')];
   let y = H + 30; const tx = shots.length > 5 ? 0 : W * 2; if (shots.length > 5) y = H * 2 + 30;
-  for (const l of lines) { for (const part of wrap(l, 58)) { g.fillText(part, (shots.length > 5 ? W * 2 : W * 2) + 12, y); y += 20; } }
-  window.result = { metrics, sheet: sheet.toDataURL('image/png'), views: shots };
+  for (const l of lines) { for (const part of wrap(l, 58)) { g.fillText(part, (shots.length > 5 ? 0 : W * 2) + 12, y); y += 20; } }
+  return { result: { metrics, sheet: sheet.toDataURL('image/png'), views: shots }, dispose: () => res.dispose() };
 }
 function r(x) { return Math.round(x * 1000) / 1000; }
 function wrap(s, n) { const o = []; while (s.length > n) { o.push(s.slice(0, n)); s = '  ' + s.slice(n); } o.push(s); return o; }
-main().catch(e => { window.result = { error: String(e && e.stack || e) }; });
+const fail = e => ({ error: String(e && e.stack || e) });
+if (q.get('batch')) window.turntable = async u => { try { const { result, dispose } = await run(u); dispose(); return result; } catch (e) { return fail(e); } };
+else run(url).then(o => { window.result = o.result; }, e => { window.result = fail(e); });

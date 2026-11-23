@@ -20,6 +20,11 @@ import { cubeProjectUVs } from './cubeuv.js';
 import { operate, faceColors } from '../modeling/csg.js';
 
 const STUD = 0.28; // metres (Roblox's conversion); glTF files are in metres
+// Poly Haven's models come at several texture resolutions, each its own file (/gltf/1k/ID/ID_1k.gltf).
+// A MeshPart naming one loads it at the fidelity tier's: 1k on low and phone, 2k on high, 4k on ultra.
+const POLYHAVEN = /^(https:\/\/dl\.polyhaven\.org\/file\/ph-assets\/Models\/gltf\/)(\d+k)\/([^/]+)\/\3_\2\.gltf$/;
+export const TEXTURE_RES = { low: '1k', phone: '1k', high: '2k', ultra: '4k' };
+export function tierUrl(url, res) { const m = POLYHAVEN.exec(url || ''); return m ? `${m[1]}${res}/${m[3]}/${m[3]}_${res}.gltf` : url; }
 
 const DEG = Math.PI / 180;
 
@@ -84,13 +89,14 @@ function innerPoint(pos) {
 export function faceOfTriangle(inst, mesh, faceId) { return triangleFace(inst, mesh.getVerticesData('position'), mesh.getIndices(), faceId, isA(inst.ClassName, 'PartOperation') ? mesh.getVerticesData('normal') : null); }
 
 export class World {
-  constructor(scene, dm, shadows) {
+  constructor(scene, dm, shadows, { quality = 'high' } = {}) {
     this.scene = scene;
+    this.texRes = TEXTURE_RES[quality] || '1k';
     this.dm = dm;
     this.shadows = shadows;
     this.parts = new Map(); // Instance -> { mesh, mat, agg, shape, decals, meshPart }
     this.meshCache = new Map(); // URL -> Promise of { container, size, center } (metres)
-    dm.hooks.loadMesh = url => this.meshAsset(url).then(a => ({ size: a.size.map(v => v / STUD) }));
+    dm.hooks.loadMesh = url => this.meshAsset(tierUrl(url, this.texRes)).then(a => ({ size: a.size.map(v => v / STUD) }));
     dm.hooks.csg = (op, part, parts, opts) => operate(dm, op, part, parts, opts); // BasePart:UnionAsync and the rest (modeling/csg.js)
     dm.watch((inst, key) => this.changed(inst, key));
     for (const d of dm.workspace.children) this.added(d);
@@ -317,6 +323,18 @@ export class World {
     })());
     return this.meshCache.get(url);
   }
+  /** A new fidelity tier: MeshParts of a multi-resolution model reload at its texture resolution
+   *  (and the other resolutions' files are let go). */
+  setTier(name) {
+    const res = TEXTURE_RES[name] || '1k';
+    if (res === this.texRes) return;
+    this.texRes = res;
+    for (const inst of [...this.parts.keys()]) if (POLYHAVEN.test(inst.props.MeshId || '') && !inst.props.MeshData) this.build(inst);
+    for (const [url, p] of this.meshCache) {
+      const m = POLYHAVEN.exec(url);
+      if (m && m[2] !== res) { this.meshCache.delete(url); p.then(a => a.container.dispose(), () => {}); }
+    }
+  }
   buildMeshPart(inst) {
     this.removed(inst);
     const holder = new Mesh(inst.Name, this.scene);
@@ -327,7 +345,7 @@ export class World {
     this.parts.set(inst, e);
     this.apply(inst, e);
     if (inst.props.MeshData) return this.attachEditable(inst, e);
-    const url = inst.props.MeshId, token = e.meshPart.token;
+    const url = tierUrl(inst.props.MeshId, this.texRes), token = e.meshPart.token;
     if (!url) return;
     this.meshAsset(url).then(a => { if (this.parts.get(inst) === e && e.meshPart.token === token) this.attachMesh(inst, e, a); })
       .catch(err => console.warn(`MeshPart ${inst.Name}: can't load ${url}: ${err && err.message || err}`));

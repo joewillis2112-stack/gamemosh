@@ -486,6 +486,17 @@ A working log for this repo. It records common themes, what has been learned, mi
   - An SVG drawn as an image can't use the page's web fonts, so exported text must be outlines (or embedded fonts).
   - Checking outlines against the browser's raster can't show exactness, because tracing copies that raster. Check geometry instead: every anchor on the glyph's own edges.
 
+- [Studio] **The Toolbox library and its gate (2026-11-23).**
+  - Setting an ArcRotateCamera's `target` recomputes its radius from where the camera is, so set the target first, then the radius. Framing done the other way round cut models off.
+  - A rest-pose reset must leave out the glTF `__root__`: normalisation (scale to studs, centre, base on the ground) lives on it, and resetting it undid that.
+  - The HDR sky costs about 9 s per page load in SwiftShader (parse and prefilter), three quarters of each turntable render. One page now renders many assets (`window.turntable`, `?batch`), pixel-identical to a fresh page: 12 s down to 4 s per model.
+  - A glTF's external files fail quietly. Every Kenney kit model points at a shared `Textures/colormap.png` that the first fetch never downloaded; Babylon drew them untextured with no error. The gate now refuses any asset whose page saw a 4xx or a failed request, and fetch follows every external URI.
+  - A dead browser is not the asset's failure. After the container restarted mid-run, the gate wrote "page closed" errors for 362 models it never rendered. It now relaunches and retries, and stops without recording if that dies too.
+  - Verify downloads. One Poly Haven model (cannon_01) is served with a `.bin` that doesn't match Poly Haven's own API (1.14 MB against 1.71 MB, md5 differs): truncated in our cache and unloadable. Fetch checks the API's md5 and leaves out a model that can't match.
+  - Kenney's kits aren't in metres: each kit has its own unit (a city tile is 1, the platformer character 1.1 tall). Real size comes from a studs-per-unit per kit, measured from the gate.
+  - jsDelivr `@main` follows the repository, so a placed model could change under a game. Pin to a commit. `api.github.com` is refused through this proxy, but `git ls-remote` works.
+  - Check `pgrep` before starting a background job again. A `nohup … &` at the end of a command whose earlier step failed still started, and two gates ran over the same files.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
