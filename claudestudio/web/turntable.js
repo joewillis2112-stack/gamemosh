@@ -16,11 +16,15 @@ const targetHeight = parseFloat(q.get('height') || '5'); // studs
 const animName = q.get('anim') || '';
 const animT = parseFloat(q.get('t') || '0'); // 0..1 through the clip
 const W = +q.get('px') || 512, H = W; // ?px: a smaller render (the library gate's sheets and thumbnails)
+const LIFT = +q.get('lift') || 0; // studs: how far the library raises a model with a flat base (tools/library.mjs)
 
 const canvas = document.getElementById('c');
 canvas.width = W; canvas.height = H;
 const R = createRenderer(canvas, { skyUrl: q.get('nosky') ? null : (q.get('sky') || '../assets/sky/sky_1k.hdr'), preserveDrawingBuffer: true, post: !q.get('nopost'), skybox: !q.get('noskybox') });
 const { scene, engine, shadows } = R;
+// The library gate (?batch): no distance fog, which is a game's setting, not the asset's (a 100-stud
+// ship framed from 270 studs was a pale ghost).
+if (q.get('batch')) scene.fogMode = 0;
 const ground = groundDisc(scene, shadows, 20);
 
 const cam = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 2.15, 12, new Vector3(0, 2.5, 0), scene);
@@ -116,6 +120,24 @@ async function run(url) {
   toRest();
   if (clip) pose(clip, animT);
   applyHeld();
+
+  // A flat base: how much of the footprint is upward-facing surface at the very bottom (a road
+  // tile's asphalt). Set flush on a floor, that surface z-fights with it, so the library places
+  // such a model a hair above (?lift) and the gate draws it there.
+  let flat = 0;
+  for (const m of meshes) {
+    const pos = m.getVerticesData(VertexBuffer.PositionKind), nrm = m.getVerticesData(VertexBuffer.NormalKind), idx = m.getIndices();
+    if (!pos || !nrm || !idx) continue;
+    const W = m.computeWorldMatrix(true), P = i => Vector3.TransformCoordinates(Vector3.FromArray(pos, i * 3), W), N = i => Vector3.TransformNormal(Vector3.FromArray(nrm, i * 3), W).normalize();
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = P(idx[t]), b = P(idx[t + 1]), c = P(idx[t + 2]);
+      if (Math.max(a.y, b.y, c.y) > min.y + 0.002) continue;
+      if (N(idx[t]).add(N(idx[t + 1])).add(N(idx[t + 2])).normalize().y < 0.9) continue;
+      flat += Math.abs((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)) / 2;
+    }
+  }
+  metrics.flatBase = r(flat / Math.max(1e-6, (max.x - min.x) * (max.z - min.z)));
+  if (LIFT && metrics.flatBase > 0.05) { root.position.y += LIFT; root.computeWorldMatrix(true); }
 
   // Five views. glTF characters face +Z.
   const h = max.y - min.y, w = Math.max(max.x - min.x, max.z - min.z, h * 0.6);

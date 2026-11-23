@@ -25,5 +25,11 @@ const ch = items.find(i => i.id === 'kenney/3d-platformer/character'), tile = it
 check(ch && Math.abs(ch.size[1] - 4.4) < 0.1, `the Kenney platformer character is ${ch && ch.size[1]} studs tall (4.4: 1.1 units at 4 studs)`);
 check(tile && Math.abs(tile.size[0] - 24) < 0.1, `a Kenney city tile is ${tile && tile.size[0]} studs wide (24)`);
 
+// Put right in the catalog: a file 10x too big (by Poly Haven's own dimensions); road tiles lifted.
+const shelves = items.find(i => i.id === 'polyhaven/steel_frame_shelves_01');
+check(shelves && shelves.size[1] > 6 && shelves.size[1] < 9, `steel_frame_shelves_01 at Poly Haven's size (${shelves && shelves.size[1]} studs tall; its file says 76)`);
+check(items.filter(i => /city-builder\/road-/.test(i.id)).every(i => i.lift > 0) && !items.find(i => i.id === 'polyhaven/Barrel_01').lift, 'road tiles carry a lift; a barrel does not');
+check(rejects.length > 0 && items.every(i => !/^polyhaven\/modular_/.test(i.id)), `the ${rejects.length} refused on review aren't listed (no modular kits)`);
+
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('PASS');

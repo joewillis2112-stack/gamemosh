@@ -55,8 +55,9 @@ const BUILTIN = {
   select({ items = [], add = false }) { add ? items.forEach(i => this.selection.toggle(i)) : this.selection.set(items); return this.selection.items; },
 
   // Insert an instance. A part goes where the camera looks: on the first surface
-  // within 64 studs, else 16 studs ahead; its bottom on the surface; snapped to the grid.
-  insert({ className = 'Part', parent = null, props = {} }) {
+  // within 64 studs, else 16 studs ahead; its bottom on the surface (plus `offset` studs out
+  // from it: the Toolbox's lift for a model with a flat base); snapped to the grid.
+  insert({ className = 'Part', parent = null, props = {}, offset = 0 }) {
     const where = parent || this.dm.workspace;
     return this.history.run('Insert ' + className, tx => {
       const extra = {};
@@ -71,7 +72,7 @@ const BUILTIN = {
           if (hit.length) {
             // Against the face it hits: out along the normal by the new part's half-extent that way;
             // snapped to the grid across the face, not along the normal (so it sits flush).
-            const at = hit[1], n = hit[2], out = Math.abs(n.x) * size.x / 2 + Math.abs(n.y) * size.y / 2 + Math.abs(n.z) * size.z / 2;
+            const at = hit[1], n = hit[2], out = Math.abs(n.x) * size.x / 2 + Math.abs(n.y) * size.y / 2 + Math.abs(n.z) * size.z / 2 + offset;
             const q = [at.x + n.x * out, at.y + n.y * out, at.z + n.z * out], nn = [n.x, n.y, n.z];
             p = new V3(...q.map((c, k) => Math.abs(nn[k]) > 0.999 ? c : snap(c, SNAP.move)));
           } else p = new V3(...[v.origin.x + v.dir.x * 16, v.origin.y + v.dir.y * 16, v.origin.z + v.dir.z * 16].map(c => snap(c, SNAP.move)));

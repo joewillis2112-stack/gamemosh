@@ -17,7 +17,8 @@ import { createHash } from 'node:crypto';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const CACHE = path.join(ROOT, '.cache/library'), LIB = path.join(ROOT, 'assets/library');
 const STUD = 0.28; // metres
-const MAX_TRIS = 100000; // heavier Poly Haven models aren't listed (phones)
+const MAX_TRIS = 100000; // heavier models aren't listed (phones); by Poly Haven's count, then the gate's own
+const LIFT = 0.02; // studs: a model whose base is a flat upward surface (a road tile) is placed this far up, or it z-fights with the floor
 // Kenney's kits are in their own units, not metres: studs per unit, so each kit lands at Roblox's
 // scale (a character about 5 studs tall, a city tile 24 studs, a car about 9 x 17 studs). Measured
 // from the gate: platformer character 1.1 units, Mini Arena soldier 0.84, city tiles 1, racing
@@ -134,7 +135,7 @@ async function gate() {
   // asset. A fresh page every 50 assets, and after any failure.
   let n = 0;
   const open = async () => {
-    await page.goto(`http://127.0.0.1:${server.address().port}/web/turntable.html?batch=1&meters=1&thumb=1&px=256`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/web/turntable.html?batch=1&meters=1&thumb=1&px=256&lift=${LIFT}`);
     await page.waitForFunction(() => window.turntable, null, { timeout: 120000 });
     fresh = false;
   };
@@ -178,16 +179,23 @@ async function gate() {
 }
 
 // The gate measures at 1 unit = 1 m; a Kenney kit's units are its own (KENNEY): the factor to studs.
-function unitScale(c) {
+// A Poly Haven file off from Poly Haven's own dimensions by a power of ten (steel_frame_shelves_01
+// is 21 m tall in its file, 2.1 m by the site) is put right.
+function unitScale(c, m = null) {
   const kit = c.source === 'Kenney' && Object.keys(KENNEY).find(k => k.replace('Starter-Kit-', '').toLowerCase() === c.id.split('/')[1]);
-  return kit ? KENNEY[kit] * STUD : 1;
+  if (kit) return KENNEY[kit] * STUD;
+  if (m && c.sizeStuds && Math.max(...c.sizeStuds) > 0) {
+    const got = Math.max(...[0, 1, 2].map(i => m.bbox.max[i] - m.bbox.min[i])), ratio = got / Math.max(...c.sizeStuds);
+    if (ratio > 3 || ratio < 1 / 3) return 10 ** -Math.round(Math.log10(ratio));
+  }
+  return 1;
 }
 // Gate results: the automatic part (it loaded, it has triangles, its base sits on the ground).
 function results() {
   const cands = readJson(candPath, {}), gateDir = path.join(CACHE, 'gate');
   return Object.values(cands).map(c => {
     const base = path.join(gateDir, c.id.replace(/\//g, '__')), g = readJson(base + '.json', null);
-    const m = g && g.metrics, why = !g ? 'not gated' : g.error ? 'error: ' + g.error : !m.triangles ? 'no triangles' : Math.abs(m.groundGap) > 0.01 ? 'off the ground' : null;
+    const m = g && g.metrics, why = !g ? 'not gated' : g.error ? 'error: ' + g.error : !m.triangles ? 'no triangles' : m.triangles > MAX_TRIS ? `${m.triangles} triangles (over ${MAX_TRIS})` : Math.abs(m.groundGap) > 0.01 ? 'off the ground' : null;
     return { c, m, why, thumb: base + '.thumb.jpg', sheet: base + '.sheet.png' };
   });
 }
@@ -199,7 +207,7 @@ async function sheets() {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' }), page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   for (let k = 0; k * 48 < ok.length; k++) {
     const part = ok.slice(k * 48, k * 48 + 48);
-    const cells = part.map(r => `<div><img src="data:image/jpeg;base64,${fs.readFileSync(r.thumb).toString('base64')}"><p>${r.c.id.split('/').slice(1).join('/')}<br>${(r.m.heightStuds * unitScale(r.c)).toFixed(1)} studs, ${r.m.triangles} tris</p></div>`).join('');
+    const cells = part.map(r => `<div><img src="data:image/jpeg;base64,${fs.readFileSync(r.thumb).toString('base64')}"><p>${r.c.id.split('/').slice(1).join('/')}<br>${(r.m.heightStuds * unitScale(r.c, r.m)).toFixed(1)} studs${unitScale(r.c, r.m) !== 1 && r.c.source !== 'Kenney' ? ' (rescaled)' : ''}${r.m.flatBase > 0.05 ? ' (lifted)' : ''}, ${r.m.triangles} tris</p></div>`).join('');
     await page.setContent(`<style>body{margin:0;background:#222;color:#ddd;font:10px sans-serif;display:grid;grid-template-columns:repeat(8,150px)}div{padding:2px}img{width:146px;height:146px;display:block}p{margin:2px 0;height:26px;overflow:hidden}</style>${cells}`);
     await page.screenshot({ path: path.join(out, `review-${k}.png`), fullPage: true });
   }
@@ -210,13 +218,14 @@ async function sheets() {
 function catalog() {
   const rejects = new Set(readJson(path.join(LIB, 'rejects.json'), []).map(r => r.id || r));
   const items = results().filter(r => !r.why && !rejects.has(r.c.id));
+  fs.rmSync(path.join(LIB, 'thumbs'), { recursive: true, force: true }); // only the listed items' (none left from refused ones)
   fs.mkdirSync(path.join(LIB, 'thumbs'), { recursive: true });
   const list = items.map(({ c, m }) => {
     const thumb = 'thumbs/' + c.id.replace(/\//g, '__') + '.jpg';
     fs.copyFileSync(path.join(CACHE, 'gate', c.id.replace(/\//g, '__') + '.thumb.jpg'), path.join(LIB, thumb));
-    const k = unitScale(c);
+    const k = unitScale(c, m);
     const size = [m.bbox.max[0] - m.bbox.min[0], m.bbox.max[1] - m.bbox.min[1], m.bbox.max[2] - m.bbox.min[2]].map(v => Math.max(0.05, +(v * k).toFixed(2))); // a flat model (a floor tile) still gets a thin collider
-    return { id: c.id, name: c.name, source: c.source, categories: c.categories, tags: c.tags, credit: c.credit, license: c.license, page: c.page, size, tris: m.triangles, url: c.urls['1k'] || c.urls.glb, thumb }; // Poly Haven's 1k (runtime/world.js picks the tier's)
+    return { id: c.id, name: c.name, source: c.source, categories: c.categories, tags: c.tags, credit: c.credit, license: c.license, page: c.page, size, ...(m.flatBase > 0.05 ? { lift: LIFT } : {}), tris: m.triangles, url: c.urls['1k'] || c.urls.glb, thumb }; // Poly Haven's 1k (runtime/world.js picks the tier's)
   }).sort((a, b) => a.name.localeCompare(b.name));
   fs.writeFileSync(path.join(LIB, 'catalog.json'), JSON.stringify({ generated: 'tools/library.mjs', items: list }));
   console.log(`catalog: ${list.length} items (${rejects.size} refused on review)`);

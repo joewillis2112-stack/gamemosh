@@ -120,6 +120,16 @@ export default async function (t) {
   const lk = await loaded(kname);
   check(lk.ok && lk.textures >= 1, `a Kenney model loads with its kit's texture (${lk.textures})`);
 
+  // A model with a flat base (a road tile) sits its lift above the surface, so its asphalt doesn't
+  // z-fight with the floor.
+  const ROAD = 'kenney/city-builder/road-straight';
+  await search('road straight');
+  await tap(`#toolbox [data-item="${ROAD}"]`);
+  const road = await E(id => { const ed = window.editor, p = ed.commands.selection.items[0], it = ed.toolbox.items.find(i => i.id === id); return { lift: it.lift, bottom: p.props.CFrame.y - p.props.Size.y / 2, x: p.props.CFrame.x, z: p.props.CFrame.z, name: p.props.Name }; }, ROAD);
+  const under = await E(r => Math.max(...window.editor.dm.workspace.children.filter(c => c.props.Name !== r.name && c.props.Size && c.props.CFrame && Math.abs(c.props.CFrame.x - r.x) <= c.props.Size.x / 2 && Math.abs(c.props.CFrame.z - r.z) <= c.props.Size.z / 2).map(c => c.props.CFrame.y + c.props.Size.y / 2).filter(y => y <= r.bottom + 0.05)), road);
+  check(road.lift > 0 && Math.abs(road.bottom - under - road.lift) < 1e-6, `a road tile sits its lift (${road.lift}) above what it's on (${(road.bottom - under).toFixed(3)})`);
+  check((await loaded(road.name)).ok, 'and loads');
+
   // Closing: Escape in the search box, the ×.
   await t.page.focus('#toolbox input'); await t.page.keyboard.press('Escape');
   check(await E(() => document.getElementById('toolbox').hidden && !document.querySelector('#ui [data-act=toolbox]').classList.contains('on')), 'Escape in the search closes it (the button goes off)');

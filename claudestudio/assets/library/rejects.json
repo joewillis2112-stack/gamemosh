@@ -1,0 +1,130 @@
+[
+ {
+  "id": "polyhaven/modular_airduct_circular_01",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_airduct_rectangular_01",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_chainlink_fence",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_electric_cables",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_fire_escape",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_fort_01",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_industrial_pipes_01",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_metal_gutter",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_pipes",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_pipes_plastic_01",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_street_seating",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/modular_wooden_pier",
+  "why": "a modular kit: its pieces laid out side by side, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/anthurium_botany_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/calathea_orbifolia_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/chemistry_set",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/dandelion_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/crystalline_iceplant",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/flower_empodium",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/flower_gazania",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/flower_ursinia",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/industrial_caged_sconce",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/nettle_plant",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/mounted_fluorescent_lights",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/pachira_aquatica_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/periwinkle_plant",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/shrub_02",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/shrub_03",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/shrub_04",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/shrub_sorrel_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/weed_plant_02",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "polyhaven/wooden_barrels_01",
+  "why": "variants laid out in a row, not one model (to split into separate items)"
+ },
+ {
+  "id": "kenney/basic-scene/floor",
+  "why": "a single quad facing down: invisible from above"
+ }
+]
