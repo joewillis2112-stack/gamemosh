@@ -89,6 +89,37 @@ for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 900 
   check(!pl.error && pl.skinned === 1 && pl.joints === 'arm-left arm-right head leg-left leg-right torso', `${label}: "Play as the rigged character" opens the game as it (${pl.error || pl.skinned + ' skinned body; parts ' + pl.joints})`);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `build/maker/play-rigged-${label}.png` });
+  // The body panel (runtime/bodypanel.js): the preview shows the studio body; a preset and a slider
+  // remake it; "Play as this body" opens the game as an R15 character of that shape.
+  await page.goto(`http://127.0.0.1:${srv.port}/web/maker.html`);
+  await ready(1);
+  const bodyReady = n => page.waitForFunction(n => window.maker.body && window.maker.body.ready >= n, n, { timeout: 240000 });
+  await bodyReady(1);
+  const b0 = await page.evaluate(() => ({ h: window.maker.body.height, parts: window.maker.body.rig && window.maker.body.rig.size, on: document.querySelector('#bodyPanel [data-preset=studio]').classList.contains('on') }));
+  check(b0.parts === 16 && b0.on && b0.h > 5 && b0.h < 6.5, `${label}: the body panel shows the studio body (${b0.parts} parts, ${b0.h && b0.h.toFixed(2)} studs)`);
+  await page.evaluate(() => document.getElementById('bodyPanel').scrollIntoView({ block: 'center' }));
+  const tapOrClick = sel => opts.hasTouch ? page.tap(sel) : page.click(sel);
+  let n = await page.evaluate(() => window.maker.body.ready);
+  await tapOrClick('#bodyPanel [data-preset=chibi]');
+  await bodyReady(n + 1);
+  const b1 = await page.evaluate(() => ({ h: window.maker.body.height, on: document.querySelector('#bodyPanel [data-preset=chibi]').classList.contains('on'), legs: window.maker.body.params.legLength }));
+  check(b1.on && b1.h < b0.h - 0.5 && b1.legs === 1.2, `${label}: the Chibi preset remakes it (${b1.h.toFixed(2)} studs)`);
+  n = await page.evaluate(() => window.maker.body.ready);
+  await page.evaluate(() => { const i = document.querySelector('#bodyPanel [data-p=legLength]'); i.value = 2.2; i.dispatchEvent(new Event('input', { bubbles: true })); });
+  await bodyReady(n + 1);
+  const b2 = await page.evaluate(() => ({ h: window.maker.body.height, legs: window.maker.body.params.legLength, chibiOn: document.querySelector('#bodyPanel [data-preset=chibi]').classList.contains('on'), shown: document.querySelector('#bodyPanel [data-v=legLength]').textContent }));
+  check(Math.abs(b2.h - b1.h - 1) < 1e-6 && b2.legs === 2.2 && !b2.chibiOn && b2.shown === '2.20', `${label}: the Legs slider lengthens the legs by what it says (${b1.h.toFixed(2)} -> ${b2.h.toFixed(2)} studs; the preset no longer marked)`);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `build/maker/maker-body-${label}.png` });
+  await tapOrClick('#bodyPanel [data-act=play]');
+  await page.waitForFunction(() => window.studio && (window.studio.ready || window.studio.error), null, { timeout: 240000 });
+  const pb = await page.evaluate(() => {
+    const s = window.studio; if (s.error) return { error: s.error };
+    const ch = s.dm.service('Players').children[0].props.Character, kid = n => ch.children.find(c => c.props.Name === n), hum = ch.children.find(c => c.ClassName === 'Humanoid');
+    return { rig: hum.props.RigType, ratio: kid('LeftUpperLeg').props.Size.y / kid('Head').props.Size.y };
+  });
+  // The shape went over: the upper leg (half the legs, 1.1) to the head (chibi's 2.0).
+  check(!pb.error && pb.rig === 'R15' && Math.abs(pb.ratio - 1.1 / 2.0) < 1e-3, `${label}: "Play as this body" opens the game as that R15 body (${pb.error || pb.rig + ', upper leg / head ' + pb.ratio.toFixed(3)})`);
   check(!errors.length, `${label}: no page errors${errors.length ? ' (' + errors.slice(0, 3).join(' | ') + ')' : ''}`);
   await ctx.close();
 }

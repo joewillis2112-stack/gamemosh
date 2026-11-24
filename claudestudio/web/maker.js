@@ -12,12 +12,15 @@ import { parseGlb } from './runtime/glb.js';
 import { applySkin } from './runtime/skin.js';
 import { readMeshGlb, rigFromKenney, orientMesh, fitMesh, writeRiggedGlb, vertexColorsFromTexture } from './runtime/rigmesh.js';
 
+import { BodyPanel } from './runtime/bodypanel.js';
 const MODEL = '../assets/characters/character-a.glb', TEXTURE = '../assets/characters/Textures/texture-a.png';
 const SAMPLES = ['male-adventurer', 'female-person', 'robot', 'zombie', 'soldier'].map(n => `../test/fixtures/characters/${n}.png`);
 const PARTS = { head: '#ff5d5d', torso: '#5fd18b', armLeft: '#5aa9ff', armRight: '#f0b35a', legLeft: '#c77dff', legRight: '#3dd6d0' };
 const MAX_SIDE = 512; // references are scaled down to this for speed
 const state = { img: null, parts: null, headPx: 16, skinUrl: null, busy: false, mesh: null, rigged: null };
 window.maker = state;
+// The body panel: an R15 body's shape from presets and sliders (runtime/bodypanel.js).
+state.body = new BodyPanel(document.getElementById('bodyPanel'), document.getElementById('bodyView'));
 
 const $ = id => document.getElementById(id);
 const refCanvas = $('ref'), status = $('status');

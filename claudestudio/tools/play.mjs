@@ -42,6 +42,7 @@ const q = new URLSearchParams({ test: '1', ...(quality === 'auto' ? {} : { quali
 if (opt('place')) q.set('place', '../' + opt('place'));
 if (opt('skin')) q.set('skin', '../' + opt('skin'));
 if (opt('character')) q.set('character', '../' + opt('character'));
+if (opt('body')) q.set('body', opt('body')); // a generated R15 body: a preset name or JSON (runtime/bodygen.js)
 async function load(extra = {}) {
   const p = new URLSearchParams(q);
   for (const [k, v] of Object.entries(extra)) p.set(k, v);

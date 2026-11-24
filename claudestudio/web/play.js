@@ -20,6 +20,7 @@ import { Character } from './runtime/character.js';
 import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
+import { bodyGlb, BODY_PRESETS } from './runtime/bodygen.js';
 import { Rigs } from './runtime/rigs.js';
 import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
@@ -69,6 +70,13 @@ async function main() {
     const d = sessionStorage.getItem('studio.character');
     if (!d) throw new Error('no character was handed over');
     charSrc = new File([await (await fetch(d)).blob()], 'character.glb', { type: 'model/gltf-binary' });
+  }
+  // ?body=<preset> or ?body=<JSON of parameters>: an R15 body generated here (runtime/bodygen.js), its
+  // shape adjustable, playing Roblox's R15 clips.
+  if (q.get('body')) {
+    // (session: the parameters the character maker's body panel handed over.)
+    const b = q.get('body') === 'session' ? sessionStorage.getItem('studio.body') || '{}' : q.get('body'), params = b.trim().startsWith('{') ? JSON.parse(b) : (BODY_PRESETS[b] || BODY_PRESETS.studio);
+    charSrc = new File([bodyGlb(params)], 'body.glb', { type: 'model/gltf-binary' }); // a File: the loader reads its name
   }
   const player = await Character.load(scene, charSrc, R.shadows, Vector3.Zero());
   // A skin from the character maker: a URL, or 'session' for the one it just handed over.

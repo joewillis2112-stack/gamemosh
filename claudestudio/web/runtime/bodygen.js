@@ -10,6 +10,7 @@
 // or ellipsoid-like form), tapered. RigAttachments sit at the parts' ends from the same numbers, so
 // every body plays the same animations. Pure geometry: no Babylon (tools and the runtime share it).
 import { CF } from '../cframe.js';
+import { glbBytes } from './glb.js';
 
 /** R15's joints: name, Part0, Part1, the RigAttachment both carry. */
 export const R15_JOINTS = [
@@ -135,4 +136,27 @@ export function partMesh(size, { roundness = 0.5, taper = 0, segments = 6, exten
     if (n[0] * Nn[a] + n[1] * Nn[a + 1] + n[2] * Nn[a + 2] < 0) [indices[t + 1], indices[t + 2]] = [indices[t + 2], indices[t + 1]];
   }
   return { positions, normals, uvs, indices };
+}
+
+const flat = c => c.m.map(x => +x.toFixed(6));
+/** The body's nodes for a .glb: a node per part (named as the part, parented as the joints), the root
+ *  turned to face +Z as glTF characters do, each part's joint in its extras (runtime/r15clips.js reads
+ *  them: the part's size, its joint, C0 and C1). */
+export function bodyNodes(b) {
+  const index = new Map(R15_PARTS.map((n, i) => [n, i]));
+  return R15_PARTS.map(n => {
+    const j = R15_JOINTS.find(j => j[2] === n), local = j ? b.parts[j[1]].rest.inverse().mul(b.parts[n].rest) : b.parts[n].rest;
+    const [x, y, z, w] = local.toQuat(), jt = j && b.joints.find(x => x.part1 === n);
+    return {
+      name: n, translation: j ? [local.x, local.y, local.z] : [0, b.hrpHeight, 0], rotation: j ? [x, y, z, w] : [0, 1, 0, 0],
+      children: R15_JOINTS.filter(k => k[1] === n).map(k => index.get(k[2])),
+      extras: { r15: { part: n, size: b.parts[n].size, ...(jt ? { joint: jt.name, c0: flat(jt.c0), c1: flat(jt.c1) } : {}) } },
+      mesh: b.parts[n].shape ? partMesh(b.parts[n].size, { ...b.parts[n].shape, segments: b.params.segments }) : null,
+    };
+  });
+}
+/** A body as .glb bytes (what Character.load takes as a Blob), from parameters over the studio preset. */
+export function bodyGlb(params = {}, opts = {}) {
+  const b = makeBody(params);
+  return glbBytes(bodyNodes(b), [R15_PARTS.indexOf('HumanoidRootPart')], opts);
 }

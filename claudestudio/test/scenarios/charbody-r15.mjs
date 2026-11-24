@@ -1,4 +1,4 @@
-// An R15 character (run with --character assets/characters/r15/studio.glb, a generated body:
+// An R15 character (run with --character assets/characters/r15/studio.glb, or --body <preset>: a generated body:
 // runtime/bodygen.js; Roblox's own R15 clips: runtime/r15clips.js), as scripts see it:
 // - Humanoid.RigType is R15; R15's 15 parts beside the HumanoidRootPart, each Motor6D in its Part1,
 //   named and joined as R15's (Root, Waist, Neck, Shoulders, Elbows, Wrists, Hips, Knees, Ankles);
@@ -36,15 +36,18 @@ export default async function (t) {
   const s0 = await state();
   check(s0.off < 1e-3, `standing: each part is where its drawn part is (worst ${s0.off.toExponential(1)} studs)`);
   check(s0.worst < 1e-3, `every joint holds (worst ${s0.worst.toExponential(1)})`);
-  // With no clip playing, the drawn layout is exactly the body's own rest pose
-  // (assets/characters/r15/studio.json, at the drawn scale): a joint placing its node wrongly (not about
-  // its attachment) breaks it.
+  // With no clip playing, the drawn layout is exactly the body's own rest pose (from its joints' C0
+  // and C1, at the drawn scale): a joint placing its node wrongly breaks it.
   const lay = await t.eval(async () => {
-    const s = window.studio, body = await (await fetch('../assets/characters/r15/studio.json')).json(), k = s.player.modelScale;
+    const s = window.studio, k = s.player.modelScale, rig = s.player.rig;
     const saved = s.player.anim.layers; s.player.anim.layers = []; s.player.anim.update(0); s.players.body.update(); s.player.anim.layers = saved;
     const ch = s.dm.service('Players').children[0].props.Character, kid = n => ch.children.find(c => c.props.Name === n), H = kid('HumanoidRootPart').props.CFrame;
     let worst = 0, which = '';
-    for (const [n, p] of Object.entries(body.parts)) { if (n === 'HumanoidRootPart') continue; const r = H.inverse().mul(kid(n).props.CFrame), d = Math.hypot(r.x - p.rest[0] * k, r.y - p.rest[1] * k, r.z - p.rest[2] * k); if (d > worst) { worst = d; which = n; } }
+    // The body's rest pose from its own joints (the rig's C0 and C1, at the drawn scale), from the root.
+    const sc = c => new c.constructor([c.x * k, c.y * k, c.z * k, ...c.m.slice(3)]), rest = { HumanoidRootPart: new H.constructor() };
+    const order = ['LowerTorso', 'UpperTorso', 'Head', 'LeftUpperArm', 'LeftLowerArm', 'LeftHand', 'RightUpperArm', 'RightLowerArm', 'RightHand', 'LeftUpperLeg', 'LeftLowerLeg', 'LeftFoot', 'RightUpperLeg', 'RightLowerLeg', 'RightFoot'];
+    for (const n of order) { const part = rig.get(n), parent = kid(n).children.find(c => c.ClassName === 'Motor6D').props.Part0.props.Name; rest[n] = rest[parent].mul(sc(part.c0)).mul(sc(part.c1).inverse()); }
+    for (const n of order) { const r = H.inverse().mul(kid(n).props.CFrame), p = rest[n], d = Math.hypot(r.x - p.x, r.y - p.y, r.z - p.z); if (d > worst) { worst = d; which = n; } }
     return { worst, which };
   });
   check(lay.worst < 1e-3, `at rest, every part is where the body's rest pose puts it (worst ${lay.worst.toExponential(1)} studs, ${lay.which})`);

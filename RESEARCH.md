@@ -510,6 +510,12 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Roblox (2026) gives new R15 avatars AnimationConstraints instead of Motor6Ds when StarterPlayer.AvatarJointUpgrade is on, the default for new experiences. Motor6D stays for R6, older games and mechanical rigs.
   - Kenney's blocky model isn't R6-proportioned, so the R6 parts are R6-sized stand-ins. Each sits at a constant offset from its drawn limb (checked in the part's own frame while walking). The torso's drawn bounding box includes its children (head and arms), so its centre isn't a fair comparison.
 
+- [Studio] **Adjustable R15 bodies (2026-11-24).**
+  - Check a path before writing a "new" file there. Write replaced `web/runtime/glb.js`, the character maker's glb reader, with a writer of the same name. The tool's "updated" (not "created") was the only sign, and the build's missing-export error caught it. The fix was to restore it from git and add the writer beside the reader.
+  - A test that derives one value from another can't catch errors in the first. The R15 parts come from the drawn nodes and the Transforms from the parts, so a wrong drawn pose still passed "joints hold" and "parts on nodes". Compare against an independent source: the clip's own pose at that time, and the rest pose rebuilt from the joints' C0 and C1. The survivor (a pose not turned about its joint) was caught once that was added.
+  - Babylon's loader takes a File, not a bare Blob, for in-memory models: it reads the name for the extension.
+  - Roblox's run carries both arms forward, so "the arms swing opposite" fails as a sign test. Use the correlation of the two swings over the cycle (−0.81 for the studio body).
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
