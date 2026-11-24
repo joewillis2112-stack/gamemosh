@@ -6,7 +6,7 @@
 // Humanoid's properties drive the controller. Health 0 fires Died, plays the
 // death clip, and the player respawns after Players.RespawnTime.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
-import { V3, CF, Instance } from '../datamodel.js';
+import { V3, CF, Instance, keepDescription } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
 import { CharacterBody } from './charbody.js';
 
@@ -89,9 +89,9 @@ export class Players {
     // R6's body parts and Motor6Ds, following the drawn rig (runtime/charbody.js).
     this.body = new CharacterBody(this.dm, this.char, model, root);
     hum.props.RigType = this.char.rig ? 'R15' : 'R6';
-    // Its description (Humanoid:GetAppliedDescription): the place's (StarterPlayer's), else one made new.
+    // Its description (Humanoid:GetAppliedDescription): the place's (StarterPlayer's), else none.
     const sd = this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'HumanoidDescription');
-    hum.appliedDescription = sd ? this.dm.clone(sd) : null;
+    if (sd) keepDescription(hum, this.dm.clone(sd)); // (under the Humanoid, as Roblox keeps it)
     // StarterCharacterScripts go into the new character.
     this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterCharacterScripts'), model);
     this.model = model; this.humanoid = hum; this.root = root;

@@ -9,7 +9,10 @@
 // - Humanoid:ApplyDescriptionAsync reshapes the body where it stands: the same R15 parts and Motor6Ds
 //   take the new sizes and joints (the generator's), ApplyDescriptionFinished fires, and
 //   GetAppliedDescription returns it; a tier change rebuilds it at that tier's detail; a respawn brings
-//   back the place's body.
+//   back the place's body;
+// - an NPC made by Players:CreateHumanoidModelFromDescriptionAsync is drawn as its own described body
+//   (height, colours, feet on the ground), a script's AnimationTrack poses it about its joints, and
+//   ApplyDescriptionAsync on it rebuilds it.
 import { describedBody, makeBody, colorGroup } from '../../web/runtime/bodygen.js';
 export default async function (t) {
   const fail = [];
@@ -125,5 +128,61 @@ export default async function (t) {
   await t.sim(30);
   const a4 = await look();
   check(Math.abs(a4.height - body.height) < 0.03 && a4.bc && k255(a4.bc.Torso) === key(got.desc.TorsoColor) && a4.colors.includes(key(got.desc.TorsoColor)) && !a4.colors.includes('240,200,40'), `a respawn brings back the place's body (${a4.height.toFixed(3)} studs; torso ${a4.bc && k255(a4.bc.Torso)})`);
+
+  // The NPC.
+  const npcLook = () => t.eval(() => {
+    const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Greeter'), hum = m && m.children.find(c => c.ClassName === 'Humanoid'), root = m && m.children.find(c => c.props.Name === 'HumanoidRootPart');
+    const d = hum && hum.children.find(c => c.ClassName === 'HumanoidDescription'), sh = d && d.children.find(c => c.ClassName === 'BodyShape');
+    const plain = p => Object.fromEntries(Object.entries(p).filter(([, v]) => typeof v === 'number' || (v && typeof v === 'object' && 'r' in v)).map(([k, v]) => [k, typeof v === 'number' ? v : { r: v.r, g: v.g, b: v.b }]));
+    const v = s.rigs.views.get(m);
+    if (!v || !v.holder) return { model: !!m, rig: hum && hum.props.RigType, desc: !!d, drawn: false };
+    for (const n of v.anim.nodes) { const r = v.anim.rest.get(n); n.position.copyFrom(r.p); n.rotationQuaternion.copyFrom(r.q); n.scaling.copyFrom(r.s); }
+    for (let k = 0; k < 2; k++) { v.holder.computeWorldMatrix(true); v.holder.getChildTransformNodes(false).forEach(n => n.computeWorldMatrix(true)); v.holder.getChildMeshes(false).forEach(n => n.computeWorldMatrix(true)); }
+    v.meshes.forEach(x => x.skeleton && x.skeleton.prepare(true));
+    let lo = Infinity, hi = -Infinity; const all = new Set();
+    const srgb = x => x <= 0.0031308 ? x * 12.92 : 1.055 * x ** (1 / 2.4) - 0.055;
+    for (const x of v.meshes) if (x.getTotalVertices() > 0) { x.refreshBoundingInfo && x.refreshBoundingInfo(!!x.skeleton); const b = x.getBoundingInfo().boundingBox; lo = Math.min(lo, b.minimumWorld.y); hi = Math.max(hi, b.maximumWorld.y); const c = x.getVerticesData('color'); if (c) for (let i = 0; i < c.length; i += 4) all.add([c[i], c[i + 1], c[i + 2]].map(y => Math.round(srgb(y) * 255)).join(',')); }
+    return { model: true, rig: hum.props.RigType, desc: plain(d.props), shape: sh ? plain(sh.props) : null, drawn: true, lo, hi, rootY: root.props.CFrame.y, rootSize: [root.props.Size.x, root.props.Size.y, root.props.Size.z], colors: [...all], generated: !!v.rig };
+  });
+  let n0 = await npcLook();
+  for (let i = 0; i < 20 && !n0.drawn; i++) { await t.sim(5); n0 = await npcLook(); }
+  const nb0 = n0.drawn ? makeBody(describedBody(n0.desc, n0.shape)) : null;
+  check(n0.drawn && n0.rig === 'R15' && n0.generated && n0.shape, `an NPC from CreateHumanoidModelFromDescriptionAsync: R15, its description under its Humanoid, drawn as a generated body (${n0.drawn ? 'drawn' : 'not drawn'})`);
+  if (nb0) {
+    check(Math.abs(n0.hi - n0.lo - nb0.height) < 0.03 && Math.abs(n0.lo) < 0.03 && Math.abs(n0.rootY - nb0.hrpHeight) < 1e-6 && Math.abs(n0.rootSize[1] - nb0.parts.HumanoidRootPart.size[1]) < 1e-6, `drawn at its described height, ${(n0.hi - n0.lo).toFixed(3)} studs (the generator's ${nb0.height.toFixed(3)}), its feet on the ground (${n0.lo.toFixed(3)}), its root part the body's`);
+    const wantN = new Set(['Head', 'Torso', 'LeftLeg'].map(g => key(n0.desc[g + 'Color'])));
+    check(n0.colors.length === wantN.size && n0.colors.every(c => wantN.has(c)), `in its own colours (${n0.colors.join(' | ')})`);
+  }
+  // A script's AnimationTrack poses the NPC about its joints (its left upper arm turned 90 degrees).
+  const armQ = () => t.eval(() => { const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Greeter'), v = s.rigs.views.get(m), n = v.rig.get('LeftUpperArm').node, r = v.anim.rest.get(n).q, q = n.rotationQuaternion; return Math.abs(r.x * q.x + r.y * q.y + r.z * q.z + r.w * q.w); });
+  await t.eval(() => window.studio.vm.run('npcanim', `
+    local KSP = game:GetService("KeyframeSequenceProvider")
+    local ks = Instance.new("KeyframeSequence") ks.Loop = true ks.Priority = Enum.AnimationPriority.Action
+    for _, tm in ipairs({ 0, 1 }) do
+      local kf = Instance.new("Keyframe") kf.Time = tm
+      local function pose(name, parent, cf) local p = Instance.new("Pose") p.Name = name p.Weight = cf and 1 or 0 if cf then p.CFrame = cf end p.Parent = parent return p end
+      pose("LeftUpperArm", pose("UpperTorso", pose("LowerTorso", pose("HumanoidRootPart", kf))), CFrame.Angles(math.rad(90), 0, 0))
+      ks:AddKeyframe(kf)
+    end
+    local a = Instance.new("Animation") a.AnimationId = KSP:RegisterKeyframeSequence(ks)
+    workspace.Greeter.Humanoid:LoadAnimation(a):Play(0)`));
+  await t.sim(10); await t.frames(2);
+  const dq = await armQ(), turned = 2 * Math.acos(Math.min(1, dq)) * 180 / Math.PI;
+  check(Math.abs(turned - 90) < 1, `a script's AnimationTrack turns the NPC's arm about its shoulder (${turned.toFixed(1)} degrees)`);
+  // ApplyDescriptionAsync on the NPC rebuilds it.
+  await t.eval(() => window.studio.vm.run('npcapply', `
+    task.spawn(function()
+      local hum = workspace.Greeter.Humanoid
+      local d = hum:GetAppliedDescription(); d.HeightScale = 1.25
+      hum:ApplyDescriptionAsync(d)
+      print("npc applied", hum:FindFirstChildOfClass("HumanoidDescription").HeightScale)
+    end)`));
+  let n1 = null;
+  for (let i = 0; i < 30; i++) { await t.sim(5); await t.frames(1); n1 = await npcLook(); if (n1.drawn && n1.desc.HeightScale === 1.25 && Math.abs(n1.hi - n1.lo - (n0.hi - n0.lo)) > 0.1) break; }
+  const nb1 = makeBody(describedBody(n1.desc, n1.shape));
+  check(t.logs.some(l => /\[luau\] npc applied 1\.25/.test(l)) && Math.abs(n1.hi - n1.lo - nb1.height) < 0.03, `ApplyDescriptionAsync rebuilds the NPC (${(n1.hi - n1.lo).toFixed(3)} studs, the generator's ${nb1.height.toFixed(3)})`);
+  await t.eval(() => { const s = window.studio, V = s.player.holder.position.constructor; s.player.teleport(new V(2, 1, 4), Math.PI); s.camera.yaw = 0.5; s.camera.pitch = 6 * Math.PI / 180; s.camera.zoom = 20; });
+  await t.sim(20); await t.frames(30);
+  await t.shot('bodies-npc');
   if (fail.length) throw new Error(fail.length + ' failed');
 }

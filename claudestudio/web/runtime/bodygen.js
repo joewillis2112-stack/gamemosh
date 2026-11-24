@@ -214,6 +214,9 @@ export function bodyGlb(params = {}, { skinned = false, ...opts } = {}) {
   return glbBytes(nodes, [R15_PARTS.indexOf('HumanoidRootPart'), nodes.length - 1], { ...opts, skins: [{ joints: R15_PARTS.map((_, i) => i), inverseBindMatrices }] });
 }
 const boxOf = size => ({ min: size.map(v => -v / 2), max: size.map(v => v / 2) });
+/** A body's .glb as a File (what Babylon's loader takes: it reads the name) at a fidelity tier's detail:
+ *  rounder parts on higher tiers, one smooth skinned mesh on high and ultra, a rigid mesh per part below. */
+export const bodyFile = (params, tier) => new File([bodyGlb({ ...params, segments: TIER_SEGMENTS[tier] || params.segments }, { skinned: tier === 'high' || tier === 'ultra' })], 'body.glb', { type: 'model/gltf-binary' });
 
 // The skinned body: every part's mesh at its rest place in the file's space (the root node turned to
 // face +Z, at hrpHeight), one mesh; each vertex on its own part's bone, blended towards a neighbour's

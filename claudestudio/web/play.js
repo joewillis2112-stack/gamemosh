@@ -20,7 +20,7 @@ import { Character } from './runtime/character.js';
 import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
-import { bodyGlb, BODY_PRESETS, TIER_SEGMENTS, describedBody, bodyColors } from './runtime/bodygen.js';
+import { BODY_PRESETS, describedBody, bodyColors, bodyFile as makeBodyFile } from './runtime/bodygen.js';
 import { Rigs } from './runtime/rigs.js';
 import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
@@ -86,7 +86,7 @@ async function main() {
   // A generated body's file: its mesh detail from the fidelity tier (rounder, smoother parts on higher
   // tiers); on high and ultra one smooth skinned mesh (it bends at the joints), below a rigid mesh per part.
   let bodyTier = quality; // (the tier the body was last built for: Graphics' systems are told each change)
-  const bodyFile = p => { const t = bodyTier; return new File([bodyGlb({ ...p, segments: TIER_SEGMENTS[t] || p.segments }, { skinned: t === 'high' || t === 'ultra' })], 'body.glb', { type: 'model/gltf-binary' }); }; // a File: the loader reads its name
+  const bodyFile = p => makeBodyFile(p, bodyTier);
   if (params) charSrc = bodyFile(params);
   const player = await Character.load(scene, charSrc, R.shadows, Vector3.Zero());
   if (params) { player.bodyParams = params; player.colors = bodyColors(params); }
@@ -127,7 +127,8 @@ async function main() {
   graphics.add({ setTier: t => { bodyTier = t; if (player.bodyParams) rebody(player.bodyParams); } });
   // The character's AnimationTracks (its Humanoid's Animator) pose it over its own clips.
   player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
-  const rigs = new Rigs(scene, dm, R.shadows);
+  const rigs = new Rigs(scene, dm, R.shadows, { quality });
+  graphics.add(rigs);
   await rigs.load();
   players.join();
   const gui = new Gui(dm, players);

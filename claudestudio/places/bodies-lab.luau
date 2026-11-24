@@ -18,3 +18,17 @@ local shape = Instance.new("BodyShape")
 shape.LegLength = 2.7; shape.ShoulderWidth = 2.1; shape.ArmThickness = 0.6; shape.Roundness = 0.7; shape.Taper = 0.16
 shape.Parent = d
 d.Parent = game:GetService("StarterPlayer")
+
+-- An NPC in a body of its own: Players:CreateHumanoidModelFromDescriptionAsync (drawn from its
+-- description: runtime/rigs.js).
+local nd = Instance.new("HumanoidDescription")
+nd.HeightScale = 0.85; nd.HeadScale = 1.3
+nd.HeadColor = Color3.fromRGB(120, 200, 140); nd.TorsoColor = Color3.fromRGB(60, 62, 74)
+nd.LeftArmColor = Color3.fromRGB(120, 200, 140); nd.RightArmColor = Color3.fromRGB(120, 200, 140)
+nd.LeftLegColor = Color3.fromRGB(90, 70, 50); nd.RightLegColor = Color3.fromRGB(90, 70, 50)
+local ns = Instance.new("BodyShape")
+ns.LegLength = 1.6; ns.HeadHeight = 1.7; ns.HeadWidth = 1.9; ns.Roundness = 0.9; ns.Parent = nd
+local npc = game:GetService("Players"):CreateHumanoidModelFromDescriptionAsync(nd, Enum.HumanoidRigType.R15)
+npc.Name = "Greeter"
+npc:PivotTo(CFrame.new(6, npc.HumanoidRootPart.Position.Y, -4) * CFrame.Angles(0, math.rad(200), 0))
+npc.Parent = workspace

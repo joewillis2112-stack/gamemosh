@@ -10,7 +10,7 @@ import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/vo
 import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
 import { Assemblies, isJoint } from './assembly.js';
-import { BODY_PRESETS, SHAPE_PROPS } from './runtime/bodygen.js';
+import { BODY_PRESETS, SHAPE_PROPS, makeBody, describedBody } from './runtime/bodygen.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -753,6 +753,8 @@ defineClass('Players', 'Instance', {
   methods: {
     GetPlayers(self) { return [self.children.filter(c => c.ClassName === 'Player')]; },
     GetPlayerFromCharacter(self, m) { return [self.children.find(p => p.ClassName === 'Player' && m && p.props.Character === m) || null]; },
+    CreateHumanoidModelFromDescriptionAsync(self, desc, rigType) { return [modelFromDescription(self.dm, desc, rigType)]; },
+    CreateHumanoidModelFromDescription(self, desc, rigType) { return [modelFromDescription(self.dm, desc, rigType)]; }, // (deprecated in Roblox for the Async one)
   },
   events: ['PlayerAdded', 'PlayerRemoving'],
 });
@@ -778,7 +780,7 @@ defineClass('Humanoid', 'Instance', {
     // theirs, OURS), then fires ApplyDescriptionFinished. GetAppliedDescription: a copy of the last applied.
     ApplyDescriptionAsync(self, desc) { return applyDescription(self, desc); },
     ApplyDescription(self, desc) { return applyDescription(self, desc); }, // (deprecated in Roblox for ApplyDescriptionAsync)
-    GetAppliedDescription(self) { return [(self.appliedDescription && self.dm.clone(self.appliedDescription)) || new Instance(self.dm, 'HumanoidDescription')]; },
+    GetAppliedDescription(self) { const d = self.children.find(c => c.ClassName === 'HumanoidDescription'); return [(d && self.dm.clone(d)) || new Instance(self.dm, 'HumanoidDescription')]; },
   },
   events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched', 'ApplyDescriptionFinished'],
 });
@@ -786,10 +788,33 @@ function applyDescription(self, desc) {
   if (!(desc instanceof Instance) || desc.ClassName !== 'HumanoidDescription') throw new Error('Argument 1 missing or nil'); // UNSURE: Roblox's wording
   const copy = self.dm.clone(desc), hook = self.dm.hooks.applyDescription;
   return self.dm.async(self, Promise.resolve(hook ? hook(self, copy) : null).then(() => {
-    self.appliedDescription = copy;
+    keepDescription(self, copy);
     self.dm.fire(self, 'ApplyDescriptionFinished', [self.dm.clone(copy)]);
     return [];
   }));
+}
+/** The description a Humanoid wears is its HumanoidDescription child, as Roblox keeps it (an NPC rig draws
+ *  from it: runtime/rigs.js); the one before goes. */
+export function keepDescription(hum, d) {
+  for (const c of hum.children.slice()) if (c.ClassName === 'HumanoidDescription' && c !== d) hum.dm.destroy(c);
+  hum.dm.setParent(d, hum);
+}
+// Players:CreateHumanoidModelFromDescriptionAsync: a rig of the described body (runtime/bodygen.js): a
+// Model with a Humanoid (its Animator, the description) and a HumanoidRootPart of the body's size, its
+// centre the body's root height above the origin. OURS: no R15 limb parts (the rig is drawn from the
+// description: runtime/rigs.js), and the root is anchored (NPC Humanoids don't walk here yet).
+function modelFromDescription(dm, desc, rigType) {
+  if (!(desc instanceof Instance) || desc.ClassName !== 'HumanoidDescription') throw new Error('Argument 1 missing or nil'); // UNSURE: Roblox's wording
+  const sh = desc.children.find(c => c.ClassName === 'BodyShape'), body = makeBody(describedBody(desc.props, sh && sh.props));
+  const m = new Instance(dm, 'Model'), hum = new Instance(dm, 'Humanoid'), root = new Instance(dm, 'Part');
+  hum.props.RigType = rigType instanceof EnumItem ? rigType.name : rigType === 'R6' || rigType === 0 ? 'R6' : 'R15';
+  dm.setParent(new Instance(dm, 'Animator'), hum);
+  keepDescription(hum, dm.clone(desc));
+  Object.assign(root.props, { Name: 'HumanoidRootPart', Size: new V3(...body.parts.HumanoidRootPart.size), Transparency: 1, Anchored: true, CanCollide: false });
+  dm.set(root, 'CFrame', new CF([0, body.hrpHeight, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]));
+  dm.setParent(hum, m); dm.setParent(root, m);
+  m.props.PrimaryPart = root;
+  return m;
 }
 // Keyframe animation (create.roblox.com/docs/animation): the data, Animator and
 // AnimationTrack. The sampling and blending are in animation.js; the renderer

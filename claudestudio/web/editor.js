@@ -72,7 +72,7 @@ async function main() {
     vm.run('place', await (await fetch(placeSrc)).text());
   }
 
-  const rigs = new Rigs(scene, dm, R.shadows); // Models with a Humanoid draw as characters
+  const rigs = new Rigs(scene, dm, R.shadows, { quality: graphics.tier }); // Models with a Humanoid draw as characters
   await rigs.load();
   const camera = new EditorCamera(scene, canvas);
   scene.activeCamera = camera.cam;
@@ -84,7 +84,7 @@ async function main() {
   const localLights = new LocalLights(scene, dm, world, { quality, sunShadows: R.shadows });
   localLights.update();
   const particles = new Particles(scene, dm, world, { quality, localLights }); // Studio runs emitters while editing too
-  graphics.add(lighting, localLights, particles, world);
+  graphics.add(lighting, localLights, particles, world, rigs);
   const highlights = new Highlights(scene, dm, world, { rigs }); // and shows Highlights
   const styles = new Styles(scene, dm, camera.cam, { sun: R.sun }); // and the place's look (ToonEffect, OutlineEffect, PixelEffect)
   await lighting.settled();
