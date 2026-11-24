@@ -42,6 +42,7 @@ import { creatableClasses } from './datamodel.js';
 import { Rigs } from './runtime/rigs.js';
 import { newMeshPart } from './modeling/editable.js';
 import { CF } from './cframe.js';
+import { makeBody, BODY_COLORS, DEFAULT_BODY_COLOR } from './runtime/bodygen.js';
 
 const q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -138,17 +139,24 @@ async function main() {
     gizmos.hidden = s.active || edit.active; gizmos.refresh();
     document.querySelector('#ui [data-act=animate]').classList.toggle('on', s.active);
   } });
-  commands.register('insertRig', function () {
-    // A dummy as Roblox's Rig Builder makes one: a Model with a Humanoid (and its
-    // Animator) and an invisible HumanoidRootPart 3 studs above the floor.
+  commands.register('insertRig', function ({ kind = 'R6' } = {}) {
+    // A dummy as Roblox's Rig Builder makes one: a Model with a Humanoid (and its Animator) and an
+    // invisible, anchored HumanoidRootPart standing on the floor. R6: the blocky character, 3 studs up.
+    // R15: a generated body (runtime/rigs.js) from a HumanoidDescription under the Humanoid with a
+    // BodyShape in it (our studio body, in its grey), to shape in Properties.
     const f = camera.forward(), at = camera.pos.add(f.scale(12));
     const hit = dm.raycast(new V3(at.x, at.y + 50, at.z), new V3(0, -1000, 0));
     const floor = hit.length ? hit[1].y : 0;
+    const body = kind === 'R15' ? makeBody({}) : null, grey = new C3(...DEFAULT_BODY_COLOR);
     const rig = this.history.run('Insert Rig', tx => {
       const m = tx.create('Model', null, { Name: 'Rig' });
-      const hum = tx.create('Humanoid', m); tx.create('Animator', hum);
-      const root = tx.create('Part', m, { Name: 'HumanoidRootPart', Size: new V3(2, 2, 1), Transparency: 1, Anchored: true, CanCollide: false });
-      tx.set(root, 'CFrame', new CF([Math.round(at.x), floor + 3, Math.round(at.z), 1, 0, 0, 0, 1, 0, 0, 0, 1]));
+      const hum = tx.create('Humanoid', m, kind === 'R15' ? { RigType: 'R15' } : {}); tx.create('Animator', hum);
+      if (body) {
+        const d = tx.create('HumanoidDescription', hum, Object.fromEntries(BODY_COLORS.map(g => [g + 'Color', grey])));
+        tx.create('BodyShape', d);
+      }
+      const root = tx.create('Part', m, { Name: 'HumanoidRootPart', Size: body ? new V3(...body.parts.HumanoidRootPart.size) : new V3(2, 2, 1), Transparency: 1, Anchored: true, CanCollide: false });
+      tx.set(root, 'CFrame', new CF([Math.round(at.x), floor + (body ? body.hrpHeight : 3), Math.round(at.z), 1, 0, 0, 0, 1, 0, 0, 0, 1]));
       tx.set(m, 'PrimaryPart', root);
       tx.parent(m, dm.workspace);
       return m;
@@ -221,7 +229,7 @@ async function main() {
     turn: () => commands.run('rotate', { axis: 'y', degrees: 90 }), tilt: () => commands.run('rotate', { axis: 'x', degrees: 90 }),
     focus: () => camera.focus(), panels: () => document.body.classList.toggle('panels'),
     editmesh: editOrSolid,
-    rig: () => commands.run('insertRig'), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), image: () => imageEditor.active ? imageEditor.close() : imageEditor.open(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
+    rig: () => commands.run('insertRig', { kind: document.getElementById('rigKind').value }), terrain: () => terrainTools.toggle(), paint: () => paintTools.toggle(), image: () => imageEditor.active ? imageEditor.close() : imageEditor.open(), animate: () => anim.active ? anim.exit() : anim.enter(), mesh: () => { const k = document.getElementById('meshKind').value; commands.run('insertMesh', { kind: k }); },
     // Play: the place as it is now goes to the player; its Stop comes back to this (Studio's Play/Stop).
     play: () => { scriptEditor.close(); sessionStorage.setItem('studio.place', JSON.stringify(savePlace(dm))); const p = new URLSearchParams(q); p.set('place', 'session'); p.set('from', 'editor'); location.href = 'play.html?' + p; },
     save: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(savePlace(dm), null, 1)], { type: 'application/json' })); a.download = 'place.json'; a.click(); URL.revokeObjectURL(a.href); },

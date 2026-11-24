@@ -13,6 +13,10 @@
 //   the playhead; drag keys to retime them; Delete removes the selected ones;
 //   the easing menus set the selected keys' EasingStyle and EasingDirection.
 // - Space plays and pauses (looping if the sequence loops); Esc or Done leaves.
+// - R6 rigs pose R6's six joints. R15 rigs (a generated body: runtime/rigs.js) pose R15's fifteen, named
+//   by their Part1 as Roblox's poses are (LowerTorso is the Root joint; elbows, wrists, knees, ankles);
+//   the handles and the ring sit on the joints themselves, and a turn keys Pose.CFrame = the joint's
+//   Transform (Part1 = Part0 * C0 * Transform * C1:Inverse()), as Roblox's editor does.
 import { Vector3, Quaternion, Color3 } from '@babylonjs/core/Maths/math.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
@@ -21,12 +25,16 @@ import { RotationGizmo } from '@babylonjs/core/Gizmos/rotationGizmo.js';
 import timelineModule from '../vendor/animation-timeline/animation-timeline.cjs';
 import { compileSequence, sampleSequence, nodeToOffset, R6, R6_TREE } from '../animation.js';
 import { rigParts } from '../runtime/rigs.js';
+import { R15_JOINTS } from '../runtime/bodygen.js';
 import { CF } from '../cframe.js';
 
 const { Timeline } = timelineModule;
 // The joints the editor poses, top to bottom as the rows show them. (The root
 // is left out: our rig's root pivots at the feet, Roblox's at the hips.)
 export const JOINTS = ['Torso', 'Head', 'Left Arm', 'Right Arm', 'Left Leg', 'Right Leg'];
+// R15's, top to bottom (each named by its Part1), and each one's parent in the pose tree.
+export const R15_POSE_JOINTS = ['LowerTorso', 'UpperTorso', 'Head', 'LeftUpperArm', 'LeftLowerArm', 'LeftHand', 'RightUpperArm', 'RightLowerArm', 'RightHand', 'LeftUpperLeg', 'LeftLowerLeg', 'LeftFoot', 'RightUpperLeg', 'RightLowerLeg', 'RightFoot'];
+const R15_TREE = Object.fromEntries([['HumanoidRootPart', null], ...R15_JOINTS.map(([, a, b]) => [b, a])]);
 const JOINT_OF_NODE = Object.fromEntries(Object.entries(R6).map(([j, n]) => [n, j]));
 const FPS = 30; // keys snap to 1/30 s
 const SAME_TIME = 1e-4;
@@ -39,8 +47,9 @@ export class AnimateMode {
     const us = layer.utilityLayerScene;
     this.handleMat = new StandardMaterial('jointHandle', us); this.handleMat.emissiveColor = new Color3(1, 0.85, 0.2); this.handleMat.disableLighting = true;
     this.handleSel = new StandardMaterial('jointHandleSel', us); this.handleSel.emissiveColor = new Color3(0.1, 0.6, 1); this.handleSel.disableLighting = true;
-    this.handles = new Map(); // joint -> sphere
-    for (const j of JOINTS) { const s = MeshBuilder.CreateSphere('joint:' + j, { diameter: 0.45, segments: 8 }, us); s.material = this.handleMat; s.setEnabled(false); this.handles.set(j, s); }
+    this.handles = new Map(); // joint -> sphere (made as a rig needs them)
+    this.us = us;
+    this.joints = JOINTS;
     // The ring sits on a stand-in node at the joint, turned as the joint is (its local axes).
     this.proxy = new TransformNode('jointProxy', scene); this.proxy.rotationQuaternion = Quaternion.Identity();
     this.ring = new RotationGizmo(layer); this.ring.updateGizmoRotationToMatchAttachedMesh = true; this.ring.scaleRatio = 1.2;
@@ -61,7 +70,12 @@ export class AnimateMode {
     const model = target && (rigParts(target) ? target : rigParts(target.parent) ? target.parent : null);
     if (!model) return false;
     this.rig = model; this.joint = null; this.time = 0; this.playing = false;
+    this.r15 = rigParts(model).hum.props.RigType === 'R15';
+    this.joints = this.r15 ? R15_POSE_JOINTS : JOINTS;
+    for (const h of this.handles.values()) h.setEnabled(false);
+    for (const j of this.joints) if (!this.handles.has(j)) { const h = MeshBuilder.CreateSphere('joint:' + j, { diameter: this.r15 ? 0.32 : 0.45, segments: 8 }, this.us); h.material = this.handleMat; h.isPickable = false; h.setEnabled(false); this.handles.set(j, h); } // (not pickable by default, so the ring's drag always wins where they overlap; click() picks handles itself)
     this.seq = this.findSequence();
+    this.names();
     this.panel.hidden = false;
     this.timeline.rescale(); this.rebuild();
     this.state();
@@ -99,7 +113,15 @@ export class AnimateMode {
     return joints;
   }
   view() { return this.rig && this.rigs.views.get(this.rig); }
-  node(joint) { const v = this.view(); return v && v.anim.byName(R6[joint]); }
+  node(joint) { const v = this.view(); if (!v) return null; if (this.r15) { const p = v.rig && v.rig.get(joint); return p ? p.node : null; } return v.anim.byName(R6[joint]); }
+  // Where a joint's handle and ring sit: R6, its node (the blocky limbs pivot there); R15, the joint
+  // itself (the node is the part's centre; its joint is C1 in its frame).
+  jointPoint(joint, n) {
+    n.computeWorldMatrix(true);
+    if (!this.r15) return n.getAbsolutePosition();
+    const c1 = this.view().rig.get(joint).c1;
+    return Vector3.TransformCoordinates(new Vector3(c1.x, c1.y, c1.z), n.getWorldMatrix());
+  }
 
   // Each frame: playback, handles on the joints, the ring on the picked one.
   update(dt) {
@@ -118,9 +140,9 @@ export class AnimateMode {
   afterPose() {
     if (!this.rig) return;
     for (const [j, h] of this.handles) {
-      const n = this.node(j);
+      const n = this.joints.includes(j) ? this.node(j) : null;
       h.setEnabled(!!n && !this.playing);
-      if (n) { n.computeWorldMatrix(true); h.position.copyFrom(n.getAbsolutePosition()); h.material = j === this.joint ? this.handleSel : this.handleMat; }
+      if (n) { h.position.copyFrom(this.jointPoint(j, n)); h.material = j === this.joint ? this.handleSel : this.handleMat; }
     }
     if (this.joint && !this.drag && !this.playing) this.placeProxy();
     const want = this.joint && !this.playing ? this.proxy : null;
@@ -129,9 +151,9 @@ export class AnimateMode {
   placeProxy() {
     const n = this.node(this.joint); if (!n) return;
     n.computeWorldMatrix(true);
-    const q = new Quaternion(), p = new Vector3();
-    n.getWorldMatrix().decompose(undefined, q, p);
-    this.proxy.position.copyFrom(p); this.proxy.rotationQuaternion.copyFrom(q);
+    const q = new Quaternion();
+    n.getWorldMatrix().decompose(undefined, q, undefined);
+    this.proxy.position.copyFrom(this.jointPoint(this.joint, n)); this.proxy.rotationQuaternion.copyFrom(q);
     this.proxy.computeWorldMatrix(true);
   }
 
@@ -144,10 +166,23 @@ export class AnimateMode {
     if (!joint) {
       const v = this.view(), meshes = new Set(v ? v.meshes : []);
       h = this.scene.pick(x, y, m => meshes.has(m), false, cam);
-      if (h && h.hit) for (let n = h.pickedMesh; n && !joint; n = n.parent) joint = JOINTS.includes(JOINT_OF_NODE[n.name]) ? JOINT_OF_NODE[n.name] : null;
+      if (h && h.hit && this.r15) joint = this.partAt(h.pickedPoint); // (a skinned body is one mesh: the part whose box holds the point)
+      else if (h && h.hit) for (let n = h.pickedMesh; n && !joint; n = n.parent) joint = JOINTS.includes(JOINT_OF_NODE[n.name]) ? JOINT_OF_NODE[n.name] : null;
     }
     this.select(joint);
     return joint;
+  }
+  // R15: the posable part whose box (its size about its node) holds a world point, or the nearest one.
+  partAt(pt) {
+    const v = this.view(); let best = null, bestD = Infinity;
+    for (const j of this.joints) {
+      const part = v.rig.get(j); if (!part) continue;
+      part.node.computeWorldMatrix(true);
+      const l = Vector3.TransformCoordinates(pt, part.node.getWorldMatrix().clone().invert());
+      const d = Math.max(...[l.x, l.y, l.z].map((c, i) => Math.abs(c) - part.size[i] / 2)); // < 0 inside
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    return best;
   }
   select(joint) {
     this.joint = joint;
@@ -163,6 +198,13 @@ export class AnimateMode {
     const parent = n.parent; parent.computeWorldMatrix(true);
     const pq = new Quaternion(); parent.getWorldMatrix().decompose(undefined, pq, undefined);
     const local = Quaternion.Inverse(pq).multiply(this.proxy.rotationQuaternion); // world = parent * local
+    if (this.r15) {
+      // The node's local frame is C0 * T * C1:Inverse(): T's turn is C0's turn undone, the node's, C1's.
+      const part = v.rig.get(this.drag.joint), turn = c => new CF([0, 0, 0, ...c.m.slice(3)]), L = CF.fromQuat(0, 0, 0, local.x, local.y, local.z, local.w);
+      const T = turn(part.c0).inverse().mul(L).mul(turn(part.c1));
+      this.drag.cf = new CF([0, 0, 0, ...T.m.slice(3)]);
+      return;
+    }
     const rest = v.anim.rest.get(n).q, delta = Quaternion.Inverse(rest).multiply(local).normalize();
     this.drag.cf = nodeToOffset([0, 0, 0], [delta.x, delta.y, delta.z, delta.w]);
   }
@@ -184,7 +226,7 @@ export class AnimateMode {
   }
   // The Pose for `joint` under a keyframe, with its parents' poses (weight 0 when not keyed), as Roblox nests them.
   ensurePose(tx, kf, joint) {
-    const chain = []; for (let j = joint; j; j = R6_TREE[j]) chain.unshift(j);
+    const tree = this.r15 ? R15_TREE : R6_TREE, chain = []; for (let j = joint; j; j = tree[j]) chain.unshift(j);
     let at = kf;
     for (const j of chain) {
       let p = at.children.find(c => c.ClassName === 'Pose' && c.props.Name === j);
@@ -204,7 +246,7 @@ export class AnimateMode {
     const out = [];
     if (!this.seq || !this.seq.parent) return out;
     for (const kf of this.seq.children) if (kf.ClassName === 'Keyframe') {
-      const walk = p => { for (const c of p.children) if (c.ClassName === 'Pose') { if (c.props.Weight > 0 && JOINTS.includes(c.props.Name)) out.push({ joint: c.props.Name, t: kf.props.Time, pose: c, kf }); walk(c); } };
+      const walk = p => { for (const c of p.children) if (c.ClassName === 'Pose') { if (c.props.Weight > 0 && this.joints.includes(c.props.Name)) out.push({ joint: c.props.Name, t: kf.props.Time, pose: c, kf }); walk(c); } };
       walk(kf);
     }
     return out;
@@ -251,7 +293,7 @@ export class AnimateMode {
   // ---- the panel: joint names beside the timeline control
   buildPanel() {
     const P = this.panel;
-    P.innerHTML = `<div class="abar"><button data-a="play">Play</button><span class="atime">0.00 s</span><label><input type="checkbox" data-a="loop" checked> Loop</label><select data-a="style">${['Linear', 'Constant', 'CubicV2', 'Cubic', 'Elastic', 'Bounce'].map(s => `<option>${s}</option>`).join('')}</select><select data-a="dir">${['In', 'Out', 'InOut'].map(s => `<option>${s}</option>`).join('')}</select><button data-a="delete">Delete key</button><button data-a="done">Done</button></div><div class="abody"><div class="anames" style="padding-top:${HEADER_H}px">${JOINTS.map(j => `<div class="aname" data-j="${j}" style="height:${ROW_H}px">${j}</div>`).join('')}</div><div class="astrip"></div></div>`;
+    P.innerHTML = `<div class="abar"><button data-a="play">Play</button><span class="atime">0.00 s</span><label><input type="checkbox" data-a="loop" checked> Loop</label><select data-a="style">${['Linear', 'Constant', 'CubicV2', 'Cubic', 'Elastic', 'Bounce'].map(s => `<option>${s}</option>`).join('')}</select><select data-a="dir">${['In', 'Out', 'InOut'].map(s => `<option>${s}</option>`).join('')}</select><button data-a="delete">Delete key</button><button data-a="done">Done</button></div><div class="abody"><div class="anames" style="padding-top:${HEADER_H}px"></div><div class="astrip"></div></div>`;
     this.timeEl = P.querySelector('.atime');
     const strip = P.querySelector('.astrip');
     this.timeline = new Timeline({ id: strip, headerHeight: HEADER_H, rowsStyle: { height: ROW_H, marginBottom: 0, fillColor: '#2b2d31' }, snapEnabled: true, snapStep: 1000 / FPS, stepVal: 500, stepPx: 80, leftMargin: 12, fillColor: '#1f2125', headerFillColor: '#2b2d31', labelsColor: '#9aa0a6', tickColor: '#5c6068', selectionColor: '#4aa3ff', timelineStyle: { strokeColor: '#4aa3ff', fillColor: '#4aa3ff', capStyle: { fillColor: '#4aa3ff' } } }, { rows: [] });
@@ -262,6 +304,10 @@ export class AnimateMode {
     this.timeline.onTimeChanged(e => { if (e.source === 'user') { this.time = Math.max(0, e.val / 1000); this.showTime(); this.state(); } });
     this.timeline.onDragFinished(() => this.applyDrag());
     this.timeline.onSelected(() => this.state());
+    // More rows than fit (R15's fifteen): the names scroll with the strip.
+    const names = P.querySelector('.anames');
+    this.timeline.onScroll(e => { names.scrollTop = e.scrollTop; });
+    names.addEventListener('wheel', e => { this.timeline.scrollTop = this.timeline.scrollTop + e.deltaY; e.preventDefault(); }, { passive: false });
     P.addEventListener('click', e => {
       const b = e.target.closest('[data-a]'), n = e.target.closest('[data-j]');
       if (n) return this.select(n.dataset.j);
@@ -276,13 +322,15 @@ export class AnimateMode {
     });
   }
   showTime() { this.timeEl.textContent = this.time.toFixed(2) + ' s'; }
+  // The joint names beside the strip, for this rig (with room to scroll the last row into view).
+  names() { this.panel.classList.toggle('r15', this.r15); this.panel.querySelector('.anames').innerHTML = this.joints.map(j => `<div class="aname" data-j="${j}" style="height:${ROW_H}px">${j.replace(/([a-z])([A-Z])/g, '$1 $2')}</div>`).join('') + `<div style="height:${ROW_H * 2}px"></div>`; }
   markRow() { this.panel.querySelectorAll('[data-j]').forEach(n => n.classList.toggle('on', n.dataset.j === this.joint)); }
   rebuildSoon() { if (!this.pending) { this.pending = true; queueMicrotask(() => { this.pending = false; this.rebuild(); }); } }
   rebuild() {
     if (!this.rig) return;
     if (this.seq && !this.seq.parent) this.seq = this.findSequence(); // undone away
     const keys = this.keys(), selected = new Set((this.timeline.getModel()?.rows || []).flatMap(r => r.keyframes || []).filter(k => k.selected).map(k => k.pose));
-    const rows = JOINTS.map(j => ({ joint: j, keyframes: keys.filter(k => k.joint === j).map(k => ({ val: Math.round(k.t * 1000), pose: k.pose, selected: selected.has(k.pose) })) }));
+    const rows = this.joints.map(j => ({ joint: j, keyframes: keys.filter(k => k.joint === j).map(k => ({ val: Math.round(k.t * 1000), pose: k.pose, selected: selected.has(k.pose) })) }));
     this.timeline.setModel({ rows });
     this.timeline.setTime(this.time * 1000);
     const loop = this.panel.querySelector('[data-a=loop]'); loop.checked = this.seq ? this.seq.props.Loop : true;

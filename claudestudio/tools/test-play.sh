@@ -109,6 +109,10 @@ run --page editor --scenario test/scenarios/editor-mesh.mjs
 run --page editor --phone --scenario test/scenarios/editor-mesh.mjs
 run --page editor --scenario test/scenarios/editor-animate.mjs
 run --page editor --phone --scenario test/scenarios/editor-animate.mjs
+run --page editor --scenario test/scenarios/editor-bodies.mjs
+run --page editor --phone --scenario test/scenarios/editor-bodies.mjs
+run --page editor --scenario test/scenarios/editor-animate-r15.mjs
+run --page editor --phone --scenario test/scenarios/editor-animate-r15.mjs
 run --page editor --scenario test/scenarios/editor-terrain.mjs
 run --page editor --phone --scenario test/scenarios/editor-terrain.mjs
 run --page editor --scenario test/scenarios/editor-paint.mjs
