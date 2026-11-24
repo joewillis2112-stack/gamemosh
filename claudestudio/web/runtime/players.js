@@ -216,7 +216,8 @@ export class Players {
     }
     const c = this.char;
     this.syncRoot();
-    this.body.update();
+    const dt = this.lastPost === undefined ? 0 : Math.max(0, t - this.lastPost); this.lastPost = t;
+    this.body.update(dt);
     const md = c.moveDir;
     this.humanoid.props.MoveDirection = new V3(md.x, 0, md.z);
     this.humanoid.props.FloorMaterial = c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';

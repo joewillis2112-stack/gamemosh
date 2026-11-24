@@ -14,6 +14,7 @@ import { CF } from '../cframe.js';
 import { V3, C3 } from '../datamodel.js';
 import { offsetToNode, nodeToOffset, R6 } from '../animation.js';
 import { R15_JOINTS } from './bodygen.js';
+import { IKSolver } from './ik.js';
 
 const R = (x, y, z, ...m) => new CF([x, y, z, ...m]);
 // R6's parts and joints (Roblox's default R6 character).
@@ -43,6 +44,7 @@ export class CharacterBody {
   /** dm; the drawn character (runtime/character.js); the character Model and its HumanoidRootPart. */
   constructor(dm, char, model, root) {
     Object.assign(this, { dm, char, model, root });
+    this.ik = new IKSolver(dm); // the character's IKControls (runtime/ik.js)
     if (char.rig) return this.r15();
     const byName = {};
     for (const [name, size, at] of R6_PARTS) {
@@ -132,8 +134,12 @@ export class CharacterBody {
 
   /** Each frame, after the rig is posed and the HRP placed: scripts' C0/C1 onto the rig, then the
    *  parts where the rig is and the joints' Transforms. */
-  update() {
-    if (this.isR15) return this.updateR15();
+  update(dt = 0) {
+    if (this.isR15) this.scriptJointsR15(); else this.scriptJointsR6();
+    this.writeParts();
+    if (this.ik.solve(this, dt)) this.writeParts(); // IKControls turned nodes: the parts and Transforms again
+  }
+  scriptJointsR6() {
     const ch = this.char, k = 1 / ch.modelScale;
     // A script's C0 or C1: the difference from R6's, as an offset at the joint (Part1 = Part0 * C0 *
     // D * T * E:Inverse() * C1:Inverse()), drawn on the node.
@@ -148,7 +154,9 @@ export class CharacterBody {
       n.rotationQuaternion.copyFrom(r.q.multiply(new Quaternion(...o.q)));
       n.position.copyFrom(r.p.add(new Vector3(o.p[0], o.p[1], o.p[2]).scale(k)));
     }
-    // The parts where their nodes are (written as physics writes: no Changed), then the Transforms.
+  }
+  // The parts where their nodes are (written as physics writes: no Changed), then the Transforms.
+  writeParts() {
     const write = (p, cf) => {
       const [ox, oy, oz] = cf.toOrientation();
       Object.assign(p.props, { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)) });
@@ -159,9 +167,8 @@ export class CharacterBody {
   }
 
   // R15: a script's C0 or C1 (differing from the body's) places the drawn node by them: its local
-  // frame C0 * T * C1:Inverse() (model units), T the pose the clip gave it. Then every part is where
-  // its node is, and each joint's Transform what places it.
-  updateR15() {
+  // frame C0 * T * C1:Inverse() (model units), T the pose the clip gave it.
+  scriptJointsR15() {
     const ch = this.char, k = ch.modelScale, un = c => new CF([c.x / k, c.y / k, c.z / k, ...c.m.slice(3)]);
     for (const J of this.joints) {
       const P = J.j.props;
@@ -171,12 +178,5 @@ export class CharacterBody {
       const now = un(P.C0).mul(T).mul(un(P.C1).inverse()), [x, y, z, w] = now.toQuat();
       n.position.set(now.x, now.y, now.z); n.rotationQuaternion.set(x, y, z, w);
     }
-    const write = (p, cf) => {
-      const [ox, oy, oz] = cf.toOrientation();
-      Object.assign(p.props, { CFrame: cf, Position: new V3(cf.x, cf.y, cf.z), Orientation: new V3(Math.fround(ox), Math.fround(oy), Math.fround(oz)) });
-      this.dm.notify(p, 'CFrame');
-    };
-    for (const J of this.joints) write(J.part1, nodeCF(J.node).mul(this.map.get(J.part1)));
-    for (const J of this.joints) { const P = J.j.props; P.Transform = P.C0.inverse().mul(J.part0.props.CFrame.inverse()).mul(J.part1.props.CFrame).mul(P.C1); }
   }
 }

@@ -264,7 +264,10 @@ async function main() {
   const scriptEditor = new ScriptEditor({ dm, commands, vm, libs, panel: document.getElementById('scripteditor') });
   const insertMenu = document.getElementById('insertmenu'), classes = creatableClasses();
   let insertUnder = null;
-  const listClasses = f => { insertMenu.querySelector('.im-list').innerHTML = classes.filter(c => c.toLowerCase().includes(f.toLowerCase())).map(c => `<button data-class="${c}">${c}</button>`).join(''); };
+  // A class matches where the search starts one of its words (camel case, acronyms too: "script" finds
+  // LocalScript, not HumanoidDescription; "desc" finds HumanoidDescription; "grid" UIGridLayout).
+  const wordMatch = (c, f) => { f = f.toLowerCase(); if (!f) return true; for (let i = 0; i < c.length; i++) if ((i === 0 || /[A-Z0-9]/.test(c[i]) && (!/[A-Z0-9]/.test(c[i - 1]) || /[a-z]/.test(c[i + 1] || ''))) && c.slice(i).toLowerCase().startsWith(f)) return true; return false; };
+  const listClasses = f => { insertMenu.querySelector('.im-list').innerHTML = classes.filter(c => wordMatch(c, f)).map(c => `<button data-class="${c}">${c}</button>`).join(''); };
   const closeInsert = () => { insertMenu.hidden = true; insertUnder = null; };
   explorer.onAdd = (inst, btn) => {
     insertUnder = inst; insertMenu.hidden = false;

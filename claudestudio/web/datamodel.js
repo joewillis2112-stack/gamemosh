@@ -94,6 +94,7 @@ export const ENUMS = {
   ParticleFlipbookMode: { Loop: 0, OneShot: 1, PingPong: 2, Random: 3 },
   HighlightDepthMode: { AlwaysOnTop: 0, Occluded: 1 },
   HumanoidRigType: { R6: 0, R15: 1 },
+  IKControlType: { Transform: 0, Position: 1, Rotation: 2, LookAt: 3 },
   SavedQualitySetting: { Automatic: 0, QualityLevel1: 1, QualityLevel2: 2, QualityLevel3: 3, QualityLevel4: 4, QualityLevel5: 5, QualityLevel6: 6, QualityLevel7: 7, QualityLevel8: 8, QualityLevel9: 9, QualityLevel10: 10 },
   ParticleCollision: { None: 0, Bounce: 1, Stick: 2, Die: 3 }, // Claude Studio's own (STUDIO_OWN)
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
@@ -816,6 +817,34 @@ function modelFromDescription(dm, desc, rigType) {
   m.props.PrimaryPart = root;
   return m;
 }
+// IKControl (Roblox): a procedural pose from inverse kinematics, a child of a Humanoid (mashup-research/
+// ROBLOX_IKCONTROL_2026-11-24.md); solved by runtime/ik.js on the player's character. Defaults from the
+// API dump. The methods read the last solve (`ik`, the solver's state on the instance).
+const ikNode = (self, i, world) => {
+  const ch = self.ik && self.ik.chain, nodes = self.ik && self.ik.nodes;
+  if (!ch || !nodes || !(i >= 1 && i <= nodes.length)) return new CF();
+  const k = Math.floor(i) - 1;
+  if (world || k === 0) return world ? nodes[k] : ch.joints[0].part0.props.CFrame.inverse().mul(nodes[0]);
+  return nodes[k - 1].inverse().mul(nodes[k]);
+};
+defineClass('IKControl', 'Instance', {
+  props: {
+    Type: ['Enum.IKControlType', 'Transform'], ChainRoot: ['Instance', null], EndEffector: ['Instance', null], Target: ['Instance', null], Pole: ['Instance', null],
+    Offset: ['CFrame'], EndEffectorOffset: ['CFrame'], Weight: ['number', 1], SmoothTime: ['number', 0.05], Priority: ['number', 0], Enabled: ['bool', true],
+  },
+  methods: {
+    GetChainCount(self) { const ch = self.ik && self.ik.chain; return [ch ? ch.parts.length - 1 : 0]; },
+    GetChainLength(self) {
+      const ch = self.ik && self.ik.chain; if (!ch) return [0];
+      let L = 0; for (let k = 1; k < ch.parts.length; k++) { const a = ch.parts[k - 1].props.CFrame, b = ch.parts[k].props.CFrame; L += Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
+      return [L];
+    },
+    GetNodeWorldCFrame(self, i) { return [ikNode(self, i, true)]; },
+    GetNodeLocalCFrame(self, i) { return [ikNode(self, i, false)]; },
+    GetRawFinalTarget(self) { return [(self.ik && self.ik.raw) || new CF()]; },
+    GetSmoothedFinalTarget(self) { return [(self.ik && self.ik.goal) || new CF()]; },
+  },
+});
 // Keyframe animation (create.roblox.com/docs/animation): the data, Animator and
 // AnimationTrack. The sampling and blending are in animation.js; the renderer
 // applies the result to rigs (runtime/rigs.js, runtime/character.js).
