@@ -109,6 +109,12 @@ for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 900 
   await bodyReady(n + 1);
   const b2 = await page.evaluate(() => ({ h: window.maker.body.height, legs: window.maker.body.params.legLength, chibiOn: document.querySelector('#bodyPanel [data-preset=chibi]').classList.contains('on'), shown: document.querySelector('#bodyPanel [data-v=legLength]').textContent }));
   check(Math.abs(b2.h - b1.h - 1) < 1e-6 && b2.legs === 2.2 && !b2.chibiOn && b2.shown === '2.20', `${label}: the Legs slider lengthens the legs by what it says (${b1.h.toFixed(2)} -> ${b2.h.toFixed(2)} studs; the preset no longer marked)`);
+  // A body colour: the preview's torso wears it (its vertices, sRGB), and it goes over to the game.
+  n = await page.evaluate(() => window.maker.body.ready);
+  await page.evaluate(() => { const i = document.querySelector('#bodyPanel [data-c=Torso]'); i.value = '#c83c28'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+  await bodyReady(n + 1);
+  const bc = await page.evaluate(() => { const m = window.maker.body.res.meshes.find(x => x.name === 'UpperTorso'), c = m && m.getVerticesData('color'), s = v => Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055) * 255); return c ? [s(c[0]), s(c[1]), s(c[2])].join(',') : null; });
+  check(bc === '200,60,40', `${label}: a Torso colour shows on the preview's torso (${bc})`);
   await page.waitForTimeout(400);
   await page.screenshot({ path: `build/maker/maker-body-${label}.png` });
   await tapOrClick('#bodyPanel [data-act=play]');
@@ -116,10 +122,12 @@ for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 900 
   const pb = await page.evaluate(() => {
     const s = window.studio; if (s.error) return { error: s.error };
     const ch = s.dm.service('Players').children[0].props.Character, kid = n => ch.children.find(c => c.props.Name === n), hum = ch.children.find(c => c.ClassName === 'Humanoid');
-    return { rig: hum.props.RigType, ratio: kid('LeftUpperLeg').props.Size.y / kid('Head').props.Size.y };
+    const t = ch.children.find(c => c.ClassName === 'BodyColors').props.TorsoColor3;
+    return { rig: hum.props.RigType, ratio: kid('LeftUpperLeg').props.Size.y / kid('Head').props.Size.y, torso: [t.r, t.g, t.b].map(v => Math.round(v * 255)).join(',') };
   });
   // The shape went over: the upper leg (half the legs, 1.1) to the head (chibi's 2.0).
   check(!pb.error && pb.rig === 'R15' && Math.abs(pb.ratio - 1.1 / 2.0) < 1e-3, `${label}: "Play as this body" opens the game as that R15 body (${pb.error || pb.rig + ', upper leg / head ' + pb.ratio.toFixed(3)})`);
+  check(!pb.error && pb.torso === '200,60,40', `${label}: and in its colours (BodyColors.TorsoColor3 ${pb.torso})`);
   check(!errors.length, `${label}: no page errors${errors.length ? ' (' + errors.slice(0, 3).join(' | ') + ')' : ''}`);
   await ctx.close();
 }

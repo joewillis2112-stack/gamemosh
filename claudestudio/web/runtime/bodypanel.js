@@ -1,5 +1,5 @@
 // The character maker's body panel (web/maker.html): an R15 body's shape (runtime/bodygen.js) from
-// presets and sliders, previewed walking with Roblox's own R15 clips, and handed to the game (play.html
+// presets and sliders, its six body colours, previewed walking with Roblox's own R15 clips, and handed to the game (play.html
 // ?body=session reads the parameters from sessionStorage 'studio.body'). The shape is ours to set: the
 // presets are starting points, not a look to keep (the user, 2026-11-24).
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
@@ -7,7 +7,10 @@ import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 import { createRenderer, groundDisc } from '../render.js';
-import { bodyGlb, makeBody, BODY_PRESETS } from './bodygen.js';
+import { bodyGlb, makeBody, BODY_PRESETS, BODY_COLORS, bodyColors } from './bodygen.js';
+
+const toHex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+const fromHex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
 import { r15Rig, loadR15Clips, addR15Clips } from './r15clips.js';
 import { Animator } from './character.js';
 
@@ -23,18 +26,21 @@ export class BodyPanel {
   /** root: the panel element (it fills it); canvas: the preview's. */
   constructor(root, canvas) {
     Object.assign(this, { root, canvas });
-    this.params = { ...BODY_PRESETS.studio };
+    this.params = { ...BODY_PRESETS.studio, colors: bodyColors({}) }; // colours: the six of BodyColors (sRGB 0-1)
     this.preset = 'studio';
     this.ready = 0; // bumped each time a body is shown (tests wait on it)
     root.insertAdjacentHTML('beforeend', `<div class="row" data-presets>${Object.keys(BODY_PRESETS).map(n => `<button data-preset="${n}">${n[0].toUpperCase() + n.slice(1)}</button>`).join('')}</div>
       <div class="sliders">${SLIDERS.map(([k, label, min, max, step]) => `<label>${label}<input type="range" data-p="${k}" min="${min}" max="${max}" step="${step}"><span data-v="${k}"></span></label>`).join('')}</div>
+      <div class="colors">${BODY_COLORS.map(g => `<label>${g.replace(/([a-z])([A-Z])/, '$1 $2')}<input type="color" data-c="${g}"></label>`).join('')}</div>
       <div class="row"><button class="primary" data-act="play">Play as this body</button><span data-info class="note"></span></div>`);
     root.addEventListener('click', e => {
       const b = e.target.closest('[data-preset]');
-      if (b) { this.preset = b.dataset.preset; this.params = { ...BODY_PRESETS[this.preset] }; this.sync(); this.show(); }
+      if (b) { this.preset = b.dataset.preset; this.params = { ...BODY_PRESETS[this.preset], colors: this.params.colors }; this.sync(); this.show(); } // (a preset is a shape: the colours stay)
       if (e.target.closest('[data-act=play]')) this.play();
     });
     root.addEventListener('input', e => {
+      const g = e.target.dataset && e.target.dataset.c;
+      if (g) { this.params.colors = { ...this.params.colors, [g]: fromHex(e.target.value) }; this.queue(); return; }
       const k = e.target.dataset && e.target.dataset.p; if (!k) return;
       this.params[k] = +e.target.value; this.preset = null; this.sync(); this.queue();
     });
@@ -54,6 +60,7 @@ export class BodyPanel {
   sync() {
     for (const i of this.root.querySelectorAll('[data-p]')) i.value = this.params[i.dataset.p];
     for (const s of this.root.querySelectorAll('[data-v]')) s.textContent = (+this.params[s.dataset.v]).toFixed(2);
+    for (const c of this.root.querySelectorAll('[data-c]')) c.value = toHex(this.params.colors[c.dataset.c]);
     for (const b of this.root.querySelectorAll('[data-preset]')) b.classList.toggle('on', b.dataset.preset === this.preset);
     const b = makeBody(this.params);
     this.root.querySelector('[data-info]').textContent = `${b.height.toFixed(2)} studs tall`;
