@@ -17,6 +17,13 @@ export default async function (t) {
     return { rig: hum.props.RigType, parts, joints: joints.sort() };
   });
   check(tree.rig === 'R15', `Humanoid.RigType is R15 (${tree.rig})`);
+  // A generated body (?body=) is drawn at its tier's detail: 15 parts, each 6 faces of (2 x segments)^2
+  // quads (runtime/bodygen.js TIER_SEGMENTS: rounder on higher tiers).
+  const detail = await t.eval(() => ({ body: new URLSearchParams(location.search).has('body'), tier: window.studio.R.quality, tris: window.studio.player.meshes.reduce((n, m) => n + (m.getTotalIndices ? m.getTotalIndices() / 3 : 0), 0) }));
+  if (detail.body) {
+    const seg = { low: 3, phone: 4, high: 6, ultra: 8 }[detail.tier];
+    check(detail.tris === 15 * 6 * (2 * seg) ** 2 * 2, `a generated body at the ${detail.tier} tier's detail (${detail.tris} triangles; ${seg} segments)`);
+  }
   const want = ['Head', 'HumanoidRootPart', 'LeftFoot', 'LeftHand', 'LeftLowerArm', 'LeftLowerLeg', 'LeftUpperArm', 'LeftUpperLeg', 'LowerTorso', 'RightFoot', 'RightHand', 'RightLowerArm', 'RightLowerLeg', 'RightUpperArm', 'RightUpperLeg', 'UpperTorso'];
   check(JSON.stringify(tree.parts) === JSON.stringify(want), `R15's 16 parts (${tree.parts.length})`);
   const J = Object.fromEntries(tree.joints.map(([n, ...r]) => [n, r]));

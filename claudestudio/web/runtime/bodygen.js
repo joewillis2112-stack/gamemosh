@@ -31,6 +31,9 @@ export const BODY_PRESETS = {
   tall: { legLength: 3.3, torsoLength: 2.5, lowerTorsoShare: 0.3, shoulderWidth: 1.8, hipWidth: 1.1, torsoDepth: 0.8, armLength: 2.7, forearmShare: 0.47, handLength: 0.5, footLength: 1.1, armThickness: 0.45, legThickness: 0.55, headHeight: 1.0, headWidth: 0.85, headDepth: 0.95, neckGap: 0.12, roundness: 0.7, headRoundness: 0.9, taper: 0.2, chest: 0.2, segments: 6 },
 };
 
+/** Mesh detail by fidelity tier (runtime/quality.js): segments per part's rounding; more on higher tiers. */
+export const TIER_SEGMENTS = { low: 3, phone: 4, high: 6, ultra: 8 };
+
 const T = (x, y, z) => new CF([x, y, z, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
 
 /** The body: parts { name: { size, rest (in the HumanoidRootPart's frame), attachments { name: CF },
