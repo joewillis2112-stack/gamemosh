@@ -31,6 +31,24 @@ export const BODY_PRESETS = {
   tall: { legLength: 3.3, torsoLength: 2.5, lowerTorsoShare: 0.3, shoulderWidth: 1.8, hipWidth: 1.1, torsoDepth: 0.8, armLength: 2.7, forearmShare: 0.47, handLength: 0.5, footLength: 1.1, armThickness: 0.45, legThickness: 0.55, headHeight: 1.0, headWidth: 0.85, headDepth: 0.95, neckGap: 0.12, roundness: 0.7, headRoundness: 0.9, taper: 0.2, chest: 0.2, segments: 6 },
 };
 
+/** The BodyShape class's properties (Claude Studio's own, web/datamodel.js): each shape parameter but
+ *  segments (the tier's), capitalised: [property, parameter]. Their defaults are the studio preset's. */
+export const SHAPE_PROPS = Object.keys(BODY_PRESETS.studio).filter(k => k !== 'segments').map(k => [k[0].toUpperCase() + k.slice(1), k]);
+const BODY_COLORS = ['Head', 'Torso', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg'];
+/** A body's parameters from a HumanoidDescription's properties and its BodyShape's (plain prop objects,
+ *  either may be null): the shape over `base`, the description's four scales and six colours (Color3s
+ *  with r, g, b). ProportionScale and BodyTypeScale blend towards Roblox's own bodies' proportions,
+ *  which ours don't have: they are kept on the description and change nothing here. */
+export function describedBody(desc, shape, base = BODY_PRESETS.studio) {
+  const p = { ...base };
+  if (shape) for (const [prop, k] of SHAPE_PROPS) if (typeof shape[prop] === 'number') p[k] = shape[prop];
+  if (desc) {
+    Object.assign(p, { heightScale: desc.HeightScale, widthScale: desc.WidthScale, depthScale: desc.DepthScale, headScale: desc.HeadScale });
+    p.colors = Object.fromEntries(BODY_COLORS.map(g => { const c = desc[g + 'Color']; return [g, [c.r, c.g, c.b]]; }));
+  }
+  return p;
+}
+
 /** Mesh detail by fidelity tier (runtime/quality.js): segments per part's rounding; more on higher tiers. */
 export const TIER_SEGMENTS = { low: 3, phone: 4, high: 6, ultra: 8 };
 
@@ -40,7 +58,7 @@ const T = (x, y, z) => new CF([x, y, z, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
  *  shape { roundness, taper, flare } } }, joints [{ name, part0, part1, c0, c1 }], hrpHeight (the root's
  *  centre above the soles), height (soles to the head's top). Roblox's axes: +Y up, facing -Z. */
 export function makeBody(params = {}) {
-  const p = { ...BODY_PRESETS.studio, ...params };
+  const p = { ...BODY_PRESETS.studio, heightScale: 1, widthScale: 1, depthScale: 1, headScale: 1, ...params };
   const lower = p.torsoLength * p.lowerTorsoShare, upper = p.torsoLength - lower;
   const upperLeg = p.legLength * 0.5, lowerLeg = p.legLength * 0.5 - p.legThickness * 0.25, footH = p.legThickness * 0.5; // the foot's height comes off the leg
   const upperArm = (p.armLength) * (1 - p.forearmShare), lowerArm = p.armLength * p.forearmShare;
@@ -77,6 +95,15 @@ export function makeBody(params = {}) {
     A(s + 'LowerLeg', s + 'AnkleRigAttachment', 0, -LL[1] / 2, 0); A(s + 'Foot', s + 'AnkleRigAttachment', 0, F[1] / 2, F[2] / 2 - LL[2] / 2); // heel under the shin, toes forward (-Z)
   }
   A('Head', 'FaceFrontAttachment', 0, 0, -H[2] / 2); A('Head', 'HatAttachment', 0, H[1] / 2, 0);
+  // Roblox's body scales (HumanoidDescription HeightScale, WidthScale, DepthScale, HeadScale): every
+  // part but the head stretched along its own axes, the head scaled whole; each part's attachments with
+  // it. At rest every part's frame is the root's, unturned, so the joints still meet.
+  const sc = n => n === 'Head' ? [p.headScale, p.headScale, p.headScale] : [p.widthScale, p.heightScale, p.depthScale];
+  for (const n of R15_PARTS) {
+    const k = sc(n), part = parts[n];
+    part.size = part.size.map((v, i) => v * k[i]);
+    for (const [a, c] of Object.entries(part.attachments || {})) part.attachments[a] = T(c.x * k[0], c.y * k[1], c.z * k[2]);
+  }
   // Rest pose from the root: Part1 = Part0 * C0 * C1:Inverse().
   const rest = { HumanoidRootPart: new CF() };
   const joints = R15_JOINTS.map(([name, a, b, att]) => {
@@ -93,7 +120,7 @@ export function makeBody(params = {}) {
   }
   // The soles: the feet's lowest point; the head's top.
   const sole = Math.min(...['LeftFoot', 'RightFoot'].map(f => rest[f].y - parts[f].size[1] / 2));
-  const top = rest.Head.y + H[1] / 2;
+  const top = rest.Head.y + parts.Head.size[1] / 2; // (the scaled head)
   return { params: p, parts, joints, hrpHeight: -sole, height: top - sole };
 }
 
@@ -142,6 +169,18 @@ export function partMesh(size, { roundness = 0.5, taper = 0, segments = 6, exten
 }
 
 const flat = c => c.m.map(x => +x.toFixed(6));
+/** Which of Roblox's six body colours (BodyColors, HumanoidDescription: Head, Torso, LeftArm, RightArm,
+ *  LeftLeg, RightLeg) an R15 part wears. */
+export const colorGroup = n => n === 'Head' ? 'Head' : /Torso$/.test(n) ? 'Torso' : n.replace(/(Upper|Lower)?(Arm|Hand)$/, 'Arm').replace(/(Upper|Lower)?(Leg|Foot)$/, 'Leg');
+// Roblox's Color3s are sRGB; glTF's vertex colours are linear.
+export const toLinear = v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+// A part's mesh with its colour on every vertex (params.colors: { Head: [r, g, b], Torso, ... }, sRGB 0-1),
+// or as it was when the body has no colours (one material colour for all).
+const tinted = (b, n, m) => {
+  const c = b.params.colors && b.params.colors[colorGroup(n)];
+  if (c) { const [r, g, bl] = c.map(toLinear); m.colors = []; for (let i = 0; i < m.positions.length; i += 3) m.colors.push(r, g, bl, 1); }
+  return m;
+};
 /** The body's nodes for a .glb: a node per part (named as the part, parented as the joints), the root
  *  turned to face +Z as glTF characters do, each part's joint in its extras (runtime/r15clips.js reads
  *  them: the part's size, its joint, C0 and C1). */
@@ -154,7 +193,7 @@ export function bodyNodes(b) {
       name: n, translation: j ? [local.x, local.y, local.z] : [0, b.hrpHeight, 0], rotation: j ? [x, y, z, w] : [0, 1, 0, 0],
       children: R15_JOINTS.filter(k => k[1] === n).map(k => index.get(k[2])),
       extras: { r15: { part: n, size: b.parts[n].size, ...(jt ? { joint: jt.name, c0: flat(jt.c0), c1: flat(jt.c1) } : {}) } },
-      mesh: b.parts[n].shape ? partMesh(b.parts[n].size, { ...b.parts[n].shape, segments: b.params.segments }) : null,
+      mesh: b.parts[n].shape ? tinted(b, n, partMesh(b.parts[n].size, { ...b.parts[n].shape, segments: b.params.segments })) : null,
     };
   });
 }
@@ -162,6 +201,7 @@ export function bodyNodes(b) {
  *  skinned: one smooth skinned mesh (high tiers) instead of a rigid mesh per part (bodySkin). */
 export function bodyGlb(params = {}, { skinned = false, ...opts } = {}) {
   const b = makeBody(params), nodes = bodyNodes(b);
+  if (params.colors) opts = { ...opts, color: [1, 1, 1, 1] }; // the vertices carry the colours (glTF multiplies them by the base colour)
   if (!skinned) return glbBytes(nodes, [R15_PARTS.indexOf('HumanoidRootPart')], opts);
   const { mesh, inverseBindMatrices } = bodySkin(b, nodes);
   for (const n of nodes) { n.extras.part = boxOf(b.parts[n.name].size); n.mesh = null; } // the joints keep their boxes (feet's soles are measured on them)
@@ -187,11 +227,12 @@ export function bodySkin(b, nodes) {
     const r = Math.max(0.15, Math.min(0.6, th * 0.5));
     near[j.part0].push([j.part1, at, r]); near[j.part1].push([j.part0, at, r]);
   }
-  const positions = [], normals = [], uvs = [], indices = [], joints = [], weights = [];
+  const positions = [], normals = [], uvs = [], indices = [], joints = [], weights = [], colors = [];
   for (const n of R15_PARTS) {
     const part = b.parts[n];
     if (!part.shape) continue;
-    const m = partMesh(part.size, { ...part.shape, segments: b.params.segments }), W = world[n], R = W.m.slice(3), base = positions.length / 3;
+    const m = tinted(b, n, partMesh(part.size, { ...part.shape, segments: b.params.segments })), W = world[n], R = W.m.slice(3), base = positions.length / 3;
+    if (m.colors) colors.push(...m.colors);
     for (let i = 0; i < m.positions.length; i += 3) {
       const v = W.mul(new CF([m.positions[i], m.positions[i + 1], m.positions[i + 2], 1, 0, 0, 0, 1, 0, 0, 0, 1]));
       positions.push(v.x, v.y, v.z);
@@ -215,5 +256,5 @@ export function bodySkin(b, nodes) {
     const v = world[n].inverse(), r = v.m;
     inverseBindMatrices.set([r[3], r[6], r[9], 0, r[4], r[7], r[10], 0, r[5], r[8], r[11], 0, v.x, v.y, v.z, 1], i * 16);
   });
-  return { mesh: { positions, normals, uvs, indices, joints, weights }, inverseBindMatrices };
+  return { mesh: { positions, normals, uvs, indices, joints, weights, ...(colors.length ? { colors } : {}) }, inverseBindMatrices };
 }

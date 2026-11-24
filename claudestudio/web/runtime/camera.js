@@ -80,7 +80,7 @@ export class FollowCamera {
   focusPoint() {
     if (this.focus) return new Vector3(...this.focus); // a fixed point: tests and cutscenes
     if (this.subject) return this.subject.clone();     // CameraSubject a part (CameraSync)
-    return this.char.holder.position.add(new Vector3(0, 3 + CAMERA.FocusAboveRoot, 0));
+    return this.char.holder.position.add(new Vector3(0, (this.char.rootHeight || 3) + CAMERA.FocusAboveRoot, 0)); // above the root part (R6: 3 studs up)
   }
 
   update(dt) {

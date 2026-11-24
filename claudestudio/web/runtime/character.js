@@ -239,7 +239,10 @@ export class Character {
     root.parent = this.holder;
     root.computeWorldMatrix(true);
     const { min, max } = root.getHierarchyBoundingVectors(true);
-    this.modelScale = H.Height / (max.y - min.y);
+    // An R15 body's file is in studs and keeps its height (bodies differ: a description's HeightScale, a
+    // tall shape); other models are drawn 5 studs tall.
+    if (rig) H.Height = max.y - min.y;
+    this.modelScale = rig ? 1 : H.Height / (max.y - min.y);
     root.scaling.scaleInPlace(this.modelScale);
     root.position.y -= min.y * this.modelScale;
     res.meshes.forEach(m => { if (m.getTotalVertices() > 0) { shadows.addShadowCaster(m); m.receiveShadows = true; } });
@@ -284,7 +287,7 @@ export class Character {
     // StepUp above the feet, and floor rays plus a spring hold it at that
     // height. So anything lower than StepUp is walked over, stairs and slopes
     // are followed smoothly, and only taller things block.
-    this.capH = H.Height - H.StepUp;
+    this.capH = Math.max(2 * H.Radius + 0.1, H.Height - H.StepUp); // (a capsule no shorter than its two caps)
     this.ctrl = new PhysicsCharacterController(Vector3.Zero(), { capsuleHeight: this.capH, capsuleRadius: H.Radius }, scene);
     this.ctrl.maxSlopeCosine = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
     this.ctrl.maxStepHeight = 0; // stepping is the hover spring's job

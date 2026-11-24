@@ -36,7 +36,8 @@ const enc = new TextEncoder();
  *  roots: indices of the scene's top nodes. Returns the .glb's bytes. */
 // A node may name a skin (node.skin: an index into `skins`); its mesh then carries joints (Uint16 x4
 // per vertex: indices into the skin's joints) and weights (Float32 x4). skins: [{ joints: [node index],
-// inverseBindMatrices: Float32Array of 16 per joint, column-major }].
+// inverseBindMatrices: Float32Array of 16 per joint, column-major }]. A mesh may carry colors (RGBA float x4
+// per vertex: COLOR_0, multiplied by the material's colour).
 export function glbBytes(nodes, roots, { color = [0.64, 0.64, 0.65, 1], roughness = 0.8, skins = [] } = {}) {
   const gNodes = [], meshes = [], accessors = [], views = [], chunks = [];
   let off = 0;
@@ -61,6 +62,7 @@ export function glbBytes(nodes, roots, { color = [0.64, 0.64, 0.65, 1], roughnes
         POSITION: acc(new Float32Array(m.positions), 'VEC3', 5126, m.positions.length / 3, { min, max }),
         NORMAL: acc(new Float32Array(m.normals), 'VEC3', 5126, m.normals.length / 3),
         TEXCOORD_0: acc(new Float32Array(m.uvs), 'VEC2', 5126, m.uvs.length / 2),
+        ...(m.colors ? { COLOR_0: acc(new Float32Array(m.colors), 'VEC4', 5126, m.colors.length / 4) } : {}),
         ...(m.joints ? { JOINTS_0: acc(new Uint16Array(m.joints), 'VEC4', 5123, m.joints.length / 4), WEIGHTS_0: acc(new Float32Array(m.weights), 'VEC4', 5126, m.weights.length / 4) } : {}),
       }, indices: acc(new Uint32Array(m.indices), 'SCALAR', 5125, m.indices.length), material: 0 }] });
       g.mesh = meshes.length - 1;

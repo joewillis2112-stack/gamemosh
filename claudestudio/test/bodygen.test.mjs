@@ -3,7 +3,7 @@
 // torso; the feet point forward (-Z, Roblox's facing); every part's mesh is wound outward and fills
 // its size (a box at roundness 0); parameters do what they say (longer legs raise the root by that
 // much; a bigger head makes the body that much taller).
-import { makeBody, partMesh, bodyNodes, bodySkin, BODY_PRESETS, R15_PARTS, R15_JOINTS } from '../web/runtime/bodygen.js';
+import { makeBody, partMesh, bodyNodes, bodySkin, BODY_PRESETS, R15_PARTS, R15_JOINTS, describedBody, colorGroup, toLinear, SHAPE_PROPS } from '../web/runtime/bodygen.js';
 
 const fail = [];
 const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -73,6 +73,38 @@ for (const [name, preset] of Object.entries(BODY_PRESETS)) {
   // (The joint is inside the limb: the nearest surface vertex is some way off it, so not quite half and half.)
   check(best < 0.3 && kt >= 0.25 && ks >= 0.25, `skin: a vertex at the knee is shared by thigh and shin (${kt.toFixed(2)} / ${ks.toFixed(2)}, ${best.toFixed(2)} studs from it)`);
   check(farThigh !== null && share(farThigh, thigh) === 1, 'skin: a vertex well up the thigh is all the thigh\'s');
+}
+
+// Roblox's body scales (HumanoidDescription): every part but the head stretched along its axes, the head
+// scaled whole, the joints still meeting; the neck's height scales with HeightScale, the head above it
+// with HeadScale.
+{
+  const base = makeBody({}), sc = { heightScale: 1.2, widthScale: 0.8, depthScale: 1.1, headScale: 1.3 }, b = makeBody(sc);
+  let worst = 0, wrong = [];
+  for (const j of b.joints) { const a = b.parts[j.part0].rest.mul(j.c0), c = b.parts[j.part1].rest.mul(j.c1); worst = Math.max(worst, Math.hypot(a.x - c.x, a.y - c.y, a.z - c.z)); }
+  for (const n of R15_PARTS) { const k = n === 'Head' ? [1.3, 1.3, 1.3] : [0.8, 1.2, 1.1]; if (!b.parts[n].size.every((v, i) => near(v, base.parts[n].size[i] * k[i]))) wrong.push(n); }
+  check(worst < 1e-4 && !wrong.length, `scales: each part stretched (the head whole), the joints meeting (worst ${worst.toExponential(1)}${wrong.length ? '; wrong: ' + wrong : ''})`);
+  const neck = x => { const u = x.parts.UpperTorso.rest.mul(x.joints.find(j => j.name === 'Neck').c0); return u.y + x.hrpHeight; };
+  const want = 1.2 * neck(base) + 1.3 * (base.height - neck(base));
+  check(near(neck(b), 1.2 * neck(base)) && near(b.height, want), `scales: the neck ${neck(b).toFixed(3)} studs up (1.2x), the body ${b.height.toFixed(3)} tall (${want.toFixed(3)})`);
+  check(near(b.parts.LeftUpperArm.rest.x, 0.8 * base.parts.LeftUpperArm.rest.x) && near(b.parts.LeftFoot.rest.z, 1.1 * base.parts.LeftFoot.rest.z), 'scales: the arms move in with WidthScale, the feet forward with DepthScale');
+}
+// A HumanoidDescription's and a BodyShape's properties as body parameters.
+{
+  const C = (r, g, b) => ({ r, g, b });
+  const desc = { HeightScale: 1.1, WidthScale: 0.9, DepthScale: 1, HeadScale: 1.2, HeadColor: C(1, 0.5, 0), TorsoColor: C(0, 1, 0), LeftArmColor: C(0, 0, 1), RightArmColor: C(0.5, 0, 1), LeftLegColor: C(1, 1, 0), RightLegColor: C(0, 1, 1) };
+  const shape = Object.fromEntries(SHAPE_PROPS.map(([prop, k]) => [prop, BODY_PRESETS.tall[k]]));
+  const p = describedBody(desc, shape, BODY_PRESETS.chibi);
+  check(SHAPE_PROPS.every(([, k]) => p[k] === BODY_PRESETS.tall[k]) && p.heightScale === 1.1 && p.headScale === 1.2 && p.widthScale === 0.9 && JSON.stringify(p.colors.RightArm) === '[0.5,0,1]', 'described: the shape from BodyShape (over the base), the scales and colours from the description');
+  const q = describedBody(desc, null, BODY_PRESETS.chibi);
+  check(SHAPE_PROPS.every(([, k]) => q[k] === BODY_PRESETS.chibi[k]), 'described: without a BodyShape the base shape stays');
+  // Colours: every vertex of a part wears its group's colour, linear (glTF's), on rigid parts and the skinned mesh.
+  const b = makeBody(p), nodes = bodyNodes(b);
+  const bad = nodes.filter(n => n.mesh).filter(n => { const want = p.colors[colorGroup(n.name)].map(toLinear), c = n.mesh.colors; if (!c || c.length !== n.mesh.positions.length / 3 * 4) return true; for (let i = 0; i < c.length; i += 4) if (!near(c[i], want[0]) || !near(c[i + 1], want[1]) || !near(c[i + 2], want[2]) || c[i + 3] !== 1) return true; return false; });
+  check(nodes.filter(n => n.mesh).length === 15 && !bad.length, `colours: each part's vertices wear its group's colour, linear${bad.length ? ' (wrong: ' + bad.map(n => n.name) + ')' : ''}`);
+  check(colorGroup('LeftHand') === 'LeftArm' && colorGroup('RightFoot') === 'RightLeg' && colorGroup('LowerTorso') === 'Torso' && colorGroup('RightLowerArm') === 'RightArm', 'colours: hands with the arms, feet with the legs, both torsos one');
+  const { mesh } = bodySkin(b, nodes);
+  check(mesh.colors && mesh.colors.length === mesh.positions.length / 3 * 4, 'colours: the skinned mesh carries one per vertex');
 }
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('PASS');

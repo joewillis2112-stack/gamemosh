@@ -90,7 +90,7 @@ export class CharacterBody {
     this.isR15 = true;
     const byName = { HumanoidRootPart: root };
     for (const [name, part] of char.rig) {
-      if (name === 'HumanoidRootPart') continue;
+      if (name === 'HumanoidRootPart') { root.props.Size = new V3(...part.size.map(v => v * k)); continue; } // scaled with the body, as Roblox's
       const p = dm.create('Part');
       Object.assign(p.props, { Name: name, Size: new V3(...part.size.map(v => v * k)), CanCollide: false, CFrame: root.props.CFrame });
       p.isCharacter = true;

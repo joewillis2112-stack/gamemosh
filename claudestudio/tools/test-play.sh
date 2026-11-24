@@ -45,6 +45,8 @@ run --noshots --scenario test/scenarios/joints.mjs
 run --noshots --scenario test/scenarios/charbody.mjs
 run --noshots --character assets/characters/r15/studio.glb --scenario test/scenarios/charbody-r15.mjs
 run --noshots --body chibi --quality low --scenario test/scenarios/charbody-r15.mjs
+run --place places/bodies-lab.luau --scenario test/scenarios/bodies.mjs
+run --noshots --place places/bodies-lab.luau --quality low --scenario test/scenarios/bodies.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs

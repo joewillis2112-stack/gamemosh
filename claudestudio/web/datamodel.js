@@ -10,6 +10,7 @@ import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/vo
 import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
 import { Assemblies, isJoint } from './assembly.js';
+import { BODY_PRESETS, SHAPE_PROPS } from './runtime/bodygen.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -613,6 +614,27 @@ defineClass('Attachment', 'Instance', {
     WorldCFrame: ['CFrame'], WorldPosition: ['Vector3', [0, 0, 0]], WorldOrientation: ['Vector3', [0, 0, 0]], WorldAxis: ['Vector3', [1, 0, 0]], WorldSecondaryAxis: ['Vector3', [0, 1, 0]],
   },
 });
+// Bodies. HumanoidDescription (Roblox): a character's look, here its body scales and six body colours
+// (defaults from the API dump: the colours start black, as Roblox's do). BodyColors (Roblox): a
+// character's six colours as worn. BodyShape (Claude Studio's own): the shape of a generated R15 body
+// (runtime/bodygen.js), every proportion in studs, the defaults our studio body's; a HumanoidDescription's
+// BodyShape child gives the shape its scales and colours apply to. A HumanoidDescription in StarterPlayer
+// is every player's body (OURS: Roblox keeps a game's avatar settings in Game Settings, outside the
+// place's tree). ProportionScale and BodyTypeScale are kept and change nothing: they blend towards
+// Roblox's own bodies' proportions, which ours don't have.
+defineClass('HumanoidDescription', 'Instance', {
+  props: {
+    BodyTypeScale: ['number', 0.3], DepthScale: ['number', 1], HeadScale: ['number', 1], HeightScale: ['number', 1], ProportionScale: ['number', 1], WidthScale: ['number', 1],
+    HeadColor: ['Color3', [0, 0, 0]], TorsoColor: ['Color3', [0, 0, 0]], LeftArmColor: ['Color3', [0, 0, 0]], RightArmColor: ['Color3', [0, 0, 0]], LeftLegColor: ['Color3', [0, 0, 0]], RightLegColor: ['Color3', [0, 0, 0]],
+  },
+});
+defineClass('BodyColors', 'Instance', {
+  props: {
+    HeadColor3: ['Color3', [0.992157, 0.917647, 0.552941]], TorsoColor3: ['Color3', [0.156863, 0.498039, 0.278431]], LeftArmColor3: ['Color3', [0.992157, 0.917647, 0.552941]],
+    RightArmColor3: ['Color3', [0.992157, 0.917647, 0.552941]], LeftLegColor3: ['Color3', [0.0509804, 0.411765, 0.67451]], RightLegColor3: ['Color3', [0.0509804, 0.411765, 0.67451]],
+  },
+});
+defineClass('BodyShape', 'Instance', { props: Object.fromEntries(SHAPE_PROPS.map(([prop, k]) => [prop, ['number', BODY_PRESETS.studio[k]]])) });
 // Joints (web/assembly.js holds what they do). JointInstance: Part1 sits at Part0 * C0 * C1:Inverse()
 // (a Motor turned CurrentAngle about Z between them, a Motor6D its Transform: what Animators write).
 // WeldConstraint keeps the offset its parts had when it became active. Active is the engine's (a
@@ -1242,6 +1264,27 @@ export const STUDIO_OWN = new Map([
   ['PixelEffect.PixelSize', 'How many screen pixels make one big pixel (1 to 16).'],
   ['PixelEffect.Colors', 'Levels per colour channel (2 to 32) for a limited palette; 0 keeps every colour.'],
   ['PixelEffect.Dither', 'Whether a limited palette is dithered (an ordered pattern) instead of banded.'],
+  ['BodyShape', 'The shape of a generated R15 body, in studs: under a HumanoidDescription, the body its scales and colours apply to.'],
+  ['BodyShape.LegLength', 'Hip to sole, in studs.'],
+  ['BodyShape.TorsoLength', 'Both torso parts together, in studs.'],
+  ['BodyShape.LowerTorsoShare', 'The lower torso\'s share of the torso\'s length (0 to 1).'],
+  ['BodyShape.ShoulderWidth', 'Across the shoulders, in studs.'],
+  ['BodyShape.HipWidth', 'Across the hips, in studs.'],
+  ['BodyShape.TorsoDepth', 'The torso from front to back, in studs.'],
+  ['BodyShape.ArmLength', 'Shoulder to wrist, in studs.'],
+  ['BodyShape.ForearmShare', 'The forearm\'s share of the arm\'s length (0 to 1).'],
+  ['BodyShape.HandLength', 'Wrist to fingertips, in studs.'],
+  ['BodyShape.FootLength', 'Heel to toe, in studs.'],
+  ['BodyShape.ArmThickness', 'How thick the arms are, in studs.'],
+  ['BodyShape.LegThickness', 'How thick the legs are, in studs.'],
+  ['BodyShape.HeadHeight', 'The head from chin to top, in studs.'],
+  ['BodyShape.HeadWidth', 'The head from side to side, in studs.'],
+  ['BodyShape.HeadDepth', 'The head from front to back, in studs.'],
+  ['BodyShape.NeckGap', 'The space between the torso\'s top and the head, in studs.'],
+  ['BodyShape.Roundness', 'How rounded the limbs and torso are (0 boxes, 1 fully rounded).'],
+  ['BodyShape.HeadRoundness', 'How rounded the head is (0 a box, 1 fully rounded).'],
+  ['BodyShape.Taper', 'How much the limbs narrow towards their lower ends (0 none, 0.4 strong).'],
+  ['BodyShape.Chest', 'How much wider the upper torso is at the shoulders than at the waist (0 none).'],
 ]);
 const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
 const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
