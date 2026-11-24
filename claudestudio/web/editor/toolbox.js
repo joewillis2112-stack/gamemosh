@@ -61,8 +61,9 @@ export class Toolbox {
   /** Insert an item (by id): a MeshPart of its model at its size, where the camera looks; selected. */
   insert(id) {
     const it = this.items.find(i => i.id === id); if (!it) return null;
-    // Its URL: Poly Haven's at 1k (runtime/world.js loads the tier's resolution). A model with a flat
+    // MeshSize: the file's own size, so the MeshPart keeps its Size when the file loads (a part with no
+    // MeshSize yet takes its mesh's). Its URL: Poly Haven's at 1k (runtime/world.js loads the tier's resolution). A model with a flat
     // base (a road tile) sits its catalog `lift` above the surface, or it z-fights with it.
-    return this.commands.run('insert', { className: 'MeshPart', props: { Name: it.name.replace(/[^\w ]/g, '').replace(/\s+/g, ' ').trim() || 'Model', MeshId: it.url, Size: new V3(...it.size) }, offset: it.lift || 0 });
+    return this.commands.run('insert', { className: 'MeshPart', props: { Name: it.name.replace(/[^\w ]/g, '').replace(/\s+/g, ' ').trim() || 'Model', MeshId: it.url, Size: new V3(...it.size), ...(it.meshSize ? { MeshSize: new V3(...it.meshSize) } : {}) }, offset: it.lift || 0 });
   }
 }

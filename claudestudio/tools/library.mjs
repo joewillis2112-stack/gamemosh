@@ -223,9 +223,11 @@ function catalog() {
   const list = items.map(({ c, m }) => {
     const thumb = 'thumbs/' + c.id.replace(/\//g, '__') + '.jpg';
     fs.copyFileSync(path.join(CACHE, 'gate', c.id.replace(/\//g, '__') + '.thumb.jpg'), path.join(LIB, thumb));
+    // size: as it is placed (kit units and rescales applied); meshSize: the file's own (studs at 1 m =
+    // 1/0.28 studs), the MeshPart's MeshSize, so loading the file doesn't put Size back to it.
     const k = unitScale(c, m);
     const size = [m.bbox.max[0] - m.bbox.min[0], m.bbox.max[1] - m.bbox.min[1], m.bbox.max[2] - m.bbox.min[2]].map(v => Math.max(0.05, +(v * k).toFixed(2))); // a flat model (a floor tile) still gets a thin collider
-    return { id: c.id, name: c.name, source: c.source, categories: c.categories, tags: c.tags, credit: c.credit, license: c.license, page: c.page, size, ...(m.flatBase > 0.05 ? { lift: LIFT } : {}), tris: m.triangles, url: c.urls['1k'] || c.urls.glb, thumb }; // Poly Haven's 1k (runtime/world.js picks the tier's)
+    return { id: c.id, name: c.name, source: c.source, categories: c.categories, tags: c.tags, credit: c.credit, license: c.license, page: c.page, size, meshSize: [0, 1, 2].map(i => +Math.max(0.01, m.bbox.max[i] - m.bbox.min[i]).toFixed(4)), ...(m.flatBase > 0.05 ? { lift: LIFT } : {}), tris: m.triangles, url: c.urls['1k'] || c.urls.glb, thumb }; // Poly Haven's 1k (runtime/world.js picks the tier's)
   }).sort((a, b) => a.name.localeCompare(b.name));
   fs.writeFileSync(path.join(LIB, 'catalog.json'), JSON.stringify({ generated: 'tools/library.mjs', items: list }));
   console.log(`catalog: ${list.length} items (${rejects.size} refused on review)`);

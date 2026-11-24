@@ -121,6 +121,10 @@ export default async function (t) {
   const kname = await E(() => window.editor.commands.selection.items[0].props.Name);
   const lk = await loaded(kname);
   check(lk.ok && lk.textures >= 1, `a Kenney model loads with its kit's texture (${lk.textures})`);
+  // Loaded, it keeps the catalog's size (a MeshPart with no MeshSize takes its file's own size when the
+  // file loads: Kenney's 1-unit tile would shrink back to 3.6 studs).
+  const ks = await E(([n, id]) => { const ed = window.editor, p = ed.dm.workspace.children.find(c => c.props.Name === n), it = ed.toolbox.items.find(i => i.id === id); return { size: [p.props.Size.x, p.props.Size.y, p.props.Size.z], want: it.size, mesh: [p.props.MeshSize.x, p.props.MeshSize.y, p.props.MeshSize.z] }; }, [kname, KG]);
+  check(ks.size.every((v, i) => Math.abs(v - ks.want[i]) < 1e-6) && ks.mesh[0] < ks.size[0] / 2, `after loading it keeps the catalog's size (${ks.size.map(v => v.toFixed(1))}; its file's own ${ks.mesh.map(v => v.toFixed(2))})`);
 
   // A model with a flat base (a road tile) sits its lift above the surface, so its asphalt doesn't
   // z-fight with the floor.
