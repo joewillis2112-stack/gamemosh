@@ -7,7 +7,7 @@
 // HumanoidDescription under its Humanoid (an R15 rig), else the blocky character. Anchored rigs stay statues
 // (runtime/rigs.js). Health 0: Died, the death pose, no respawn.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
-import { V3, CF } from '../datamodel.js';
+import { V3, CF, C3 } from '../datamodel.js';
 import { Character } from './character.js';
 import { CharacterBody } from './charbody.js';
 import { describedBody, bodyFile, bodyColors } from './bodygen.js';
@@ -76,7 +76,7 @@ export class Npcs {
       e.char.setBody(r.res, r); e.char.bodyParams = params; e.char.colors = bodyColors(params);
       e.body.reshape();
       const bc = e.body.bodyColors;
-      if (bc) for (const [g, c] of Object.entries(e.char.colors)) { bc.props[g + 'Color3'] = new (bc.props[g + 'Color3'].constructor)(...c); }
+      if (bc) for (const [g, c] of Object.entries(e.char.colors)) bc.props[g + 'Color3'] = new C3(...c); // (the new body is already in them: no Changed)
     });
   }
 
