@@ -773,9 +773,24 @@ defineClass('Humanoid', 'Instance', {
     TakeDamage(self, amount) { self.dm.set(self, 'Health', Math.max(0, self.props.Health - (+amount || 0))); return []; },
     // Deprecated in Roblox but still common: loads through the Humanoid's Animator (made if missing).
     LoadAnimation(self, anim) { return [self.dm.loadAnimation(self.dm.animatorOf(self), anim)]; },
+    // Bodies (see HumanoidDescription below): yields while the body is rebuilt (dm.hooks.applyDescription,
+    // runtime: a generated body takes the description's shape, scales and colours; other bodies keep
+    // theirs, OURS), then fires ApplyDescriptionFinished. GetAppliedDescription: a copy of the last applied.
+    ApplyDescriptionAsync(self, desc) { return applyDescription(self, desc); },
+    ApplyDescription(self, desc) { return applyDescription(self, desc); }, // (deprecated in Roblox for ApplyDescriptionAsync)
+    GetAppliedDescription(self) { return [(self.appliedDescription && self.dm.clone(self.appliedDescription)) || new Instance(self.dm, 'HumanoidDescription')]; },
   },
-  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched'],
+  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched', 'ApplyDescriptionFinished'],
 });
+function applyDescription(self, desc) {
+  if (!(desc instanceof Instance) || desc.ClassName !== 'HumanoidDescription') throw new Error('Argument 1 missing or nil'); // UNSURE: Roblox's wording
+  const copy = self.dm.clone(desc), hook = self.dm.hooks.applyDescription;
+  return self.dm.async(self, Promise.resolve(hook ? hook(self, copy) : null).then(() => {
+    self.appliedDescription = copy;
+    self.dm.fire(self, 'ApplyDescriptionFinished', [self.dm.clone(copy)]);
+    return [];
+  }));
+}
 // Keyframe animation (create.roblox.com/docs/animation): the data, Animator and
 // AnimationTrack. The sampling and blending are in animation.js; the renderer
 // applies the result to rigs (runtime/rigs.js, runtime/character.js).

@@ -11,7 +11,7 @@
 // the controller step, after Stepped).
 import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.js';
 import { CF } from '../cframe.js';
-import { V3 } from '../datamodel.js';
+import { V3, C3 } from '../datamodel.js';
 import { offsetToNode, nodeToOffset, R6 } from '../animation.js';
 import { R15_JOINTS } from './bodygen.js';
 
@@ -106,6 +106,28 @@ export class CharacterBody {
       return { j, C0, C1, part0: byName[a], part1: byName[b], node: part.node, rigPart: part };
     });
     this.mapping(); // node to part frames at rest (the glTF's handedness and turn taken out)
+    // A generated body's colours as Roblox keeps a character's: a BodyColors in the model (changing it
+    // recolours the body: runtime/players.js).
+    if (char.colors) {
+      const bc = dm.create('BodyColors');
+      for (const [g, c] of Object.entries(char.colors)) bc.props[g + 'Color3'] = new C3(...c);
+      dm.setParent(bc, model);
+      this.bodyColors = bc;
+    }
+  }
+
+  /** The drawn body was replaced (Character.setBody: a new shape or scale): the same R15 parts and
+   *  Motor6Ds take its sizes, C0 and C1 (as Roblox rescales a character in place), and follow its nodes. */
+  reshape() {
+    if (!this.isR15) return;
+    const { dm, char } = this, k = char.modelScale, sc = c => new CF([c.x * k, c.y * k, c.z * k, ...c.m.slice(3)]);
+    for (const [name, part] of char.rig) if (this.parts[name]) dm.set(this.parts[name], 'Size', new V3(...part.size.map(v => v * k)));
+    for (const J of this.joints) {
+      const part = char.rig.get(J.part1.props.Name);
+      Object.assign(J, { C0: sc(part.c0), C1: sc(part.c1), node: part.node, rigPart: part });
+      dm.set(J.j, 'C0', J.C0); dm.set(J.j, 'C1', J.C1);
+    }
+    this.mapping();
   }
 
   /** Each frame, after the rig is posed and the HRP placed: scripts' C0/C1 onto the rig, then the

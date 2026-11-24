@@ -67,6 +67,7 @@ export class Players {
   }
 
   spawn(player) {
+    this.beforeSpawn && this.beforeSpawn(); // (the page puts the body back as the place gives it)
     this.endTouches();
     this.removed = false;
     const old = player.props.Character;
@@ -88,6 +89,9 @@ export class Players {
     // R6's body parts and Motor6Ds, following the drawn rig (runtime/charbody.js).
     this.body = new CharacterBody(this.dm, this.char, model, root);
     hum.props.RigType = this.char.rig ? 'R15' : 'R6';
+    // Its description (Humanoid:GetAppliedDescription): the place's (StarterPlayer's), else one made new.
+    const sd = this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'HumanoidDescription');
+    hum.appliedDescription = sd ? this.dm.clone(sd) : null;
     // StarterCharacterScripts go into the new character.
     this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterCharacterScripts'), model);
     this.model = model; this.humanoid = hum; this.root = root;
@@ -122,9 +126,11 @@ export class Players {
     if (inst === this.root && key === 'CFrame' && !this.dead) {
       const cf = inst.props.CFrame, look = [-cf.m[5], -cf.m[11]]; // LookVector's x and z
       const turned = Math.hypot(look[0], look[1]) > 1e-3;
-      this.char.teleport(new Vector3(cf.x, cf.y - 3, cf.z), turned ? Math.atan2(look[0], look[1]) : undefined);
+      this.char.teleport(new Vector3(cf.x, cf.y - (this.char.rootHeight || 3), cf.z), turned ? Math.atan2(look[0], look[1]) : undefined); // (the root's height above the feet: R6 3, R15 its body's)
       return;
     }
+    // The character's BodyColors recolour its body (a generated one: Character.setColors).
+    if (this.body && inst === this.body.bodyColors && /Color3$/.test(key)) { const c = inst.props[key]; this.char.setColors({ [key.slice(0, -6)]: [c.r, c.g, c.b] }); return; }
     if (inst !== this.humanoid) return;
     if (key === 'Health') {
       this.dm.fire(inst, 'HealthChanged', [inst.props.Health]);

@@ -107,7 +107,8 @@ export class FollowCamera {
     // Pull in when something blocks the view; ease back out. A fixed focus is a scripted view: no pull-in.
     let want = this.z;
     if (!firstPerson && !this.focus) {
-      const own = this.own || (this.own = new Set(this.char.meshes));
+      if (this.ownOf !== this.char.meshes) { this.own = new Set(this.char.meshes); this.ownOf = this.char.meshes; } // (a new body: its meshes)
+      const own = this.own;
       const skip = this.subjectMesh; // a part followed: it doesn't block its own view (Roblox's Poppercam ignores the subject)
       const hit = this.scene.pickWithRay(new Ray(target, dir, this.z), m => m.isPickable && m.isVisible && m.visibility > 0.75 && !own.has(m) && m !== skip && m.name !== 'skyBox' && !m.name.startsWith('hdrSkyBox'));
       if (hit && hit.hit) want = Math.max(CAMERA.MinZoom, hit.distance - 0.6);

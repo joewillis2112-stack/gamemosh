@@ -9,6 +9,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
 import { applySkin } from './skin.js';
 import { r15Rig, loadR15Clips, addR15Clips } from './r15clips.js';
+import { colorGroup, toLinear } from './bodygen.js';
 import { nodeOfJoint, offsetToNode } from '../animation.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
@@ -218,34 +219,70 @@ function partBoxes(res) {
 export class Character {
   /** url: a .glb's URL, or a File/Blob holding one (a rigged character handed over by the maker). */
   static async load(scene, url, shadows, spawn) {
+    const { res, rig, clips } = await Character.loadRes(scene, url);
+    return new Character(scene, res, shadows, spawn, { rig, clips });
+  }
+  /** A body file loaded: { res, rig, clips } (an R15 body, whose part nodes carry their joints, plays
+   *  Roblox's R15 clips: runtime/r15clips.js). For the constructor, or setBody. */
+  static async loadRes(scene, url) {
     let res;
     if (typeof url === 'string') { const cut = url.lastIndexOf('/') + 1; res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene); }
     else res = await SceneLoader.ImportMeshAsync('', '', url, scene, null, '.glb');
-    // An R15 body (its part nodes carry their joints: runtime/r15clips.js) plays Roblox's R15 clips.
     const rig = r15Rig(res), clips = rig ? await loadR15Clips() : null;
-    return new Character(scene, res, shadows, spawn, { rig, clips });
+    return { res, rig, clips };
   }
 
   constructor(scene, res, shadows, spawn, { rig = null, clips = null } = {}) {
     this.scene = scene;
-    this.rig = rig; // an R15 body's parts (runtime/r15clips.js), or null (the blocky R6-like model)
+    this.shadows = shadows;
     // This character's numbers: Roblox's defaults, overridden live from its
     // Humanoid (WalkSpeed, JumpPower, ...) by bindHumanoid.
     this.p = { ...HUMANOID };
     const H = this.p;
     // Visual: the glTF root under a holder we move and turn; feet at holder origin.
     this.holder = new TransformNode('character', scene);
+    this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
+    this.setBody(res, { rig, clips });
+
+    // Physics, Roblox's way: the body hovers. The collision capsule starts
+    // StepUp above the feet, and floor rays plus a spring hold it at that
+    // height. So anything lower than StepUp is walked over, stairs and slopes
+    // are followed smoothly, and only taller things block.
+    this.ctrl = new PhysicsCharacterController(Vector3.Zero(), { capsuleHeight: this.capH, capsuleRadius: H.Radius }, scene);
+    this.ctrl.maxSlopeCosine = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
+    this.ctrl.maxStepHeight = 0; // stepping is the hover spring's job
+    this.ctrl.maxCharacterSpeedForSolver = 300; // default 10 would cap walking and jumping
+    this.visible = true;
+    this.yaw = 0;          // facing, radians; 0 = +Z
+    this.moveDir = Vector3.Zero();
+    this.jumpHeld = false;
+    this.state = 'idle';
+    this.grounded = false;
+    this.velocity = Vector3.Zero();
+    this.floorVel = Vector3.Zero();
+    this.vy = 0;
+    this.ray = new PhysicsRaycastResult();
+    this.teleport(spawn ? spawn.clone() : Vector3.Zero());
+  }
+
+  /** The drawn body: a loaded glTF (`res`), with an R15 body's rig and clips (runtime/r15clips.js). Called
+   *  again, it replaces the body in place (Humanoid:ApplyDescriptionAsync): the old one is disposed, the
+   *  new one stands where it stood, its capsule the new height. */
+  setBody(res, { rig = null, clips = null } = {}) {
+    const H = this.p, old = this.res;
+    const at = old ? new Vector3(this.holder.position.x, this.footY, this.holder.position.z) : null; // (with the old capsule)
+    this.rig = rig; // an R15 body's parts (runtime/r15clips.js), or null (the blocky R6-like model)
     const root = res.meshes[0];
-    root.parent = this.holder;
     root.computeWorldMatrix(true);
-    const { min, max } = root.getHierarchyBoundingVectors(true);
+    const { min, max } = root.getHierarchyBoundingVectors(true); // (in the file's own space: not yet under the holder)
+    root.parent = this.holder;
     // An R15 body's file is in studs and keeps its height (bodies differ: a description's HeightScale, a
     // tall shape); other models are drawn 5 studs tall.
-    if (rig) H.Height = max.y - min.y;
+    H.Height = rig ? max.y - min.y : HUMANOID.Height;
     this.modelScale = rig ? 1 : H.Height / (max.y - min.y);
     root.scaling.scaleInPlace(this.modelScale);
     root.position.y -= min.y * this.modelScale;
-    res.meshes.forEach(m => { if (m.getTotalVertices() > 0) { shadows.addShadowCaster(m); m.receiveShadows = true; } });
+    res.meshes.forEach(m => { if (m.getTotalVertices() > 0) { this.shadows.addShadowCaster(m); m.receiveShadows = true; } });
 
     this.anim = new Animator(res);
     // The model's parts meet face to face: each leg's outer side lies in the
@@ -278,32 +315,38 @@ export class Character {
     // Footsteps: when a sole passes under the hip (R6-like legs' swing sign), or for an R15 body when a
     // sole comes down to the ground (soleContacts).
     this.contacts = rig ? { walk: this.soleContacts('walk', legs), sprint: this.soleContacts('sprint', legs) } : { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
-    this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
     this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), this.parts) : null;
-    this.anim.play('idle', 0);
-
-    // Physics, Roblox's way: the body hovers. The collision capsule starts
-    // StepUp above the feet, and floor rays plus a spring hold it at that
-    // height. So anything lower than StepUp is walked over, stairs and slopes
-    // are followed smoothly, and only taller things block.
+    this.anim.play(this.dead && this.anim.clips.die ? 'die' : 'idle', 0); // (the next step picks the state's clip)
     this.capH = Math.max(2 * H.Radius + 0.1, H.Height - H.StepUp); // (a capsule no shorter than its two caps)
-    this.ctrl = new PhysicsCharacterController(Vector3.Zero(), { capsuleHeight: this.capH, capsuleRadius: H.Radius }, scene);
-    this.ctrl.maxSlopeCosine = Math.cos(H.MaxSlopeAngle * Math.PI / 180);
-    this.ctrl.maxStepHeight = 0; // stepping is the hover spring's job
-    this.ctrl.maxCharacterSpeedForSolver = 300; // default 10 would cap walking and jumping
+    this.res = res;
     this.meshes = res.meshes;
-    this.visible = true;
-    this.yaw = 0;          // facing, radians; 0 = +Z
-    this.moveDir = Vector3.Zero();
-    this.jumpHeld = false;
-    this.state = 'idle';
-    this.grounded = false;
-    this.velocity = Vector3.Zero();
-    this.floorVel = Vector3.Zero();
-    this.vy = 0;
-    this.ray = new PhysicsRaycastResult();
-    this.teleport(spawn ? spawn.clone() : Vector3.Zero());
+    if (old) {
+      for (const m of old.meshes.slice()) m.dispose(false, true);
+      for (const n of old.transformNodes) n.dispose();
+      for (const k of old.skeletons || []) k.dispose();
+      // The capsule the new height, the feet where they were.
+      this.ctrl.setShapeOptions({ capsuleHeight: this.capH, capsuleRadius: H.Radius }, false);
+      this.ctrl.setPosition(new Vector3(at.x, at.y + H.StepUp + this.capH / 2, at.z));
+      this.applyVisibility();
+      this.place();
+    }
+  }
+
+  /** A generated body's six colours, live (BodyColors): { Head: [r, g, b], Torso, ... } in sRGB 0-1, written
+   *  into its vertex colours (a rigid part's mesh is one part; a skinned body's says which vertices are
+   *  whose: runtime/bodygen.js colorRanges). Groups not given keep theirs. */
+  setColors(colors) {
+    this.colors = { ...this.colors, ...colors };
+    if (this.bodyParams) this.bodyParams = { ...this.bodyParams, colors: { ...this.colors } }; // (a rebuild keeps them)
+    const lin = g => colors[g] && colors[g].map(toLinear);
+    for (const m of this.meshes) {
+      const c = m.getVerticesData && m.getVerticesData('color'); if (!c) continue;
+      const x = m.metadata && m.metadata.gltf && m.metadata.gltf.extras;
+      const runs = x && x.colorRanges ? x.colorRanges : x && x.r15 ? [[colorGroup(x.r15.part), 0, c.length / 4]] : [];
+      for (const [g, first, count] of runs) { const v = lin(g); if (v) for (let i = first; i < first + count; i++) { c[i * 4] = v[0]; c[i * 4 + 1] = v[1]; c[i * 4 + 2] = v[2]; } }
+      m.setVerticesData('color', c, true);
+    }
   }
 
   /** Wear a skin made for this model (runtime/charmaker.js): only the texture changes. */

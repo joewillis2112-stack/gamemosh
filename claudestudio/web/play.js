@@ -6,7 +6,7 @@ import '@babylonjs/core/Physics/v2/physicsEngineComponent.js';
 import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
-import { DataModel, baseplateLighting } from './datamodel.js';
+import { DataModel, baseplateLighting, C3 } from './datamodel.js';
 import { loadPlace } from './placefile.js';
 import { startLuau } from './luau.js';
 import { Output } from './runtime/output.js';
@@ -20,7 +20,7 @@ import { Character } from './runtime/character.js';
 import { FollowCamera, CameraSync } from './runtime/camera.js';
 import { Controls } from './runtime/controls.js';
 import { Players } from './runtime/players.js';
-import { bodyGlb, BODY_PRESETS, TIER_SEGMENTS, describedBody } from './runtime/bodygen.js';
+import { bodyGlb, BODY_PRESETS, TIER_SEGMENTS, describedBody, bodyColors } from './runtime/bodygen.js';
 import { Rigs } from './runtime/rigs.js';
 import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
@@ -83,17 +83,48 @@ async function main() {
   // is the shape (else the player's ?body=, else our studio body); its scales and colours apply over it.
   const desc = dm.service('StarterPlayer').children.find(c => c.ClassName === 'HumanoidDescription');
   if (desc) { const shape = desc.children.find(c => c.ClassName === 'BodyShape'); params = describedBody(desc.props, shape && shape.props, params || BODY_PRESETS.studio); }
-  if (params) {
-    // Its mesh detail from the fidelity tier (rounder, smoother parts on higher tiers).
-    // On high and ultra one smooth skinned mesh (it bends at the joints); below, a rigid mesh per part.
-    charSrc = new File([bodyGlb({ ...params, segments: TIER_SEGMENTS[quality] || params.segments }, { skinned: quality === 'high' || quality === 'ultra' })], 'body.glb', { type: 'model/gltf-binary' }); // a File: the loader reads its name
-  }
+  // A generated body's file: its mesh detail from the fidelity tier (rounder, smoother parts on higher
+  // tiers); on high and ultra one smooth skinned mesh (it bends at the joints), below a rigid mesh per part.
+  let bodyTier = quality; // (the tier the body was last built for: Graphics' systems are told each change)
+  const bodyFile = p => { const t = bodyTier; return new File([bodyGlb({ ...p, segments: TIER_SEGMENTS[t] || p.segments }, { skinned: t === 'high' || t === 'ultra' })], 'body.glb', { type: 'model/gltf-binary' }); }; // a File: the loader reads its name
+  if (params) charSrc = bodyFile(params);
   const player = await Character.load(scene, charSrc, R.shadows, Vector3.Zero());
+  if (params) { player.bodyParams = params; player.colors = bodyColors(params); }
   // A skin from the character maker: a URL, or 'session' for the one it just handed over.
   let skin = q.get('skin');
   if (skin === 'session') { try { skin = sessionStorage.getItem('studio.skin'); } catch (e) { skin = null; } }
   if (skin) await player.setSkin(skin);
   const players = new Players(dm, world, player, GRAVITY);
+  // A generated body rebuilt where it stands (one at a time): its R15 parts and joints resized
+  // (charbody.js reshape), its colours kept.
+  let rebuilding = Promise.resolve();
+  const rebody = p => (rebuilding = rebuilding.then(async () => {
+    const r = await Character.loadRes(scene, bodyFile(p));
+    player.setBody(r.res, r);
+    player.bodyParams = p;
+    if (players.body) players.body.reshape();
+  }));
+  // Humanoid:ApplyDescriptionAsync on the player's generated body: the description's BodyShape (else the
+  // body's own shape), scales and colours. Only colours changed: recoloured in place (through BodyColors).
+  dm.hooks.applyDescription = async (hum, desc) => {
+    if (hum !== players.humanoid || !player.bodyParams) return; // (other bodies keep theirs: OURS)
+    const shape = desc.children.find(c => c.ClassName === 'BodyShape');
+    const next = describedBody(desc.props, shape && shape.props, player.bodyParams), { colors, ...form } = next, { colors: was, ...old } = player.bodyParams;
+    if (JSON.stringify(form) !== JSON.stringify(old)) await rebody(next);
+    if (hum !== players.humanoid || hum.destroyed) return; // respawned meanwhile
+    const bc = players.body.bodyColors;
+    for (const [g, c] of Object.entries(bodyColors(next))) if (bc && !bc.destroyed) dm.set(bc, g + 'Color3', new C3(...c)); else player.setColors({ [g]: c }); // (BodyColors recolours the body: players.js)
+  };
+  // A respawned character is the place's body again (Roblox loads it afresh; what was applied is gone).
+  const spawnBody = params;
+  players.beforeSpawn = () => {
+    if (!spawnBody || player.bodyParams === spawnBody) return;
+    const { colors: a, ...now } = player.bodyParams, { colors: b, ...was } = spawnBody;
+    player.setColors(bodyColors(spawnBody)); // (before the new character's BodyColors are made from them)
+    if (JSON.stringify(now) !== JSON.stringify(was)) rebody(spawnBody); else player.bodyParams = spawnBody;
+  };
+  // A tier change rebuilds a generated body at the new tier's detail.
+  graphics.add({ setTier: t => { bodyTier = t; if (player.bodyParams) rebody(player.bodyParams); } });
   // The character's AnimationTracks (its Humanoid's Animator) pose it over its own clips.
   player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
   const rigs = new Rigs(scene, dm, R.shadows);
