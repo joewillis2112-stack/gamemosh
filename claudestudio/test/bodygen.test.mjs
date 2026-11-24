@@ -3,7 +3,7 @@
 // torso; the feet point forward (-Z, Roblox's facing); every part's mesh is wound outward and fills
 // its size (a box at roundness 0); parameters do what they say (longer legs raise the root by that
 // much; a bigger head makes the body that much taller).
-import { makeBody, partMesh, BODY_PRESETS, R15_PARTS, R15_JOINTS } from '../web/runtime/bodygen.js';
+import { makeBody, partMesh, bodyNodes, bodySkin, BODY_PRESETS, R15_PARTS, R15_JOINTS } from '../web/runtime/bodygen.js';
 
 const fail = [];
 const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -51,6 +51,28 @@ for (const [name, preset] of Object.entries(BODY_PRESETS)) {
   const a = makeBody({}), b = makeBody({ legLength: BODY_PRESETS.studio.legLength + 1 }), c = makeBody({ headHeight: BODY_PRESETS.studio.headHeight + 0.5 });
   check(near(b.hrpHeight - a.hrpHeight, 1, 1e-3) && near(b.height - a.height, 1, 1e-3), `a leg 1 stud longer raises the root and the top by 1 (${(b.hrpHeight - a.hrpHeight).toFixed(3)}, ${(b.height - a.height).toFixed(3)})`);
   check(near(c.height - a.height, 0.5, 1e-3) && near(c.hrpHeight, a.hrpHeight), 'a head 0.5 taller makes the body 0.5 taller, the legs unchanged');
+}
+// The skinned body (high tiers): weights sum to 1 on valid bones; a vertex well along a limb is all its
+// own bone's; one at the knee is shared by the thigh and the shin.
+{
+  const b = makeBody({}), { mesh } = bodySkin(b, bodyNodes(b)), J = mesh.joints, W = mesh.weights, X = mesh.positions;
+  let sums = 0, badIdx = 0;
+  for (let i = 0; i < W.length; i += 4) { if (Math.abs(W[i] + W[i + 1] + W[i + 2] + W[i + 3] - 1) > 1e-5) sums++; for (let k = 0; k < 4; k++) if (J[i + k] < 0 || J[i + k] >= R15_PARTS.length) badIdx++; }
+  check(!sums && !badIdx && J.length === X.length / 3 * 4, `skin: every vertex's weights sum to 1 on valid bones (${sums} off, ${badIdx} bad)`);
+  // Where the left knee is at rest (in the file's space: the root turned and raised).
+  const root = new (b.parts.HumanoidRootPart.rest.constructor)([0, b.hrpHeight, 0, -1, 0, 0, 0, 1, 0, 0, 0, -1]);
+  const knee = root.mul(b.parts.LeftUpperLeg.rest).mul(b.joints.find(j => j.name === 'LeftKnee').c0), thigh = R15_PARTS.indexOf('LeftUpperLeg'), shin = R15_PARTS.indexOf('LeftLowerLeg');
+  const share = (i, bone) => { let w = 0; for (let k = 0; k < 4; k++) if (J[i * 4 + k] === bone) w += W[i * 4 + k]; return w; };
+  let atKnee = null, best = Infinity, farThigh = null;
+  for (let i = 0; i < X.length / 3; i++) {
+    const d = Math.hypot(X[i * 3] - knee.x, X[i * 3 + 1] - knee.y, X[i * 3 + 2] - knee.z);
+    if (share(i, thigh) + share(i, shin) > 0.99 && d < best) { best = d; atKnee = i; }
+    if (farThigh === null && share(i, thigh) > 0 && Math.abs(X[i * 3 + 1] - (knee.y + b.parts.LeftUpperLeg.size[1] / 2)) < 0.08) farThigh = i; // the thigh's middle (not the hip, which blends with the torso)
+  }
+  const kt = share(atKnee, thigh), ks = share(atKnee, shin);
+  // (The joint is inside the limb: the nearest surface vertex is some way off it, so not quite half and half.)
+  check(best < 0.3 && kt >= 0.25 && ks >= 0.25, `skin: a vertex at the knee is shared by thigh and shin (${kt.toFixed(2)} / ${ks.toFixed(2)}, ${best.toFixed(2)} studs from it)`);
+  check(farThigh !== null && share(farThigh, thigh) === 1, 'skin: a vertex well up the thigh is all the thigh\'s');
 }
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('PASS');

@@ -158,8 +158,62 @@ export function bodyNodes(b) {
     };
   });
 }
-/** A body as .glb bytes (what Character.load takes as a Blob), from parameters over the studio preset. */
-export function bodyGlb(params = {}, opts = {}) {
-  const b = makeBody(params);
-  return glbBytes(bodyNodes(b), [R15_PARTS.indexOf('HumanoidRootPart')], opts);
+/** A body as .glb bytes (what Character.load takes as a Blob), from parameters over the studio preset.
+ *  skinned: one smooth skinned mesh (high tiers) instead of a rigid mesh per part (bodySkin). */
+export function bodyGlb(params = {}, { skinned = false, ...opts } = {}) {
+  const b = makeBody(params), nodes = bodyNodes(b);
+  if (!skinned) return glbBytes(nodes, [R15_PARTS.indexOf('HumanoidRootPart')], opts);
+  const { mesh, inverseBindMatrices } = bodySkin(b, nodes);
+  for (const n of nodes) { n.extras.part = boxOf(b.parts[n.name].size); n.mesh = null; } // the joints keep their boxes (feet's soles are measured on them)
+  nodes.push({ name: 'Body', translation: [0, 0, 0], rotation: [0, 0, 0, 1], mesh, skin: 0 });
+  return glbBytes(nodes, [R15_PARTS.indexOf('HumanoidRootPart'), nodes.length - 1], { ...opts, skins: [{ joints: R15_PARTS.map((_, i) => i), inverseBindMatrices }] });
+}
+const boxOf = size => ({ min: size.map(v => -v / 2), max: size.map(v => v / 2) });
+
+// The skinned body: every part's mesh at its rest place in the file's space (the root node turned to
+// face +Z, at hrpHeight), one mesh; each vertex on its own part's bone, blended towards a neighbour's
+// near the joint they share (half and half at the joint, nothing beyond about half the limb's
+// thickness), at most four bones. The inverse bind matrices are the joints' rest frames inverted.
+export function bodySkin(b, nodes) {
+  const root = new CF([0, b.hrpHeight, 0, -1, 0, 0, 0, 1, 0, 0, 0, -1]); // translation, and a half turn about Y
+  const world = Object.fromEntries(R15_PARTS.map(n => [n, root.mul(b.parts[n].rest)]));
+  const index = new Map(R15_PARTS.map((n, i) => [n, i]));
+  // Each part's neighbours: [other part, the joint's point (world), blend radius].
+  const near = Object.fromEntries(R15_PARTS.map(n => [n, []]));
+  for (const j of b.joints) {
+    if (j.part0 === 'HumanoidRootPart') continue;
+    const P = world[j.part0].mul(j.c0), at = [P.x, P.y, P.z];
+    const th = Math.min(...[j.part0, j.part1].flatMap(n => [b.parts[n].size[0], b.parts[n].size[2]]));
+    const r = Math.max(0.15, Math.min(0.6, th * 0.5));
+    near[j.part0].push([j.part1, at, r]); near[j.part1].push([j.part0, at, r]);
+  }
+  const positions = [], normals = [], uvs = [], indices = [], joints = [], weights = [];
+  for (const n of R15_PARTS) {
+    const part = b.parts[n];
+    if (!part.shape) continue;
+    const m = partMesh(part.size, { ...part.shape, segments: b.params.segments }), W = world[n], R = W.m.slice(3), base = positions.length / 3;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const v = W.mul(new CF([m.positions[i], m.positions[i + 1], m.positions[i + 2], 1, 0, 0, 0, 1, 0, 0, 0, 1]));
+      positions.push(v.x, v.y, v.z);
+      const [x, y, z] = [m.normals[i], m.normals[i + 1], m.normals[i + 2]];
+      normals.push(R[0] * x + R[1] * y + R[2] * z, R[3] * x + R[4] * y + R[5] * z, R[6] * x + R[7] * y + R[8] * z);
+      const infl = [[index.get(n), 1]];
+      for (const [o, at, r] of near[n]) {
+        const d = Math.hypot(v.x - at[0], v.y - at[1], v.z - at[2]);
+        if (d < r) { const u = d / r; infl.push([index.get(o), 1 - u * u * (3 - 2 * u)]); }
+      }
+      infl.sort((a, c) => c[1] - a[1]);
+      const top = infl.slice(0, 4), sum = top.reduce((a, c) => a + c[1], 0);
+      for (let k = 0; k < 4; k++) { joints.push(top[k] ? top[k][0] : 0); weights.push(top[k] ? top[k][1] / sum : 0); }
+    }
+    for (let i = 0; i < m.uvs.length; i++) uvs.push(m.uvs[i]);
+    for (const k of m.indices) indices.push(base + k);
+  }
+  // Inverse bind matrices, column-major: [R t; 0 1] inverted for each joint.
+  const inverseBindMatrices = new Float32Array(16 * R15_PARTS.length);
+  R15_PARTS.forEach((n, i) => {
+    const v = world[n].inverse(), r = v.m;
+    inverseBindMatrices.set([r[3], r[6], r[9], 0, r[4], r[7], r[10], 0, r[5], r[8], r[11], 0, v.x, v.y, v.z, 1], i * 16);
+  });
+  return { mesh: { positions, normals, uvs, indices, joints, weights }, inverseBindMatrices };
 }

@@ -77,7 +77,8 @@ async function main() {
     // (session: the parameters the character maker's body panel handed over.)
     const b = q.get('body') === 'session' ? sessionStorage.getItem('studio.body') || '{}' : q.get('body'), params = b.trim().startsWith('{') ? JSON.parse(b) : (BODY_PRESETS[b] || BODY_PRESETS.studio);
     // Its mesh detail from the fidelity tier (rounder, smoother parts on higher tiers).
-    charSrc = new File([bodyGlb({ ...params, segments: TIER_SEGMENTS[quality] || params.segments })], 'body.glb', { type: 'model/gltf-binary' }); // a File: the loader reads its name
+    // On high and ultra one smooth skinned mesh (it bends at the joints); below, a rigid mesh per part.
+    charSrc = new File([bodyGlb({ ...params, segments: TIER_SEGMENTS[quality] || params.segments }, { skinned: quality === 'high' || quality === 'ultra' })], 'body.glb', { type: 'model/gltf-binary' }); // a File: the loader reads its name
   }
   const player = await Character.load(scene, charSrc, R.shadows, Vector3.Zero());
   // A skin from the character maker: a URL, or 'session' for the one it just handed over.
