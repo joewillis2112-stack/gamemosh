@@ -49,6 +49,8 @@ run --place places/bodies-lab.luau --scenario test/scenarios/bodies.mjs
 run --noshots --place places/bodies-lab.luau --quality low --scenario test/scenarios/bodies.mjs
 run --place places/ik-lab.luau --scenario test/scenarios/ik.mjs
 run --noshots --place places/ik-lab.luau --quality low --scenario test/scenarios/ik.mjs
+run --place places/npc-lab.luau --scenario test/scenarios/npcs.mjs
+run --noshots --place places/npc-lab.luau --quality low --scenario test/scenarios/npcs.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs

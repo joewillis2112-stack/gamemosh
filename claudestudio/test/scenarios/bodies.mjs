@@ -10,7 +10,8 @@
 //   take the new sizes and joints (the generator's), ApplyDescriptionFinished fires, and
 //   GetAppliedDescription returns it; a tier change rebuilds it at that tier's detail; a respawn brings
 //   back the place's body;
-// - an NPC made by Players:CreateHumanoidModelFromDescriptionAsync is drawn as its own described body
+// - an NPC made by Players:CreateHumanoidModelFromDescriptionAsync (unanchored: it stands as a character,
+//   runtime/npcs.js) is drawn as its own described body
 //   (height, colours, feet on the ground), a script's AnimationTrack poses it about its joints, and
 //   ApplyDescriptionAsync on it rebuilds it.
 import { describedBody, makeBody, colorGroup, FACE_COLOR } from '../../web/runtime/bodygen.js';
@@ -135,7 +136,7 @@ export default async function (t) {
     const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Greeter'), hum = m && m.children.find(c => c.ClassName === 'Humanoid'), root = m && m.children.find(c => c.props.Name === 'HumanoidRootPart');
     const d = hum && hum.children.find(c => c.ClassName === 'HumanoidDescription'), sh = d && d.children.find(c => c.ClassName === 'BodyShape');
     const plain = p => Object.fromEntries(Object.entries(p).filter(([, v]) => typeof v === 'number' || (v && typeof v === 'object' && 'r' in v)).map(([k, v]) => [k, typeof v === 'number' ? v : { r: v.r, g: v.g, b: v.b }]));
-    const v = s.rigs.views.get(m);
+    const e = s.npcs.npcs.get(m), v = e && e.char ? { holder: e.char.holder, meshes: e.char.meshes, anim: e.char.anim, rig: e.char.rig } : s.rigs.views.get(m); // (unanchored: a walking NPC)
     if (!v || !v.holder) return { model: !!m, rig: hum && hum.props.RigType, desc: !!d, drawn: false };
     for (const n of v.anim.nodes) { const r = v.anim.rest.get(n); n.position.copyFrom(r.p); n.rotationQuaternion.copyFrom(r.q); n.scaling.copyFrom(r.s); }
     for (let k = 0; k < 2; k++) { v.holder.computeWorldMatrix(true); v.holder.getChildTransformNodes(false).forEach(n => n.computeWorldMatrix(true)); v.holder.getChildMeshes(false).forEach(n => n.computeWorldMatrix(true)); }
@@ -150,12 +151,12 @@ export default async function (t) {
   const nb0 = n0.drawn ? makeBody(describedBody(n0.desc, n0.shape)) : null;
   check(n0.drawn && n0.rig === 'R15' && n0.generated && n0.shape, `an NPC from CreateHumanoidModelFromDescriptionAsync: R15, its description under its Humanoid, drawn as a generated body (${n0.drawn ? 'drawn' : 'not drawn'})`);
   if (nb0) {
-    check(Math.abs(n0.hi - n0.lo - nb0.height) < 0.03 && Math.abs(n0.lo) < 0.03 && Math.abs(n0.rootY - nb0.hrpHeight) < 1e-6 && Math.abs(n0.rootSize[1] - nb0.parts.HumanoidRootPart.size[1]) < 1e-6, `drawn at its described height, ${(n0.hi - n0.lo).toFixed(3)} studs (the generator's ${nb0.height.toFixed(3)}), its feet on the ground (${n0.lo.toFixed(3)}), its root part the body's`);
+    check(Math.abs(n0.hi - n0.lo - nb0.height) < 0.03 && Math.abs(n0.lo) < 0.03 && Math.abs(n0.rootY - nb0.hrpHeight) < 2e-3 && Math.abs(n0.rootSize[1] - nb0.parts.HumanoidRootPart.size[1]) < 1e-6, `drawn at its described height, ${(n0.hi - n0.lo).toFixed(3)} studs (the generator's ${nb0.height.toFixed(3)}), its feet on the ground (${n0.lo.toFixed(3)}), its root part the body's`);
     const wantN = new Set([...['Head', 'Torso', 'LeftLeg'].map(g => key(n0.desc[g + 'Color'])), FACE]);
     check(n0.colors.length === wantN.size && n0.colors.every(c => wantN.has(c)), `in its own colours (${n0.colors.join(' | ')})`);
   }
   // A script's AnimationTrack poses the NPC about its joints (its left upper arm turned 90 degrees).
-  const armQ = () => t.eval(() => { const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Greeter'), v = s.rigs.views.get(m), n = v.rig.get('LeftUpperArm').node, r = v.anim.rest.get(n).q, q = n.rotationQuaternion; return Math.abs(r.x * q.x + r.y * q.y + r.z * q.z + r.w * q.w); });
+  const armQ = () => t.eval(() => { const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Greeter'), e = s.npcs.npcs.get(m), v = e && e.char ? { rig: e.char.rig, anim: e.char.anim } : s.rigs.views.get(m), n = v.rig.get('LeftUpperArm').node, r = v.anim.rest.get(n).q, q = n.rotationQuaternion; return Math.abs(r.x * q.x + r.y * q.y + r.z * q.z + r.w * q.w); });
   await t.eval(() => window.studio.vm.run('npcanim', `
     local KSP = game:GetService("KeyframeSequenceProvider")
     local ks = Instance.new("KeyframeSequence") ks.Loop = true ks.Priority = Enum.AnimationPriority.Action

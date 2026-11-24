@@ -771,6 +771,7 @@ defineClass('Humanoid', 'Instance', {
     Health: ['number', 100], MaxHealth: ['number', 100], WalkSpeed: ['number', 16], JumpPower: ['number', 50],
     JumpHeight: ['number', 7.2], UseJumpPower: ['bool', true], AutoJumpEnabled: ['bool', true], MaxSlopeAngle: ['number', 89],
     HipHeight: ['number', 2], Jump: ['bool', false], MoveDirection: ['Vector3', [0, 0, 0]], FloorMaterial: ['Enum.Material', 'Air'],
+    WalkToPoint: ['Vector3', [0, 0, 0]], WalkToPart: ['Instance', null],
   },
   methods: {
     TakeDamage(self, amount) { self.dm.set(self, 'Health', Math.max(0, self.props.Health - (+amount || 0))); return []; },
@@ -779,12 +780,36 @@ defineClass('Humanoid', 'Instance', {
     // Bodies (see HumanoidDescription below): yields while the body is rebuilt (dm.hooks.applyDescription,
     // runtime: a generated body takes the description's shape, scales and colours; other bodies keep
     // theirs, OURS), then fires ApplyDescriptionFinished. GetAppliedDescription: a copy of the last applied.
+    // Walking (mashup-research/ROBLOX_HUMANOID_MOVETO_2026-11-24.md): MoveTo sets WalkToPoint and WalkToPart and
+    // starts the walk (with a part, the point is kept in the part's space, so it moves with it); Move walks
+    // in a direction until called again. The character's driver (runtime/walk.js) turns them into input.
+    MoveTo(self, location, part) {
+      const p = part instanceof Instance && isA(part.ClassName, 'BasePart') ? part : null, loc = location instanceof V3 ? location : new V3(0, 0, 0);
+      const point = p ? (c => new V3(c.x, c.y, c.z))(p.props.CFrame.inverse().mul(new CF([loc.x, loc.y, loc.z, 1, 0, 0, 0, 1, 0, 0, 0, 1]))) : loc;
+      if (self.walk && self.walk.kind === 'to') self.walk = null; // (a new goal: the old one just stops, its timer with it)
+      self.dm.set(self, 'WalkToPart', p); self.dm.set(self, 'WalkToPoint', point);
+      self.walk = { kind: 'to', point: self.props.WalkToPoint, part: p, since: null };
+      return [];
+    },
+    Move(self, direction, relativeToCamera) {
+      const d = direction instanceof V3 ? direction : new V3(0, 0, 0), w = self.walk;
+      if (w && w.kind === 'dir' && w.dir.x === d.x && w.dir.y === d.y && w.dir.z === d.z && w.rel === !!relativeToCamera) return [];
+      if (w && w.kind === 'to') endWalk(self, false); // a new direction ends a MoveTo
+      self.walk = { kind: 'dir', dir: d, rel: !!relativeToCamera };
+      return [];
+    },
     ApplyDescriptionAsync(self, desc) { return applyDescription(self, desc); },
     ApplyDescription(self, desc) { return applyDescription(self, desc); }, // (deprecated in Roblox for ApplyDescriptionAsync)
     GetAppliedDescription(self) { const d = self.children.find(c => c.ClassName === 'HumanoidDescription'); return [(d && self.dm.clone(d)) || new Instance(self.dm, 'HumanoidDescription')]; },
   },
-  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched', 'ApplyDescriptionFinished'],
+  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched', 'ApplyDescriptionFinished', 'MoveToFinished'],
 });
+/** A humanoid's MoveTo ends: reached, or not (the 8 s timer, a new goal or direction, a teleport). */
+export function endWalk(hum, reached) {
+  if (!hum.walk || hum.walk.kind !== 'to') return;
+  hum.walk = null;
+  hum.dm.fire(hum, 'MoveToFinished', [!!reached]);
+}
 function applyDescription(self, desc) {
   if (!(desc instanceof Instance) || desc.ClassName !== 'HumanoidDescription') throw new Error('Argument 1 missing or nil'); // UNSURE: Roblox's wording
   const copy = self.dm.clone(desc), hook = self.dm.hooks.applyDescription;
@@ -802,8 +827,9 @@ export function keepDescription(hum, d) {
 }
 // Players:CreateHumanoidModelFromDescriptionAsync: a rig of the described body (runtime/bodygen.js): a
 // Model with a Humanoid (its Animator, the description) and a HumanoidRootPart of the body's size, its
-// centre the body's root height above the origin. OURS: no R15 limb parts (the rig is drawn from the
-// description: runtime/rigs.js), and the root is anchored (NPC Humanoids don't walk here yet).
+// centre the body's root height above the origin, unanchored, so in the Workspace it is a character
+// (runtime/npcs.js: its R15 parts and Motor6Ds come with its body there). OURS: the limb parts aren't made
+// here, before it is placed.
 function modelFromDescription(dm, desc, rigType) {
   if (!(desc instanceof Instance) || desc.ClassName !== 'HumanoidDescription') throw new Error('Argument 1 missing or nil'); // UNSURE: Roblox's wording
   const sh = desc.children.find(c => c.ClassName === 'BodyShape'), body = makeBody(describedBody(desc.props, sh && sh.props));
@@ -811,7 +837,7 @@ function modelFromDescription(dm, desc, rigType) {
   hum.props.RigType = rigType instanceof EnumItem ? rigType.name : rigType === 'R6' || rigType === 0 ? 'R6' : 'R15';
   dm.setParent(new Instance(dm, 'Animator'), hum);
   keepDescription(hum, dm.clone(desc));
-  Object.assign(root.props, { Name: 'HumanoidRootPart', Size: new V3(...body.parts.HumanoidRootPart.size), Transparency: 1, Anchored: true, CanCollide: false });
+  Object.assign(root.props, { Name: 'HumanoidRootPart', Size: new V3(...body.parts.HumanoidRootPart.size), Transparency: 1, Anchored: false, CanCollide: false });
   dm.set(root, 'CFrame', new CF([0, body.hrpHeight, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]));
   dm.setParent(hum, m); dm.setParent(root, m);
   m.props.PrimaryPart = root;

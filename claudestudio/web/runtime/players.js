@@ -6,7 +6,7 @@
 // Humanoid's properties drive the controller. Health 0 fires Died, plays the
 // death clip, and the player respawns after Players.RespawnTime.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
-import { V3, CF, Instance, keepDescription } from '../datamodel.js';
+import { V3, CF, Instance, keepDescription, endWalk } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
 import { CharacterBody } from './charbody.js';
 
@@ -127,6 +127,7 @@ export class Players {
       const cf = inst.props.CFrame, look = [-cf.m[5], -cf.m[11]]; // LookVector's x and z
       const turned = Math.hypot(look[0], look[1]) > 1e-3;
       this.char.teleport(new Vector3(cf.x, cf.y - (this.char.rootHeight || 3), cf.z), turned ? Math.atan2(look[0], look[1]) : undefined); // (the root's height above the feet: R6 3, R15 its body's)
+      if (this.humanoid) endWalk(this.humanoid, false); // a teleport ends a MoveTo
       return;
     }
     // The character's BodyColors recolour its body (a generated one: Character.setColors).

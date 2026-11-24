@@ -6,7 +6,9 @@ import '@babylonjs/core/Physics/v2/physicsEngineComponent.js';
 import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
-import { DataModel, baseplateLighting, C3 } from './datamodel.js';
+import { DataModel, baseplateLighting, C3, endWalk } from './datamodel.js';
+import { walkStep } from './runtime/walk.js';
+import { Npcs } from './runtime/npcs.js';
 import { loadPlace } from './placefile.js';
 import { startLuau } from './luau.js';
 import { Output } from './runtime/output.js';
@@ -129,6 +131,8 @@ async function main() {
   player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
   const rigs = new Rigs(scene, dm, R.shadows, { quality });
   graphics.add(rigs);
+  const npcs = new Npcs({ scene, dm, world, shadows: R.shadows, gravity: GRAVITY, quality }); // rigs with unanchored roots walk
+  graphics.add(npcs);
   await rigs.load();
   players.join();
   const gui = new Gui(dm, players);
@@ -185,9 +189,16 @@ async function main() {
     const scriptJump = players.preStep();
     // No character (not spawned yet, or a script removed it): nothing to drive.
     if (players.hasCharacter) {
+      // The player's input is Roblox's control script calling Humanoid:Move every frame: input ends a MoveTo,
+      // and overwrites a script's Move; with none, a MoveTo walks the character (runtime/walk.js).
+      const hum = players.humanoid;
+      if (hum.walk && (hum.walk.kind === 'dir' || Math.hypot(c.dx, c.dz) > 1e-3)) { endWalk(hum, false); hum.walk = null; }
+      const w = hum.walk ? walkStep(hum, player.holder.position, t) : null;
+      if (w) { c.dx = w[0]; c.dz = w[1]; }
       player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch);
       player.step(dt, GRAVITY);
     }
+    npcs.update(t, dt);
     players.postStep(t);
     world.syncFromPhysics();
     fire('PostSimulation', [dt]); fire('Heartbeat', [dt]);
@@ -228,7 +239,7 @@ async function main() {
     output.mount();
   }
   window.studio = {
-    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, graphics, menu, player, players, rigs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
+    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, graphics, menu, player, players, rigs, npcs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.
