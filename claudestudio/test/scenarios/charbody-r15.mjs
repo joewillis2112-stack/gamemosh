@@ -58,6 +58,9 @@ export default async function (t) {
     return { worst, which };
   });
   check(lay.worst < 1e-3, `at rest, every part is where the body's rest pose puts it (worst ${lay.worst.toExponential(1)} studs, ${lay.which})`);
+  // Footsteps: each walk clip has a touchdown per foot per cycle, and walking fires them.
+  const contacts = await t.eval(() => { const p = window.studio.player, prev = p.on.step; window.__steps = 0; p.on.step = () => { window.__steps++; prev && prev(); }; return { walk: p.contacts.walk.length, sprint: p.contacts.sprint.length }; });
+  check(contacts.walk >= 2 && contacts.sprint >= 2, `the walk and run clips put each foot down once a cycle (${contacts.walk}, ${contacts.sprint} touchdowns)`);
   let knee = 0, elbow = 0, worst = 0, off = 0; const la = [], ra = [];
   for (let k = 0; k < 24; k++) {
     await t.sim(3, { move: [0, 1] });
@@ -65,6 +68,8 @@ export default async function (t) {
     knee = Math.max(knee, s.knee); elbow = Math.max(elbow, s.elbow); worst = Math.max(worst, s.worst); off = Math.max(off, s.off);
     la.push(s.la); ra.push(s.ra);
   }
+  const steps = await t.eval(() => window.__steps);
+  check(steps >= 2, `walking 72 frames (about two run cycles, from standing) fires footsteps (${steps})`);
   check(knee > 20 && elbow > 5, `walking, the knees bend (up to ${knee.toFixed(0)}°) and the elbows (${elbow.toFixed(0)}°)`);
   // Opposite: as one arm swings forward the other swings back (their swings' correlation over the
   // walk is strongly negative; Roblox's run carries both arms forward, so their signs often agree).

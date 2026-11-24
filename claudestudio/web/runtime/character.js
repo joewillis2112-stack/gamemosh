@@ -272,8 +272,9 @@ export class Character {
     const legs = this.parts.filter(b => (rig ? /^(Left|Right)Foot$/ : /^leg-(left|right)$/).test(b.name));
     this.walkNatural = this.soleGroundSpeed('walk', legs) || clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
     this.sprintNatural = this.soleGroundSpeed('sprint', legs) || clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
-    // Footsteps: when a sole passes under the hip (R6-like legs' swing sign); not yet for R15 (UNSURE: Roblox's own footsteps come from the clips' markers).
-    this.contacts = rig ? { walk: [], sprint: [] } : { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
+    // Footsteps: when a sole passes under the hip (R6-like legs' swing sign), or for an R15 body when a
+    // sole comes down to the ground (soleContacts).
+    this.contacts = rig ? { walk: this.soleContacts('walk', legs), sprint: this.soleContacts('sprint', legs) } : { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
     this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
     this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), this.parts) : null;
@@ -337,6 +338,26 @@ export class Character {
   // the forward swing and the planted sweep run at different rates.)
   // Also keeps the backward-sweeping sole's speed through the whole cycle
   // (this.soleSpeed[clip]), for the per-phase playback rate in step().
+  // The times (s) in a clip when a sole comes down: each foot's sole, sampled through the clip, crossing
+  // down to within 0.05 studs of its lowest (for any rig: the R15 clips' feet lift and plant).
+  soleContacts(clip, feet) {
+    if (!this.anim.clips[clip] || !feet.length) return [];
+    const len = this.anim.duration(clip), n = Math.max(8, Math.round(len * 120)), dt = len / n;
+    const inv = this.holder.computeWorldMatrix(true).clone().invert(), ys = [];
+    for (let i = 0; i < n; i++) {
+      this.anim.layers = [{ clip, time: i * dt, weight: 1, target: 1, speed: 0 }];
+      this.anim.update(0);
+      ys.push(feet.map(b => Vector3.TransformCoordinates(b.sole(), inv).y));
+    }
+    this.anim.layers = [];
+    const out = [];
+    feet.forEach((_, k) => {
+      const low = Math.min(...ys.map(y => y[k])), near = i => ys[(i + n) % n][k] <= low + 0.05;
+      for (let i = 0; i < n; i++) if (near(i) && !near(i - 1)) out.push(i * dt);
+    });
+    return out.sort((a, b) => a - b);
+  }
+
   soleGroundSpeed(clip, legs) {
     if (!this.anim.clips[clip] || !legs.length) return 0;
     const len = this.anim.duration(clip), n = Math.round(len * 240), dt = len / n;
