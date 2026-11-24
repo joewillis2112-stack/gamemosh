@@ -50,6 +50,20 @@ export function placeNode(part, T) {
   return { p: new Vector3(cf.x, cf.y, cf.z), q: new Quaternion(x, y, z, w) };
 }
 
+/** Scripts' AnimationTracks over an R15 body (animation.js animatedJoints: Part1 name -> { cf, w }):
+ *  each part's node at C0 * T * C1:Inverse() from its parent, as the clips place it, blended by weight
+ *  over what's there. (R6's overlay turns the pose into the blocky model's node frame instead.) */
+export function overlayR15(rig, joints) {
+  for (const [name, { cf, w }] of joints) {
+    const part = rig.get(name);
+    if (!part || !part.joint || w <= 0) continue;
+    const { p, q } = placeNode(part, cf), n = part.node;
+    if (w >= 1) { n.rotationQuaternion.copyFrom(q); n.position.copyFrom(p); continue; }
+    n.rotationQuaternion.copyFrom(Quaternion.Slerp(n.rotationQuaternion, q, w));
+    n.position.copyFrom(Vector3.Lerp(n.position, p, w));
+  }
+}
+
 /** Add the clips to an Animator (runtime/character.js) under the character's state names: per part,
  *  a rotation and a position channel from its joint's pose at the clip's time. */
 export function addR15Clips(anim, rig, clips) {

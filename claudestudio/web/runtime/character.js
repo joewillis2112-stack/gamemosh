@@ -8,7 +8,7 @@ import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResu
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
 import { applySkin } from './skin.js';
-import { r15Rig, loadR15Clips, addR15Clips } from './r15clips.js';
+import { r15Rig, loadR15Clips, addR15Clips, overlayR15 } from './r15clips.js';
 import { colorGroup, toLinear } from './bodygen.js';
 import { nodeOfJoint, offsetToNode } from '../animation.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
@@ -694,7 +694,7 @@ export class Character {
     const lead = this.anim.layers.filter(l => this.contacts[l.clip]).sort((a, b) => b.weight - a.weight)[0];
     const before = lead ? lead.time : 0;
     this.anim.update(dt);
-    if (this.joints) { const j = this.joints(); if (j.size) this.anim.overlay(j, this.modelScale); } // scripts' AnimationTracks
+    if (this.joints) { const j = this.joints(); if (j.size) { if (this.rig) overlayR15(this.rig, j); else this.anim.overlay(j, this.modelScale); } } // scripts' AnimationTracks
     if (lead && lead.weight > 0.5 && state === 'walk' && this.grounded) {
       const len = this.anim.duration(lead.clip), after = lead.time;
       const crossed = c => (after >= before ? c > before && c <= after : c > before || c <= after);

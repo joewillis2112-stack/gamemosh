@@ -105,5 +105,32 @@ export default async function (t) {
   check(Math.abs(turn - 60) < 4, `a script's Neck.C0 turns the drawn head (${turn.toFixed(1)}°)`);
   const s2 = await state();
   check(s2.off < 1e-3 && s2.worst < 1e-3, 'and the Head part follows it, the joints holding');
+
+  // A script's AnimationTrack (an R15 KeyframeSequence, Action priority) poses the body about its joints:
+  // the shoulder's Motor6D.Transform becomes the Pose's CFrame (R15's rule; R6's overlay would turn it
+  // into the blocky model's node frame and miss).
+  await t.eval(() => window.studio.vm.run('track', `
+    local KSP = game:GetService("KeyframeSequenceProvider")
+    local ks = Instance.new("KeyframeSequence") ks.Loop = true ks.Priority = Enum.AnimationPriority.Action
+    for _, tm in ipairs({ 0, 1 }) do
+      local kf = Instance.new("Keyframe") kf.Time = tm
+      local function pose(name, parent, cf) local p = Instance.new("Pose") p.Name = name p.Weight = cf and 1 or 0 if cf then p.CFrame = cf end p.Parent = parent return p end
+      local ut = pose("UpperTorso", pose("LowerTorso", pose("HumanoidRootPart", kf)))
+      pose("LeftUpperArm", ut, CFrame.Angles(math.rad(90), 0, math.rad(20)))
+      ks:AddKeyframe(kf)
+    end
+    local a = Instance.new("Animation") a.AnimationId = KSP:RegisterKeyframeSequence(ks)
+    local tr = game:GetService("Players"):GetPlayers()[1].Character.Humanoid:LoadAnimation(a)
+    tr:Play(0)`));
+  await t.sim(10);
+  const sh = await t.eval(() => {
+    const ch = window.studio.dm.service('Players').children[0].props.Character, j = ch.children.find(c => c.props.Name === 'LeftUpperArm').children.find(c => c.props.Name === 'LeftShoulder');
+    return j.props.Transform.m.slice(3);
+  });
+  const wantT = (() => { const a = Math.PI / 2, b = 20 * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b); return [cb, -sb, 0, ca * sb, ca * cb, -sa, sa * sb, sa * cb, ca]; })(); // Rx(90) * Rz(20), row-major
+  const err = Math.max(...sh.map((v, i) => Math.abs(v - wantT[i])));
+  check(err < 2e-3, `a script's AnimationTrack poses the R15 shoulder: its Transform is the Pose's CFrame (worst ${err.toExponential(1)})`);
+  const s3 = await state();
+  check(s3.off < 1e-3 && s3.worst < 1e-3, 'and the parts follow, the joints holding');
   if (fail.length) throw new Error(fail.length + ' check(s) failed');
 }
