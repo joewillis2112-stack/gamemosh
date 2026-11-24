@@ -5,7 +5,8 @@
 //   hipWidth, torsoDepth, armLength (shoulder to wrist), forearmShare, handLength, footLength,
 //   armThickness, legThickness, headHeight, headWidth, headDepth, neckGap;
 //   shape: roundness (0 boxes ... 1 fully rounded), headRoundness, taper (limbs and torso narrow
-//   towards their lower end: 0 none ... 0.4 strong), chest (upper torso wider at the top), segments.
+//   towards their lower end: 0 none ... 0.4 strong), chest (upper torso wider at the top), segments,
+//   face (0 none, 1 our eyes and mouth: faceMesh).
 // Each part is a rounded box (an inner box grown by a radius, so roundness 0 is a box and 1 a capsule
 // or ellipsoid-like form), tapered. RigAttachments sit at the parts' ends from the same numbers, so
 // every body plays the same animations. Pure geometry: no Babylon (tools and the runtime share it).
@@ -25,10 +26,10 @@ export const R15_PARTS = ['HumanoidRootPart', 'LowerTorso', 'UpperTorso', 'Head'
 /** Presets. "studio" is our own default; "blocky" is close to Roblox's classic proportions (a
  *  reference, not a target); the others show the range. */
 export const BODY_PRESETS = {
-  studio: { legLength: 2.3, torsoLength: 2.0, lowerTorsoShare: 0.32, shoulderWidth: 1.9, hipWidth: 1.15, torsoDepth: 0.95, armLength: 2.0, forearmShare: 0.48, handLength: 0.42, footLength: 1.0, armThickness: 0.55, legThickness: 0.62, headHeight: 1.25, headWidth: 1.2, headDepth: 1.15, neckGap: 0.08, roundness: 0.55, headRoundness: 0.85, taper: 0.12, chest: 0.12, segments: 6 },
-  blocky: { legLength: 2.0, torsoLength: 2.0, lowerTorsoShare: 0.2, shoulderWidth: 2.0, hipWidth: 1.0, torsoDepth: 1.0, armLength: 2.0, forearmShare: 0.5, handLength: 0.3, footLength: 1.0, armThickness: 1.0, legThickness: 1.0, headHeight: 1.2, headWidth: 1.2, headDepth: 1.2, neckGap: 0, roundness: 0.08, headRoundness: 0.6, taper: 0, chest: 0, segments: 4 },
-  chibi: { legLength: 1.2, torsoLength: 1.3, lowerTorsoShare: 0.35, shoulderWidth: 1.5, hipWidth: 1.0, torsoDepth: 0.95, armLength: 1.3, forearmShare: 0.5, handLength: 0.35, footLength: 0.8, armThickness: 0.55, legThickness: 0.6, headHeight: 2.0, headWidth: 2.1, headDepth: 1.9, neckGap: 0.05, roundness: 0.8, headRoundness: 0.95, taper: 0.05, chest: 0, segments: 6 },
-  tall: { legLength: 3.3, torsoLength: 2.5, lowerTorsoShare: 0.3, shoulderWidth: 1.8, hipWidth: 1.1, torsoDepth: 0.8, armLength: 2.7, forearmShare: 0.47, handLength: 0.5, footLength: 1.1, armThickness: 0.45, legThickness: 0.55, headHeight: 1.0, headWidth: 0.85, headDepth: 0.95, neckGap: 0.12, roundness: 0.7, headRoundness: 0.9, taper: 0.2, chest: 0.2, segments: 6 },
+  studio: { legLength: 2.3, torsoLength: 2.0, lowerTorsoShare: 0.32, shoulderWidth: 1.9, hipWidth: 1.15, torsoDepth: 0.95, armLength: 2.0, forearmShare: 0.48, handLength: 0.42, footLength: 1.0, armThickness: 0.55, legThickness: 0.62, headHeight: 1.25, headWidth: 1.2, headDepth: 1.15, neckGap: 0.08, roundness: 0.55, headRoundness: 0.85, taper: 0.12, chest: 0.12, segments: 6 , face: 1 },
+  blocky: { legLength: 2.0, torsoLength: 2.0, lowerTorsoShare: 0.2, shoulderWidth: 2.0, hipWidth: 1.0, torsoDepth: 1.0, armLength: 2.0, forearmShare: 0.5, handLength: 0.3, footLength: 1.0, armThickness: 1.0, legThickness: 1.0, headHeight: 1.2, headWidth: 1.2, headDepth: 1.2, neckGap: 0, roundness: 0.08, headRoundness: 0.6, taper: 0, chest: 0, segments: 4 , face: 1 },
+  chibi: { legLength: 1.2, torsoLength: 1.3, lowerTorsoShare: 0.35, shoulderWidth: 1.5, hipWidth: 1.0, torsoDepth: 0.95, armLength: 1.3, forearmShare: 0.5, handLength: 0.35, footLength: 0.8, armThickness: 0.55, legThickness: 0.6, headHeight: 2.0, headWidth: 2.1, headDepth: 1.9, neckGap: 0.05, roundness: 0.8, headRoundness: 0.95, taper: 0.05, chest: 0, segments: 6 , face: 1 },
+  tall: { legLength: 3.3, torsoLength: 2.5, lowerTorsoShare: 0.3, shoulderWidth: 1.8, hipWidth: 1.1, torsoDepth: 0.8, armLength: 2.7, forearmShare: 0.47, handLength: 0.5, footLength: 1.1, armThickness: 0.45, legThickness: 0.55, headHeight: 1.0, headWidth: 0.85, headDepth: 0.95, neckGap: 0.12, roundness: 0.7, headRoundness: 0.9, taper: 0.2, chest: 0.2, segments: 6 , face: 1 },
 };
 
 /** The BodyShape class's properties (Claude Studio's own, web/datamodel.js): each shape parameter but
@@ -174,6 +175,35 @@ export function partMesh(size, { roundness = 0.5, taper = 0, segments = 6, exten
 }
 
 const flat = c => c.m.map(x => +x.toFixed(6));
+/** Our face (OURS: not Roblox's decal face): two eyes and a smile, small dark rounded shapes set into the
+ *  head's front (-Z) surface, sized and placed by the head's own size, so any head wears it. Its colour
+ *  stays when the body is recoloured. Returns a mesh in the head's frame (with colours), or null. */
+export const FACE_COLOR = [20 / 255, 20 / 255, 26 / 255]; // (on the 1/255 grid: it reads back as itself)
+/** The face's pieces (two eyes, five for the smile) and their detail at a body's segments: small, so few. */
+export const FACE_BITS = 7;
+export const faceSegments = segments => segments >= 6 ? 3 : 2;
+export function faceMesh(size, roundness, segments) {
+  const [w, h, d] = size, half = [w / 2, h / 2, d / 2], r = Math.max(1e-4, roundness * Math.min(...half)), inner = half.map(v => Math.max(0, v - r));
+  // The head's front surface at (x, y): the rounded box's -Z side.
+  const frontZ = (x, y) => { const dx = Math.max(0, Math.abs(x) - inner[0]), dy = Math.max(0, Math.abs(y) - inner[1]); return -(inner[2] + Math.sqrt(Math.max(0, r * r - dx * dx - dy * dy))); };
+  const t = Math.min(w, h) * 0.06, bits = [];
+  for (const sx of [-1, 1]) bits.push({ size: [w * 0.11, h * 0.17, t], at: [sx * w * 0.2, h * 0.08] });
+  for (let k = -2; k <= 2; k++) { const x = k * w * 0.055; bits.push({ size: [w * 0.075, h * 0.045, t * 0.8], at: [x, -h * 0.2 + h * 0.06 * (k / 2) ** 2] }); } // a smile
+  const out = { positions: [], normals: [], uvs: [], indices: [], colors: [] }, [cr, cg, cb] = FACE_COLOR.map(toLinear);
+  for (const bit of bits) {
+    const m = partMesh(bit.size, { roundness: 1, segments: faceSegments(segments) }), base = out.positions.length / 3;
+    const z = frontZ(...bit.at) + bit.size[2] * 0.2; // set in: its front stands a little proud of the surface
+    for (let i = 0; i < m.positions.length; i += 3) { out.positions.push(m.positions[i] + bit.at[0], m.positions[i + 1] + bit.at[1], m.positions[i + 2] + z); out.colors.push(cr, cg, cb, 1); }
+    out.normals.push(...m.normals); out.uvs.push(...m.uvs); out.indices.push(...m.indices.map(v => v + base));
+  }
+  return out;
+}
+// A mesh with another appended (both in the same frame, both with colours).
+function merged(a, b) {
+  const base = a.positions.length / 3;
+  return { positions: a.positions.concat(b.positions), normals: a.normals.concat(b.normals), uvs: a.uvs.concat(b.uvs), indices: a.indices.concat(b.indices.map(v => v + base)), colors: a.colors.concat(b.colors) };
+}
+const headFace = b => b.params.face ? faceMesh(b.parts.Head.size, b.parts.Head.shape.roundness, b.params.segments) : null;
 /** Which of Roblox's six body colours (BodyColors, HumanoidDescription: Head, Torso, LeftArm, RightArm,
  *  LeftLeg, RightLeg) an R15 part wears. */
 export const colorGroup = n => n === 'Head' ? 'Head' : /Torso$/.test(n) ? 'Torso' : n.replace(/(Upper|Lower)?(Arm|Hand)$/, 'Arm').replace(/(Upper|Lower)?(Leg|Foot)$/, 'Leg');
@@ -200,6 +230,11 @@ export function bodyNodes(b) {
       extras: { r15: { part: n, size: b.parts[n].size, ...(jt ? { joint: jt.name, c0: flat(jt.c0), c1: flat(jt.c1) } : {}) } },
       mesh: b.parts[n].shape ? tinted(b, n, partMesh(b.parts[n].size, { ...b.parts[n].shape, segments: b.params.segments })) : null,
     };
+  }).map(node => {
+    // The head wears the face; its own vertices are its colour group's (recolouring leaves the face).
+    const f = node.name === 'Head' && headFace(b);
+    if (f) { node.extras.colorRanges = [['Head', 0, node.mesh.positions.length / 3]]; node.mesh = merged(node.mesh, f); }
+    return node;
   });
 }
 /** A body as .glb bytes (what Character.load takes as a Blob), from parameters over the studio preset.
@@ -240,7 +275,11 @@ export function bodySkin(b, nodes) {
     const part = b.parts[n];
     if (!part.shape) continue;
     const m = tinted(b, n, partMesh(part.size, { ...part.shape, segments: b.params.segments })), W = world[n], R = W.m.slice(3), base = positions.length / 3;
-    colors.push(...m.colors); ranges.push([colorGroup(n), base, m.positions.length / 3]);
+    ranges.push([colorGroup(n), base, m.positions.length / 3]);
+    const f = n === 'Head' && headFace(b); // the face rides on the head's bone alone
+    if (f) for (let i = 0; i < f.positions.length; i += 3) m.positions.push(f.positions[i], f.positions[i + 1], f.positions[i + 2]);
+    if (f) { m.normals.push(...f.normals); m.uvs.push(...f.uvs); m.indices.push(...f.indices.map(v => v + (m.positions.length - f.positions.length) / 3)); m.colors.push(...f.colors); }
+    colors.push(...m.colors);
     for (let i = 0; i < m.positions.length; i += 3) {
       const v = W.mul(new CF([m.positions[i], m.positions[i + 1], m.positions[i + 2], 1, 0, 0, 0, 1, 0, 0, 0, 1]));
       positions.push(v.x, v.y, v.z);

@@ -3,7 +3,7 @@
 // torso; the feet point forward (-Z, Roblox's facing); every part's mesh is wound outward and fills
 // its size (a box at roundness 0); parameters do what they say (longer legs raise the root by that
 // much; a bigger head makes the body that much taller).
-import { makeBody, partMesh, bodyNodes, bodySkin, BODY_PRESETS, R15_PARTS, R15_JOINTS, describedBody, colorGroup, toLinear, SHAPE_PROPS } from '../web/runtime/bodygen.js';
+import { makeBody, partMesh, bodyNodes, bodySkin, BODY_PRESETS, R15_PARTS, R15_JOINTS, describedBody, colorGroup, toLinear, SHAPE_PROPS, FACE_COLOR } from '../web/runtime/bodygen.js';
 
 const fail = [];
 const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -100,11 +100,18 @@ for (const [name, preset] of Object.entries(BODY_PRESETS)) {
   check(SHAPE_PROPS.every(([, k]) => q[k] === BODY_PRESETS.chibi[k]), 'described: without a BodyShape the base shape stays');
   // Colours: every vertex of a part wears its group's colour, linear (glTF's), on rigid parts and the skinned mesh.
   const b = makeBody(p), nodes = bodyNodes(b);
-  const bad = nodes.filter(n => n.mesh).filter(n => { const want = p.colors[colorGroup(n.name)].map(toLinear), c = n.mesh.colors; if (!c || c.length !== n.mesh.positions.length / 3 * 4) return true; for (let i = 0; i < c.length; i += 4) if (!near(c[i], want[0]) || !near(c[i + 1], want[1]) || !near(c[i + 2], want[2]) || c[i + 3] !== 1) return true; return false; });
+  const bad = nodes.filter(n => n.mesh).filter(n => { const want = p.colors[colorGroup(n.name)].map(toLinear), c = n.mesh.colors, own = n.extras.colorRanges ? n.extras.colorRanges[0][2] * 4 : c.length; if (!c || c.length !== n.mesh.positions.length / 3 * 4) return true; for (let i = 0; i < own; i += 4) if (!near(c[i], want[0]) || !near(c[i + 1], want[1]) || !near(c[i + 2], want[2]) || c[i + 3] !== 1) return true; return false; });
   check(nodes.filter(n => n.mesh).length === 15 && !bad.length, `colours: each part's vertices wear its group's colour, linear${bad.length ? ' (wrong: ' + bad.map(n => n.name) + ')' : ''}`);
   check(colorGroup('LeftHand') === 'LeftArm' && colorGroup('RightFoot') === 'RightLeg' && colorGroup('LowerTorso') === 'Torso' && colorGroup('RightLowerArm') === 'RightArm', 'colours: hands with the arms, feet with the legs, both torsos one');
   const { mesh } = bodySkin(b, nodes);
   check(mesh.colors && mesh.colors.length === mesh.positions.length / 3 * 4, 'colours: the skinned mesh carries one per vertex');
+  // The face: on the head's front, its own dark colour, kept out of the head's colour range.
+  const head = nodes.find(n => n.name === 'Head'), hv = head.extras.colorRanges[0][2], fc = FACE_COLOR.map(toLinear), H = b.parts.Head.size;
+  let faceOk = head.mesh.positions.length / 3 > hv, front = true;
+  for (let i = hv; i < head.mesh.positions.length / 3; i++) { if (!near(head.mesh.colors[i * 4], fc[0])) faceOk = false; if (head.mesh.positions[i * 3 + 2] > -H[2] * 0.25) front = false; }
+  check(faceOk && front, `the face: ${head.mesh.positions.length / 3 - hv} vertices on the head's front (-Z), its own colour, outside the head's colour range`);
+  const nf = bodyNodes(makeBody({ ...p, face: 0 })).find(n => n.name === 'Head');
+  check(!nf.extras.colorRanges && nf.mesh.positions.length / 3 === hv, 'Face 0: no face');
 }
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('PASS');

@@ -13,7 +13,8 @@
 // - an NPC made by Players:CreateHumanoidModelFromDescriptionAsync is drawn as its own described body
 //   (height, colours, feet on the ground), a script's AnimationTrack poses it about its joints, and
 //   ApplyDescriptionAsync on it rebuilds it.
-import { describedBody, makeBody, colorGroup } from '../../web/runtime/bodygen.js';
+import { describedBody, makeBody, colorGroup, FACE_COLOR } from '../../web/runtime/bodygen.js';
+const FACE = FACE_COLOR.map(v => Math.round(v * 255)).join(','); // the face's own colour (it isn't the body's)
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -48,10 +49,10 @@ export default async function (t) {
   for (const [n, sz] of Object.entries(got.sizes)) { const w = body.parts[n] && body.parts[n].size; if (!w) { worst = Infinity; worstPart = n; continue; } const e = Math.max(...sz.map((v, i) => Math.abs(v - w[i]))); if (e > worst) { worst = e; worstPart = n; } }
   check(Object.keys(got.sizes).length === 16 && worst < 1e-3, `the DataModel's 16 R15 parts have the described body's sizes (worst ${worst.toExponential(1)}, ${worstPart}; Head ${got.sizes.Head.map(v => v.toFixed(2))})`);
   const key = c => [c.r, c.g, c.b].map(v => Math.round(v * 255)).join(',');
-  const want = new Set(['Head', 'Torso', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg'].map(g => key(got.desc[g + 'Color'])));
+  const want = new Set([...['Head', 'Torso', 'LeftArm', 'RightArm', 'LeftLeg', 'RightLeg'].map(g => key(got.desc[g + 'Color'])), FACE]);
   check(got.colors.length === want.size && got.colors.every(c => want.has(c)), `the meshes carry exactly the description's colours (${got.colors.join(' | ')})`);
   const rigid = Object.entries(got.perPart).filter(([n]) => n !== 'Body');
-  if (rigid.length) check(rigid.length === 15 && rigid.every(([n, c]) => c.length === 1 && c[0] === key(got.desc[colorGroup(n) + 'Color'])), `each part wears its own group's colour (${rigid.length} parts)`);
+  if (rigid.length) check(rigid.length === 15 && rigid.every(([n, c]) => { const own = c.filter(x => n !== 'Head' || x !== FACE); return own.length === 1 && own[0] === key(got.desc[colorGroup(n) + 'Color']) && (n !== 'Head' || c.includes(FACE)); }), `each part wears its own group's colour, the head its face too (${rigid.length} parts)`);
   else check(got.perPart.Body && got.perPart.Body.length === want.size, `one skinned mesh carrying all ${want.size} colours`);
   check(Math.abs(got.capH - (body.height - got.stepUp)) < 1e-6, `the collision capsule is the body's height above the step (${got.capH.toFixed(2)})`);
   check(Math.abs(got.rootHeight - body.hrpHeight) < 0.02 && Math.abs(got.focus - (got.rootHeight + 1.5)) < 1e-6, `the camera looks 1.5 studs above the body's own root (${got.focus.toFixed(2)}; root ${got.rootHeight.toFixed(2)}, the generator's ${body.hrpHeight.toFixed(2)})`);
@@ -150,7 +151,7 @@ export default async function (t) {
   check(n0.drawn && n0.rig === 'R15' && n0.generated && n0.shape, `an NPC from CreateHumanoidModelFromDescriptionAsync: R15, its description under its Humanoid, drawn as a generated body (${n0.drawn ? 'drawn' : 'not drawn'})`);
   if (nb0) {
     check(Math.abs(n0.hi - n0.lo - nb0.height) < 0.03 && Math.abs(n0.lo) < 0.03 && Math.abs(n0.rootY - nb0.hrpHeight) < 1e-6 && Math.abs(n0.rootSize[1] - nb0.parts.HumanoidRootPart.size[1]) < 1e-6, `drawn at its described height, ${(n0.hi - n0.lo).toFixed(3)} studs (the generator's ${nb0.height.toFixed(3)}), its feet on the ground (${n0.lo.toFixed(3)}), its root part the body's`);
-    const wantN = new Set(['Head', 'Torso', 'LeftLeg'].map(g => key(n0.desc[g + 'Color'])));
+    const wantN = new Set([...['Head', 'Torso', 'LeftLeg'].map(g => key(n0.desc[g + 'Color'])), FACE]);
     check(n0.colors.length === wantN.size && n0.colors.every(c => wantN.has(c)), `in its own colours (${n0.colors.join(' | ')})`);
   }
   // A script's AnimationTrack poses the NPC about its joints (its left upper arm turned 90 degrees).

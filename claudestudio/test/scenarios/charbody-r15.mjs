@@ -22,7 +22,8 @@ export default async function (t) {
   const detail = await t.eval(() => ({ body: new URLSearchParams(location.search).has('body'), tier: window.studio.R.quality, tris: window.studio.player.meshes.reduce((n, m) => n + (m.getTotalIndices ? m.getTotalIndices() / 3 : 0), 0) }));
   if (detail.body) {
     const seg = { low: 3, phone: 4, high: 6, ultra: 8 }[detail.tier];
-    check(detail.tris === 15 * 6 * (2 * seg) ** 2 * 2, `a generated body at the ${detail.tier} tier's detail (${detail.tris} triangles; ${seg} segments)`);
+    const fs = seg >= 6 ? 3 : 2, face = 7 * 6 * (2 * fs) ** 2 * 2; // the face's seven small pieces (bodygen.js faceMesh)
+    check(detail.tris === 15 * 6 * (2 * seg) ** 2 * 2 + face, `a generated body at the ${detail.tier} tier's detail (${detail.tris} triangles; ${seg} segments, the face ${face})`);
     // High and ultra: one skinned mesh whose 16 bones are the animated joint nodes; below, a rigid mesh per part.
     const sk = await t.eval(() => { const p = window.studio.player, m = p.meshes.filter(x => x.skeleton); const bones = m[0] ? m[0].skeleton.bones : []; return { skinned: m.length, bones: bones.length, linked: bones.filter(b => { const n = b.getTransformNode(); return n && p.rig.has(n.name) && p.rig.get(n.name).node === n; }).length }; });
     const want = detail.tier === 'high' || detail.tier === 'ultra';

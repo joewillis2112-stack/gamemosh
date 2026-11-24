@@ -1354,6 +1354,7 @@ export const STUDIO_OWN = new Map([
   ['BodyShape.HeadRoundness', 'How rounded the head is (0 a box, 1 fully rounded).'],
   ['BodyShape.Taper', 'How much the limbs narrow towards their lower ends (0 none, 0.4 strong).'],
   ['BodyShape.Chest', 'How much wider the upper torso is at the shoulders than at the waist (0 none).'],
+  ['BodyShape.Face', 'The face on the head: 0 none, 1 our eyes and smile.'],
 ]);
 const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
 const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
