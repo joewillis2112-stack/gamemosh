@@ -21,6 +21,9 @@ export function writeBody(name, params) {
     return {
       name: n, translation: j ? [local.x, local.y, local.z] : [0, b.hrpHeight, 0], rotation: j ? [x, y, z, w] : [0, 1, 0, 0], // the root turned to face +Z
       children: R15_JOINTS.filter(k => k[1] === n).map(k => index.get(k[2])),
+      // What the runtime needs to drive it (runtime/character.js): the part's size, and its joint to its
+      // parent with Roblox's C0 and C1 (so a pose turns it about the joint: C0 * Transform * C1:Inverse()).
+      extras: { r15: { part: n, size: b.parts[n].size, ...(j ? { joint: j[0], c0: flat(b.joints.find(x => x.part1 === n).c0), c1: flat(b.joints.find(x => x.part1 === n).c1) } : {}) } },
       mesh: b.parts[n].shape ? partMesh(b.parts[n].size, { ...b.parts[n].shape, segments: b.params.segments }) : null,
     };
   });

@@ -8,6 +8,7 @@ import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResu
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { POSES, poseRotations, posePeriod } from './poses.js';
 import { applySkin } from './skin.js';
+import { r15Rig, loadR15Clips, addR15Clips } from './r15clips.js';
 import { nodeOfJoint, offsetToNode } from '../animation.js';
 import '@babylonjs/loaders/glTF/2.0/index.js';
 
@@ -220,11 +221,14 @@ export class Character {
     let res;
     if (typeof url === 'string') { const cut = url.lastIndexOf('/') + 1; res = await SceneLoader.ImportMeshAsync('', url.slice(0, cut), url.slice(cut), scene); }
     else res = await SceneLoader.ImportMeshAsync('', '', url, scene, null, '.glb');
-    return new Character(scene, res, shadows, spawn);
+    // An R15 body (its part nodes carry their joints: runtime/r15clips.js) plays Roblox's R15 clips.
+    const rig = r15Rig(res), clips = rig ? await loadR15Clips() : null;
+    return new Character(scene, res, shadows, spawn, { rig, clips });
   }
 
-  constructor(scene, res, shadows, spawn) {
+  constructor(scene, res, shadows, spawn, { rig = null, clips = null } = {}) {
     this.scene = scene;
+    this.rig = rig; // an R15 body's parts (runtime/r15clips.js), or null (the blocky R6-like model)
     // This character's numbers: Roblox's defaults, overridden live from its
     // Humanoid (WalkSpeed, JumpPower, ...) by bindHumanoid.
     this.p = { ...HUMANOID };
@@ -254,16 +258,22 @@ export class Character {
     }
     // Jump and fall: held poses (the pack has no clips), shared with the turntable gate.
     const restOf = name => { const n = this.anim.nodes.find(n => n.name === name); return n && this.anim.rest.get(n).q; };
-    for (const name of Object.keys(POSES)) this.anim.addPose(name, t => poseRotations(name, restOf, t), posePeriod(name));
+    if (rig) addR15Clips(this.anim, rig, clips); // Roblox's own idle, walk, run, jump, fall... about each joint
+    else for (const name of Object.keys(POSES)) this.anim.addPose(name, t => poseRotations(name, restOf, t), posePeriod(name));
     // Hip-to-sole distance in studs: the leg's pivot height (soles are at y 0).
-    const leg = res.transformNodes.concat(res.meshes).find(n => n.name === 'leg-left');
+    const leg = rig ? rig.get('LeftUpperLeg').node : res.transformNodes.concat(res.meshes).find(n => n.name === 'leg-left');
     this.holder.computeWorldMatrix(true); root.computeWorldMatrix(true); leg.computeWorldMatrix(true);
-    this.legLength = leg.getAbsolutePosition().y - this.holder.position.y;
+    // (An R15 leg's node is its middle: the hip is its joint, C1, in its frame.)
+    const hip = rig ? Vector3.TransformCoordinates(new Vector3(rig.get('LeftUpperLeg').c1.x, rig.get('LeftUpperLeg').c1.y, rig.get('LeftUpperLeg').c1.z), leg.getWorldMatrix()) : leg.getAbsolutePosition();
+    this.legLength = hip.y - this.holder.position.y;
+    // The HumanoidRootPart's centre above the soles: R6's 3, or an R15 body's own root node.
+    this.rootHeight = rig ? rig.get('HumanoidRootPart').node.getAbsolutePosition().y - this.holder.position.y : 3;
     this.parts = partBoxes(res);
-    const legs = this.parts.filter(b => /^leg-(left|right)$/.test(b.name));
+    const legs = this.parts.filter(b => (rig ? /^(Left|Right)Foot$/ : /^leg-(left|right)$/).test(b.name));
     this.walkNatural = this.soleGroundSpeed('walk', legs) || clipGroundSpeed(this.anim, 'walk', 'leg-left', this.legLength);
     this.sprintNatural = this.soleGroundSpeed('sprint', legs) || clipGroundSpeed(this.anim, 'sprint', 'leg-left', this.legLength);
-    this.contacts = { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
+    // Footsteps: when a sole passes under the hip (R6-like legs' swing sign); not yet for R15 (UNSURE: Roblox's own footsteps come from the clips' markers).
+    this.contacts = rig ? { walk: [], sprint: [] } : { walk: clipContacts(this.anim, 'walk', 'leg-left'), sprint: clipContacts(this.anim, 'sprint', 'leg-left') };
     this.on = {}; // event hooks: step(), jump(), land(fallSpeed)
     if (this.anim.clips.die) this.anim.clips.die.loop = false; // plays once and holds
     this.deadBox = this.anim.clips.die ? this.measurePose('die', this.anim.duration('die'), this.parts) : null;

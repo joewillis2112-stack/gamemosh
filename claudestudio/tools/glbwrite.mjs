@@ -3,7 +3,7 @@
 // and tools/body.mjs.
 import fs from 'node:fs';
 
-/** nodes: [{ name, translation, rotation, children: [index], mesh: { positions, normals, uvs, indices } }];
+/** nodes: [{ name, translation, rotation, children: [index], extras, mesh: { positions, normals, uvs, indices } }];
  *  roots: indices of the scene's top nodes; color: the material's base colour. */
 export function writeGlb(file, nodes, roots, { color = [0.64, 0.64, 0.65, 1], roughness = 0.8 } = {}) {
   const gNodes = [], meshes = [], accessors = [], views = [], chunks = [];
@@ -19,6 +19,7 @@ export function writeGlb(file, nodes, roots, { color = [0.64, 0.64, 0.65, 1], ro
   for (const n of nodes) {
     const g = { name: n.name, translation: n.translation, rotation: n.rotation };
     if (n.children && n.children.length) g.children = n.children;
+    if (n.extras) g.extras = n.extras;
     const m = n.mesh;
     if (m && m.indices.length) {
       const min = [0, 1, 2].map(k => { let v = Infinity; for (let i = k; i < m.positions.length; i += 3) v = Math.min(v, m.positions[i]); return v; });

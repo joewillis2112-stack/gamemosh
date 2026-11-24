@@ -87,6 +87,7 @@ export class Players {
     model.props.PrimaryPart = root;
     // R6's body parts and Motor6Ds, following the drawn rig (runtime/charbody.js).
     this.body = new CharacterBody(this.dm, this.char, model, root);
+    hum.props.RigType = this.char.rig ? 'R15' : 'R6';
     // StarterCharacterScripts go into the new character.
     this.copyInto(this.dm.service('StarterPlayer').children.find(c => c.ClassName === 'StarterCharacterScripts'), model);
     this.model = model; this.humanoid = hum; this.root = root;
@@ -246,7 +247,7 @@ export class Players {
     const f = this.char.holder.position, P = this.root.props;
     let oy = this.char.yaw / DEG - 180; // Roblox: 0 = facing -Z
     oy = ((oy + 180) % 360 + 360) % 360 - 180;
-    P.CFrame = CF.fromOrientation(f.x, f.y + 3, f.z, 0, oy, 0);
+    P.CFrame = CF.fromOrientation(f.x, f.y + (this.char.rootHeight || 3), f.z, 0, oy, 0); // R6: 3 studs up; R15: its body's root
     P.Position = new V3(P.CFrame.x, P.CFrame.y, P.CFrame.z);
     P.Orientation = new V3(0, oy, 0);
   }
