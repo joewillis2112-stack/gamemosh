@@ -129,6 +129,7 @@ if [ -d .cache/fidelity/assets ]; then
 else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
 timeout 600 node test/text.test.mjs | tail -1 | grep -q PASS && echo "text outlines test PASS" || { echo "FAILED: text outlines test"; fail=1; }
 timeout 600 node test/quality.test.mjs | tail -1 | grep -q PASS && echo "graphics quality test PASS" || { echo "FAILED: graphics quality test"; fail=1; }
+timeout 600 node test/bodygen.test.mjs | tail -1 | grep -q PASS && echo "generated bodies test PASS" || { echo "FAILED: generated bodies test"; fail=1; }
 timeout 600 node test/assembly.test.mjs | tail -1 | grep -q PASS && echo "joints and assemblies test PASS" || { echo "FAILED: joints and assemblies test"; fail=1; }
 timeout 600 node test/library.test.mjs | tail -1 | grep -q PASS && echo "toolbox catalog test PASS" || { echo "FAILED: toolbox catalog test"; fail=1; }
 timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }

@@ -1,0 +1,1371 @@
+{
+ "generated": "tools/body.mjs",
+ "params": {
+  "legLength": 2,
+  "torsoLength": 2,
+  "lowerTorsoShare": 0.2,
+  "shoulderWidth": 2,
+  "hipWidth": 1,
+  "torsoDepth": 1,
+  "armLength": 2,
+  "forearmShare": 0.5,
+  "handLength": 0.3,
+  "footLength": 1,
+  "armThickness": 1,
+  "legThickness": 1,
+  "headHeight": 1.2,
+  "headWidth": 1.2,
+  "headDepth": 1.2,
+  "neckGap": 0,
+  "roundness": 0.08,
+  "headRoundness": 0.6,
+  "taper": 0,
+  "chest": 0,
+  "segments": 4
+ },
+ "hrpHeight": 2.45,
+ "height": 5.45,
+ "parts": {
+  "HumanoidRootPart": {
+   "size": [
+    2,
+    2,
+    1
+   ],
+   "rest": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RootRigAttachment": [
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LowerTorso": {
+   "size": [
+    1.2,
+    0.4,
+    0.95
+   ],
+   "rest": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RootRigAttachment": [
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "WaistRigAttachment": [
+     0,
+     0.2,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftHipRigAttachment": [
+     -0.025,
+     -0.2,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightHipRigAttachment": [
+     0.025,
+     -0.2,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "UpperTorso": {
+   "size": [
+    2,
+    1.6,
+    1
+   ],
+   "rest": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "WaistRigAttachment": [
+     0,
+     -0.8,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "NeckRigAttachment": [
+     0,
+     0.8,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftShoulderRigAttachment": [
+     -1,
+     0.3,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightShoulderRigAttachment": [
+     1,
+     0.3,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "Head": {
+   "size": [
+    1.2,
+    1.2,
+    1.2
+   ],
+   "rest": [
+    0,
+    2.4,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "NeckRigAttachment": [
+     0,
+     -0.6,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "FaceFrontAttachment": [
+     0,
+     0,
+     -0.6,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "HatAttachment": [
+     0,
+     0.6,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftUpperArm": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    -1.5,
+    1.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftShoulderRigAttachment": [
+     0.5,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftElbowRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftLowerArm": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    -1.5,
+    0.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftElbowRigAttachment": [
+     0,
+     0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftWristRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftHand": {
+   "size": [
+    0.85,
+    0.3,
+    0.85
+   ],
+   "rest": [
+    -1.5,
+    -0.35,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftWristRigAttachment": [
+     0,
+     0.15,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftGripAttachment": [
+     0,
+     -0.075,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightUpperArm": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    1.5,
+    1.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightShoulderRigAttachment": [
+     -0.5,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightElbowRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightLowerArm": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    1.5,
+    0.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightElbowRigAttachment": [
+     0,
+     0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightWristRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightHand": {
+   "size": [
+    0.85,
+    0.3,
+    0.85
+   ],
+   "rest": [
+    1.5,
+    -0.35,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightWristRigAttachment": [
+     0,
+     0.15,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightGripAttachment": [
+     0,
+     -0.075,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftUpperLeg": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    -0.025,
+    -0.7,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftHipRigAttachment": [
+     0,
+     0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftKneeRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftLowerLeg": {
+   "size": [
+    1,
+    0.75,
+    1
+   ],
+   "rest": [
+    -0.025,
+    -1.575,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftKneeRigAttachment": [
+     0,
+     0.375,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "LeftAnkleRigAttachment": [
+     0,
+     -0.375,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "LeftFoot": {
+   "size": [
+    0.95,
+    0.5,
+    1
+   ],
+   "rest": [
+    -0.025,
+    -2.2,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "LeftAnkleRigAttachment": [
+     0,
+     0.25,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightUpperLeg": {
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "rest": [
+    0.025,
+    -0.7,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightHipRigAttachment": [
+     0,
+     0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightKneeRigAttachment": [
+     0,
+     -0.5,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightLowerLeg": {
+   "size": [
+    1,
+    0.75,
+    1
+   ],
+   "rest": [
+    0.025,
+    -1.575,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightKneeRigAttachment": [
+     0,
+     0.375,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "RightAnkleRigAttachment": [
+     0,
+     -0.375,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  },
+  "RightFoot": {
+   "size": [
+    0.95,
+    0.5,
+    1
+   ],
+   "rest": [
+    0.025,
+    -2.2,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "attachments": {
+    "RightAnkleRigAttachment": [
+     0,
+     0.25,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ]
+   }
+  }
+ },
+ "joints": [
+  {
+   "name": "Root",
+   "part0": "HumanoidRootPart",
+   "part1": "LowerTorso",
+   "c0": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "Waist",
+   "part0": "LowerTorso",
+   "part1": "UpperTorso",
+   "c0": [
+    0,
+    0.2,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    -0.8,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "Neck",
+   "part0": "UpperTorso",
+   "part1": "Head",
+   "c0": [
+    0,
+    0.8,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    -0.6,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftShoulder",
+   "part0": "UpperTorso",
+   "part1": "LeftUpperArm",
+   "c0": [
+    -1,
+    0.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0.5,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftElbow",
+   "part0": "LeftUpperArm",
+   "part1": "LeftLowerArm",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftWrist",
+   "part0": "LeftLowerArm",
+   "part1": "LeftHand",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.15,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightShoulder",
+   "part0": "UpperTorso",
+   "part1": "RightUpperArm",
+   "c0": [
+    1,
+    0.3,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    -0.5,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightElbow",
+   "part0": "RightUpperArm",
+   "part1": "RightLowerArm",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightWrist",
+   "part0": "RightLowerArm",
+   "part1": "RightHand",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.15,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftHip",
+   "part0": "LowerTorso",
+   "part1": "LeftUpperLeg",
+   "c0": [
+    -0.025,
+    -0.2,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftKnee",
+   "part0": "LeftUpperLeg",
+   "part1": "LeftLowerLeg",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.375,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "LeftAnkle",
+   "part0": "LeftLowerLeg",
+   "part1": "LeftFoot",
+   "c0": [
+    0,
+    -0.375,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.25,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightHip",
+   "part0": "LowerTorso",
+   "part1": "RightUpperLeg",
+   "c0": [
+    0.025,
+    -0.2,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightKnee",
+   "part0": "RightUpperLeg",
+   "part1": "RightLowerLeg",
+   "c0": [
+    0,
+    -0.5,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.375,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "RightAnkle",
+   "part0": "RightLowerLeg",
+   "part1": "RightFoot",
+   "c0": [
+    0,
+    -0.375,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "c1": [
+    0,
+    0.25,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+   ]
+  }
+ ]
+}
