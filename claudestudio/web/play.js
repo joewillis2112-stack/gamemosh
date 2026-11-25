@@ -133,6 +133,9 @@ async function main() {
   graphics.add(rigs);
   const npcs = new Npcs({ scene, dm, world, shadows: R.shadows, gravity: GRAVITY, quality }); // rigs with unanchored roots walk
   graphics.add(npcs);
+  // Characters touch characters: the player's body and the NPCs' (runtime/humevents.js).
+  players.others = () => npcs.bodies();
+  npcs.player = () => players.hasCharacter && !players.dead ? [{ root: players.root, char: player }] : [];
   await rigs.load();
   players.join();
   const gui = new Gui(dm, players);

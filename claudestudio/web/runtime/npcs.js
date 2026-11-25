@@ -5,13 +5,15 @@
 // scripts, IKControls and AnimationTracks reach them), and the clips of its state (idle, walk, run, jump,
 // fall). OURS: Roblox NPCs only animate with an Animate script. Its body: a generated one from the
 // HumanoidDescription under its Humanoid (an R15 rig), else the blocky character. Anchored rigs stay statues
-// (runtime/rigs.js). Health 0: Died, the death pose, no respawn.
+// (runtime/rigs.js). Health 0: Died, the death pose, no respawn. Its Humanoid's events and touches are the
+// player's (runtime/humevents.js), characters touching characters included.
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { V3, CF, C3 } from '../datamodel.js';
 import { Character } from './character.js';
 import { CharacterBody } from './charbody.js';
 import { describedBody, bodyFile, bodyColors } from './bodygen.js';
 import { walkStep } from './walk.js';
+import { HumanoidEvents } from './humevents.js';
 import { animatedJoints } from '../animation.js';
 
 const DEG = Math.PI / 180;
@@ -40,7 +42,7 @@ export class Npcs {
 
   // An NPC begins: its root part leaves the World's physics (its capsule carries it now), its body loads.
   start(model) {
-    const { hum, root } = npcParts(model), e = { hum, root, model, loading: true };
+    const { hum, root } = npcParts(model), e = { hum, root, model, loading: true, events: new HumanoidEvents(this.dm, this.world) };
     this.npcs.set(model, e);
     this.world.removed(root); root.isCharacter = true;
     const params = this.described(hum), cf = root.props.CFrame;
@@ -83,7 +85,7 @@ export class Npcs {
   stop(model) {
     const e = this.npcs.get(model);
     this.npcs.delete(model);
-    if (e && e.char) { e.char.holder.dispose(false, true); e.char.ctrl.dispose(); }
+    if (e && e.char) { e.events.endTouches(e.root); e.char.holder.dispose(false, true); e.char.ctrl.dispose(); }
   }
 
   // A script moving the root part teleports the NPC (and ends its MoveTo); Health 0 kills it.
@@ -96,7 +98,7 @@ export class Npcs {
         if (e.hum.walk && e.hum.walk.kind === 'to') { e.hum.walk = null; this.dm.fire(e.hum, 'MoveToFinished', [false]); }
       }
       if (e.body && inst === e.body.bodyColors && /Color3$/.test(key)) { const c = inst.props[key]; e.char.setColors({ [key.slice(0, -6)]: [c.r, c.g, c.b] }); }
-      if (inst === e.hum && key === 'Health' && inst.props.Health <= 0 && !e.dead) { e.dead = true; e.char.dead = true; e.hum.walk = null; this.dm.fire(e.hum, 'Died', []); }
+      if (inst === e.hum && key === 'Health' && inst.props.Health <= 0 && !e.dead) { e.dead = true; e.char.dead = true; e.hum.walk = null; e.events.endTouches(e.root); this.dm.fire(e.hum, 'Died', []); }
     }
   }
 
@@ -106,6 +108,7 @@ export class Npcs {
     for (const m of [...this.npcs.keys()]) if (!live.has(m) || m.destroyed) this.stop(m);
     for (const m of live) if (!this.npcs.has(m)) this.start(m);
     const cam = this.dm.workspace.props.CurrentCamera, cf = cam && cam.props.CFrame, fwd = cf ? (l => { const n = Math.hypot(l[0], l[1]) || 1; return { x: l[0] / n, z: l[1] / n }; })([-cf.m[5], -cf.m[11]]) : null;
+    const others = this.bodies().concat(this.player ? this.player() : []); // (each skips its own root)
     for (const e of this.npcs.values()) {
       if (!e.char) continue;
       if (e.char.bodyParams) { const now = this.described(e.hum); if (now && JSON.stringify(now) !== e.sig) this.reshape(e, JSON.stringify(now)); }
@@ -118,9 +121,14 @@ export class Npcs {
       e.char.step(dt, this.gravity);
       this.sync(e);
       e.body.update(dt);
-      const md = e.char.moveDir; h.MoveDirection = new V3(md.x, 0, md.z);
+      e.events.step(e.char, e.hum); // MoveDirection, FloorMaterial, Jumping, FreeFalling, Running
+      if (!e.dead) e.events.touches(e.char, e.hum, e.root, others);
+      if (!e.dead && e.char.footY < this.dm.workspace.props.FallenPartsDestroyHeight) this.dm.set(e.hum, 'Health', 0); // fell out of the world
     }
   }
+
+  /** The NPCs' bodies, for touching ([{ root, char }]). */
+  bodies() { return [...this.npcs.values()].filter(e => e.char && !e.dead).map(e => ({ root: e.root, char: e.char })); }
 
   // The root part where the capsule carried the body (physics-written: no Changed), as for the player.
   sync(e) {

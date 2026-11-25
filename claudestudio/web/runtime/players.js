@@ -8,6 +8,7 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.js';
 import { V3, CF, Instance, keepDescription, endWalk } from '../datamodel.js';
 import { capsuleHits } from './shapes.js';
+import { HumanoidEvents } from './humevents.js';
 import { CharacterBody } from './charbody.js';
 
 const DEG = Math.PI / 180;
@@ -19,7 +20,8 @@ export class Players {
     this.char = character; // one visual + controller, reused across respawns
     this.gravity = gravity;
     this.service = dm.service('Players');
-    this.touching = new Set(); // parts the body overlaps now
+    this.events = new HumanoidEvents(dm, world); // the Humanoid's movement events and touches (runtime/humevents.js)
+    this.others = () => []; // other characters it can touch ([{ root, char }]: the page's NPCs)
     this.respawnAt = null;
     this.time = 0;
     dm.hooks.loadCharacter = player => this.spawn(player);
@@ -58,13 +60,7 @@ export class Players {
   get hasCharacter() { return !!this.humanoid && !this.removed; }
 
   // The body leaves (respawn, removal): parts it touched get TouchEnded.
-  endTouches() {
-    for (const part of this.touching) if (!part.destroyed) {
-      this.dm.fire(part, 'TouchEnded', [this.root]);
-      if (this.root && !this.root.destroyed) this.dm.fire(this.root, 'TouchEnded', [part]);
-    }
-    this.touching = new Set();
-  }
+  endTouches() { this.events.endTouches(this.root); }
 
   spawn(player) {
     this.beforeSpawn && this.beforeSpawn(); // (the page puts the body back as the place gives it)
@@ -219,21 +215,8 @@ export class Players {
     this.syncRoot();
     const dt = this.lastPost === undefined ? 0 : Math.max(0, t - this.lastPost); this.lastPost = t;
     this.body.update(dt);
-    const md = c.moveDir;
-    this.humanoid.props.MoveDirection = new V3(md.x, 0, md.z);
-    this.humanoid.props.FloorMaterial = c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';
-    // Humanoid events, as Roblox fires them: Jumping(true) on takeoff,
-    // FreeFalling(true/false) entering and leaving a fall, and Running(speed)
-    // whenever the ground speed changes (including to 0).
-    if (c.state !== this.lastState) {
-      if (c.state === 'jump' && this.lastState !== 'jump') this.dm.fire(this.humanoid, 'Jumping', [true]);
-      if (c.state === 'fall') this.dm.fire(this.humanoid, 'FreeFalling', [true]);
-      if (this.lastState === 'fall') this.dm.fire(this.humanoid, 'FreeFalling', [false]);
-      this.lastState = c.state;
-    }
-    const speed = c.grounded ? Math.hypot(c.velocity.x - c.floorVel.x, c.velocity.z - c.floorVel.z) : 0; // over the floor (ours: Roblox doesn't say)
-    if (c.grounded && Math.abs(speed - (this.lastSpeed ?? -1)) > 0.1) { this.lastSpeed = speed; this.dm.fire(this.humanoid, 'Running', [speed]); }
-    if (!this.dead) this.touches();
+    this.events.step(c, this.humanoid); // MoveDirection, FloorMaterial, Jumping, FreeFalling, Running
+    if (!this.dead) this.events.touches(c, this.humanoid, this.root, this.others());
     if (!this.dead) this.regen(t);
     if (!this.dead && c.footY < this.dm.workspace.props.FallenPartsDestroyHeight) this.dm.set(this.humanoid, 'Health', 0);
     if (this.dead && this.respawnAt !== null && t >= this.respawnAt && this.service.props.CharacterAutoLoads) this.spawn(this.player);
@@ -260,27 +243,4 @@ export class Players {
     P.Orientation = new V3(0, oy, 0);
   }
 
-  // Touched / TouchEnded: the body as a capsule from the soles to the top of
-  // the head, radius = the collision capsule's plus a 0.15-stud skin, so a
-  // part the body presses against (a floor, a wall, a ceiling) touches it,
-  // tested exactly against each part's shape (box, ball, cylinder, wedge).
-  touches() {
-    const c = this.char, f = c.holder.position, R = c.p.Radius + 0.15, H = c.p.Height;
-    const ax = f.x, ay = f.y + R - 0.15, az = f.z, by = f.y + H - R + 0.15;
-    const now = new Set();
-    for (const [inst, e] of this.world.parts) {
-      if (inst.isCharacter || inst.props.CanTouch === false) continue;
-      if (capsuleHits(ax, ay, az, ax, by, az, R, e.shape)) now.add(inst);
-    }
-    for (const part of now) if (!this.touching.has(part)) {
-      this.dm.fire(part, 'Touched', [this.root]);
-      this.dm.fire(this.root, 'Touched', [part]);
-      this.dm.fire(this.humanoid, 'Touched', [part, this.root]);
-    }
-    for (const part of this.touching) if (!now.has(part) && !part.destroyed) {
-      this.dm.fire(part, 'TouchEnded', [this.root]);
-      this.dm.fire(this.root, 'TouchEnded', [part]);
-    }
-    this.touching = now;
-  }
 }

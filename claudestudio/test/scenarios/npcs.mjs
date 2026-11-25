@@ -6,7 +6,10 @@
 // - stuck behind a wall, MoveToFinished(false) fires after 8 s and it stops;
 // - Move walks it in a direction until Move(0); Jump lifts it; a teleport (the root's CFrame) ends a MoveTo;
 // - WalkSpeed 32 walks twice as fast; Health 0: Died, it stops;
-// - the player's own MoveTo walks the player while no key is held.
+// - the player's own MoveTo walks the player while no key is held;
+// - its Humanoid's events (Running, Jumping, FreeFalling) fire as the player's do; walking over a mat, the
+//   mat gets Touched and TouchEnded from its root; walking into the player, the two touch root to root and
+//   each finds the other's Humanoid; an IKControl on it reaches its target (runtime/humevents.js, ik.js).
 export default async function (t) {
   const fail = [];
   const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -23,6 +26,9 @@ export default async function (t) {
   let s = await st();
   check(s.parts === 16 && s.motors === 15 && Math.abs(s.foot[1]) < 0.05 && Math.abs(s.root[1] - s.foot[1] - s.rootH) < 1e-3 && s.clip === 'idle', `the NPC stands as a character: R15's ${s.parts} parts and ${s.motors} Motor6Ds, feet on the ground (${s.foot[1].toFixed(3)}), idle`);
   // MoveTo 24 studs ahead.
+  await run(`local h = workspace.Walker.Humanoid; _G.ev = { Running = 0, Jumping = 0, FallOn = 0, FallOff = 0 }
+    h.Running:Connect(function() _G.ev.Running += 1 end); h.Jumping:Connect(function() _G.ev.Jumping += 1 end)
+    h.FreeFalling:Connect(function(on) if on then _G.ev.FallOn += 1 else _G.ev.FallOff += 1 end end)`);
   await run(`local h = workspace.Walker.Humanoid; h.MoveToFinished:Connect(function(r) print("finished", r, string.format("%.2f", time())) end); _G.t0 = time(); print("t0", string.format("%.2f", time())); h:MoveTo(Vector3.new(0, 0, -24))`);
   await t.sim(30);
   s = await st();
@@ -33,6 +39,8 @@ export default async function (t) {
   check(mid.state === 'walk' && ['walk', 'sprint'].includes(mid.clip) && fin.length && /finished true/.test(fin[0]) && Math.hypot(s.foot[0], s.foot[2] + 24) < 1.05, `MoveTo walks it there, walking (its clip ${mid.clip}: at 16 studs/s R15 blends to Roblox's run), and MoveToFinished(true) fires within a stud (${fin[0] && fin[0].replace(/^.*finished /, '')}; ${Math.hypot(s.foot[0], s.foot[2] + 24).toFixed(2)} studs off)`);
   const speed = 23 / (tf - t0);
   check(speed > 12 && speed < 17, `at about WalkSpeed 16 (${speed.toFixed(1)} studs/s over the walk)`);
+  const mt = logs(/\[luau\] mat touched/), me = logs(/\[luau\] mat ended/);
+  check(mt.length === 1 && /mat touched HumanoidRootPart Walker/.test(mt[0]) && me.length === 1, `crossing the mat: Touched from its root (${mt[0] && mt[0].replace(/^.*mat touched /, '')}), then TouchEnded`);
   await t.sim(20); s = await st();
   check(s.clip === 'idle', `arrived, it stands idle (${s.clip})`);
   if (t.shot) { await t.eval(() => { const s = window.studio, m = s.dm.workspace.children.find(c => c.props.Name === 'Walker'), p = s.npcs.npcs.get(m).char.holder.position; s.camera.focus = [p.x, p.y + 2.5, p.z]; s.camera.yaw = 0; s.camera.zoom = 10; s.camera.pitch = 0.2; }); await t.frames(20); await t.shot('npcs'); await t.eval(() => { window.studio.camera.focus = null; }); }
@@ -64,6 +72,9 @@ export default async function (t) {
   await t.sim(12); const j = await st();
   check(j.foot[1] - m3.foot[1] > 3, `Jump lifts it (${(j.foot[1] - m3.foot[1]).toFixed(2)} studs up after 0.2 s)`);
   await t.sim(90);
+  await run(`print("ev", _G.ev.Running, _G.ev.Jumping, _G.ev.FallOn, _G.ev.FallOff)`); await t.sim(1);
+  const ev = (logs(/\[luau\] ev /).pop() || '').replace(/^.*ev /, '').split(' ').map(Number);
+  check(ev[0] >= 2 && ev[1] === 1 && ev[2] >= 1 && ev[2] === ev[3], `its Humanoid's events: Running ${ev[0]}, Jumping ${ev[1]}, FreeFalling true ${ev[2]} / false ${ev[3]}`);
   // A teleport ends a MoveTo (false).
   t.logs.length = 0;
   await run(`workspace.Walker.Humanoid:MoveTo(Vector3.new(-20, 0, 0)); task.wait(0.2); workspace.Walker.HumanoidRootPart.CFrame = CFrame.new(10, 4, 10)`);
@@ -81,12 +92,33 @@ export default async function (t) {
   await run(`local h = workspace.Walker.Humanoid; h.Died:Connect(function() print("died") end); h:Move(Vector3.new(1, 0, 0)); task.wait(0.2); h.Health = 0`);
   await t.sim(30); const d0 = await st(); await t.sim(60); const d1 = await st();
   check(logs(/\[luau\] died/).length === 1 && Math.hypot(d1.foot[0] - d0.foot[0], d1.foot[2] - d0.foot[2]) < 0.1, `Health 0: Died fires and it stops (${Math.hypot(d1.foot[0] - d0.foot[0], d1.foot[2] - d0.foot[2]).toFixed(3)} studs in 1 s)`);
+  // An NPC walks into the player: they touch root to root, and each finds the other's Humanoid.
+  t.logs.length = 0;
+  await run(`local pl = game.Players.LocalPlayer.Character
+    pl.HumanoidRootPart.Touched:Connect(function(hit) local h = hit.Parent:FindFirstChildOfClass("Humanoid"); print("player touched by", hit.Parent.Name, h ~= nil) end)
+    pl.Humanoid.Touched:Connect(function(hit, limb) if hit.Parent.Name == "Greeter2" then print("player humanoid touched", limb.Name) end end)
+    local d = workspace.Walker.Humanoid:GetAppliedDescription()
+    local g = game.Players:CreateHumanoidModelFromDescriptionAsync(d, Enum.HumanoidRigType.R15); g.Name = "Greeter2"
+    g:PivotTo(CFrame.new(pl.HumanoidRootPart.Position + Vector3.new(12, 0, 0))); g.Parent = workspace
+    g.HumanoidRootPart.Touched:Connect(function(hit) print("greeter touched", hit.Parent.Name) end)
+    task.wait(0.5); g.Humanoid:MoveTo(pl.HumanoidRootPart.Position)`);
+  for (let i = 0; i < 30 && !logs(/\[luau\] player touched by Greeter2/).length; i++) await t.sim(10);
+  await t.sim(5);
+  const pt = logs(/\[luau\] player touched by/), gt = logs(/\[luau\] greeter touched/), ht = logs(/\[luau\] player humanoid touched/);
+  check(pt.some(l => /Greeter2 true/.test(l)) && gt.some(l => /Player1/.test(l)) && ht.some(l => /HumanoidRootPart/.test(l)), `an NPC walking into the player: the player's root is Touched by it (and finds its Humanoid), it by the player's (${[pt[0], gt[0]].map(l => l && l.replace(/^.*\[luau\] /, '')).join('; ')})`);
+  // An IKControl on the NPC: its right hand reaches a target.
+  await run(`local g = workspace.Greeter2; local tp = Instance.new("Part"); tp.Name = "NpcTarget"; tp.Anchored = true; tp.CanCollide = false; tp.Size = Vector3.new(0.3, 0.3, 0.3)
+    tp.CFrame = g.RightUpperArm.CFrame * CFrame.new(0.4, -0.6, -1.3); tp.Parent = workspace
+    local c = Instance.new("IKControl"); c.Type = Enum.IKControlType.Position; c.ChainRoot = g.RightUpperArm; c.EndEffector = g.RightHand; c.Target = tp; c.SmoothTime = 0; c.Parent = g.Humanoid`);
+  await t.sim(5);
+  const ikd = await t.eval(() => { const w = window.studio.dm.workspace, g = w.children.find(c => c.props.Name === 'Greeter2'), h = g.children.find(c => c.props.Name === 'RightHand').props.CFrame, tp = w.children.find(c => c.props.Name === 'NpcTarget').props.CFrame; return Math.hypot(h.x - tp.x, h.y - tp.y, h.z - tp.z); });
+  check(ikd < 1e-3, `an IKControl on an NPC: its hand reaches the target (${ikd.toExponential(1)} studs off)`);
   // The player's MoveTo (no key held).
   t.logs.length = 0;
   const p0 = await t.eval(() => { const p = window.studio.player.holder.position; return [p.x, p.z]; });
-  await run(`local h = game.Players.LocalPlayer.Character.Humanoid; h.MoveToFinished:Connect(function(r) print("pfinished", r) end); h:MoveTo(Vector3.new(${p0[0] + 10}, 0, ${p0[1]}))`);
+  await run(`local h = game.Players.LocalPlayer.Character.Humanoid; h.MoveToFinished:Connect(function(r) print("pfinished", r) end); h:MoveTo(Vector3.new(${p0[0] - 10}, 0, ${p0[1]}))`); // (away from Greeter2, who stands at its +X)
   for (let i = 0; i < 30 && !logs(/\[luau\] pfinished/).length; i++) await t.sim(10);
   const p1 = await t.eval(() => { const p = window.studio.player.holder.position; return [p.x, p.z]; });
-  check(logs(/\[luau\] pfinished true/).length && Math.hypot(p1[0] - p0[0] - 10, p1[1] - p0[1]) < 1.05, `the player's own MoveTo walks the player there while no key is held (${(p1[0] - p0[0]).toFixed(2)} studs)`);
+  check(logs(/\[luau\] pfinished true/).length && Math.hypot(p1[0] - p0[0] + 10, p1[1] - p0[1]) < 1.05, `the player's own MoveTo walks the player there while no key is held (${(p1[0] - p0[0]).toFixed(2)} studs)`);
   if (fail.length) throw new Error(fail.length + ' failed');
 }
