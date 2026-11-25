@@ -6,7 +6,7 @@ import '@babylonjs/core/Physics/v2/physicsEngineComponent.js';
 import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
-import { DataModel, baseplateLighting, C3, endWalk } from './datamodel.js';
+import { DataModel, baseplateLighting, C3, endWalk, checkPaths } from './datamodel.js';
 import { walkStep } from './runtime/walk.js';
 import { Npcs } from './runtime/npcs.js';
 import { loadPlace } from './placefile.js';
@@ -202,9 +202,11 @@ async function main() {
       player.step(dt, GRAVITY);
     }
     npcs.update(t, dt);
+    checkPaths(dm, t); // Path.Blocked / Unblocked for paths scripts listen to
     players.postStep(t);
     world.syncFromPhysics();
     fire('PostSimulation', [dt]); fire('Heartbeat', [dt]);
+    dm.flushDeferred(); // yields whose values were ready (dm.defer) resume now
     vm.step(t);
     if (!camSync.scriptable()) { camSync.pre(); camera.update(dt); camSync.write(); } else camSync.size();
     fire('PreRender', [dt]); fire('RenderStepped', [dt]);

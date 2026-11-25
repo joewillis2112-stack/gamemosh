@@ -51,6 +51,7 @@ run --place places/ik-lab.luau --scenario test/scenarios/ik.mjs
 run --noshots --place places/ik-lab.luau --quality low --scenario test/scenarios/ik.mjs
 run --place places/npc-lab.luau --scenario test/scenarios/npcs.mjs
 run --noshots --place places/npc-lab.luau --quality low --scenario test/scenarios/npcs.mjs
+run --place places/path-lab.luau --scenario test/scenarios/pathfinding.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs
@@ -142,6 +143,7 @@ else echo "glTF fidelity skipped (run tools/fetch-fidelity.sh first)"; fi
 timeout 600 node test/text.test.mjs | tail -1 | grep -q PASS && echo "text outlines test PASS" || { echo "FAILED: text outlines test"; fail=1; }
 timeout 600 node test/quality.test.mjs | tail -1 | grep -q PASS && echo "graphics quality test PASS" || { echo "FAILED: graphics quality test"; fail=1; }
 timeout 600 node test/bodygen.test.mjs | tail -1 | grep -q PASS && echo "generated bodies test PASS" || { echo "FAILED: generated bodies test"; fail=1; }
+timeout 600 node test/pathfinding.test.mjs | tail -1 | grep -q PASS && echo "pathfinding test PASS" || { echo "FAILED: pathfinding test"; fail=1; }
 timeout 600 node test/assembly.test.mjs | tail -1 | grep -q PASS && echo "joints and assemblies test PASS" || { echo "FAILED: joints and assemblies test"; fail=1; }
 timeout 600 node test/library.test.mjs | tail -1 | grep -q PASS && echo "toolbox catalog test PASS" || { echo "FAILED: toolbox catalog test"; fail=1; }
 timeout 600 node test/luau.test.mjs | tail -1 | grep -q PASS && echo "luau test PASS" || { echo "FAILED: luau test"; fail=1; }

@@ -116,6 +116,41 @@ function lib.Raycast(self, origin, direction, params)
   return r
 end
 
+-- PathWaypoint (datatype): Position, Action (PathWaypointAction), Label; read-only. Path:GetWaypoints builds them
+-- from the engine's path (web/pathfinding.js, Path.__studioWaypoints: position, action name, label in turn).
+local WaypointData = setmetatable({}, { __mode = "k" })
+local WaypointMT = locked({ __type = "PathWaypoint" })
+local WP_FIELDS = { Position = 1, Action = 2, Label = 3 }
+WaypointMT.__index = function(self, k)
+  local i = WP_FIELDS[k]
+  if i then return WaypointData[self][i] end
+  error(tostring(k) .. " is not a valid member of PathWaypoint", 2)
+end
+WaypointMT.__newindex = function(_, k) error(tostring(k) .. " cannot be assigned to", 2) end
+WaypointMT.__tostring = function(self) local d = WaypointData[self] return fmt(d[1]) .. ", " .. tostring(d[2]) .. ", " .. d[3] end
+WaypointMT.__eq = function(a, b) local x, y = WaypointData[a], WaypointData[b] return x[1] == y[1] and x[2] == y[2] and x[3] == y[3] end
+local function waypoint(pos, action, label)
+  local w = setmetatable({}, WaypointMT)
+  WaypointData[w] = { pos, action, label }
+  return w
+end
+local PathWaypoint = {}
+function PathWaypoint.new(position, action, label)
+  if position ~= nil and typeof(position) ~= "Vector3" then error("invalid argument #1 to 'new' (Vector3 expected, got " .. typeof(position) .. ")", 2) end
+  if action ~= nil and (typeof(action) ~= "EnumItem" or action.EnumType ~= Enum.PathWaypointAction) then error("invalid argument #2 to 'new' (PathWaypointAction expected, got " .. typeof(action) .. ")", 2) end
+  if label ~= nil and type(label) ~= "string" then error("invalid argument #3 to 'new' (string expected, got " .. typeof(label) .. ")", 2) end
+  return waypoint(position or Vector3.new(0, 0, 0), action or Enum.PathWaypointAction.Walk, label or "")
+end
+
+-- Path:GetWaypoints()
+function lib.GetWaypoints(self)
+  if not self:IsA("Path") then error("GetWaypoints is not a valid member of " .. self.ClassName, 2) end
+  local flat, out = self:__studioWaypoints(), {}
+  for i = 1, #flat, 3 do table.insert(out, waypoint(flat[i], Enum.PathWaypointAction[flat[i + 1]], flat[i + 2])) end
+  return out
+end
+lib.PathWaypoint = PathWaypoint
+
 -- Camera:ViewportPointToRay / ScreenPointToRay(x, y, depth?): a unit Ray through that pixel,
 -- starting depth studs from the camera (the engine's pinhole, Camera.__studioPointToRay).
 local function pointToRay(name, inset)

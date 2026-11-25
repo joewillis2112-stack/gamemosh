@@ -73,6 +73,7 @@ static int inst_cache_ref; // registry table: handle -> userdata (weak values)
 static int waitforchild_ref; // Instance:WaitForChild, written in Luau (it yields)
 static int raycast_ref;      // WorldRoot:Raycast, written in Luau (lib_raycast.h)
 static int vp2ray_ref, sp2ray_ref; // Camera:ViewportPointToRay / ScreenPointToRay (lib_raycast.h)
+static int getwaypoints_ref;  // Path:GetWaypoints (lib_raycast.h: PathWaypoints are written in Luau)
 
 struct Signal { int h; char ev[56]; };
 
@@ -303,6 +304,7 @@ static int inst_index(lua_State* L) {
     if (!strcmp(key, "Raycast")) { lua_getref(L, raycast_ref); return 1; }
     if (!strcmp(key, "ViewportPointToRay")) { lua_getref(L, vp2ray_ref); return 1; }
     if (!strcmp(key, "ScreenPointToRay")) { lua_getref(L, sp2ray_ref); return 1; }
+    if (!strcmp(key, "GetWaypoints")) { lua_getref(L, getwaypoints_ref); return 1; }
     js_index(h, key);
     push_ret(L, 0, h, key);
     return 1;
@@ -1128,6 +1130,8 @@ end)";
         lua_getfield(L0, -1, "ScreenPointToRay"); sp2ray_ref = lua_ref(L0, -1); lua_pop(L0, 1);
         lua_getfield(L0, -1, "Ray"); lua_setglobal(L0, "Ray");
         lua_getfield(L0, -1, "RaycastParams"); lua_setglobal(L0, "RaycastParams");
+        lua_getfield(L0, -1, "GetWaypoints"); getwaypoints_ref = lua_ref(L0, -1); lua_pop(L0, 1);
+        lua_getfield(L0, -1, "PathWaypoint"); lua_setglobal(L0, "PathWaypoint");
         lua_pop(L0, 1);
     }
 

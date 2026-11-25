@@ -193,7 +193,7 @@ const SAMPLE = {
   NumberSequence: 'NumberSequence.new(1)', NumberSequenceKeypoint: 'NumberSequenceKeypoint.new(0, 1)', ColorSequence: 'ColorSequence.new(Color3.new())',
   ColorSequenceKeypoint: 'ColorSequenceKeypoint.new(0, Color3.new())', RaycastParams: 'RaycastParams.new()', Rect: 'Rect.new(0, 0, 1, 1)',
   Region3: 'Region3.new(Vector3.new(), Vector3.new(1, 1, 1))', Random: 'Random.new(1)', DateTime: 'DateTime.now()', PhysicalProperties: 'PhysicalProperties.new(1, 0.3, 0.5)',
-  Font: 'Font.new("rbxasset://fonts/families/SourceSansPro.json")', OverlapParams: 'OverlapParams.new()', Vector3int16: 'Vector3int16.new(1, 2, 3)', Vector2int16: 'Vector2int16.new(1, 2)',
+  Font: 'Font.new("rbxasset://fonts/families/SourceSansPro.json")', PathWaypoint: 'PathWaypoint.new(Vector3.new(1, 2, 3), Enum.PathWaypointAction.Jump, "Jump")', OverlapParams: 'OverlapParams.new()', Vector3int16: 'Vector3int16.new(1, 2, 3)', Vector2int16: 'Vector2int16.new(1, 2)',
   // No constructor: a hit from a ray down onto a part made for it.
   RaycastResult: '(function() local p = Instance.new("Part") p.Anchored = true p.Parent = workspace local r = workspace:Raycast(Vector3.new(0, 10, 0), Vector3.new(0, -20, 0)) p:Destroy() return r end)()',
 };

@@ -11,6 +11,7 @@ import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
 import { Assemblies, isJoint } from './assembly.js';
 import { BODY_PRESETS, SHAPE_PROPS, makeBody, describedBody } from './runtime/bodygen.js';
+import { NavWorld, collectObstacles, computePath, occlusion, AGENT } from './pathfinding.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -95,6 +96,8 @@ export const ENUMS = {
   HighlightDepthMode: { AlwaysOnTop: 0, Occluded: 1 },
   HumanoidRigType: { R6: 0, R15: 1 },
   IKControlType: { Transform: 0, Position: 1, Rotation: 2, LookAt: 3 },
+  PathStatus: { Success: 0, ClosestNoPath: 1, ClosestOutOfRange: 2, FailStartNotEmpty: 3, FailFinishNotEmpty: 4, NoPath: 5 },
+  PathWaypointAction: { Walk: 0, Jump: 1, Custom: 2 },
   SavedQualitySetting: { Automatic: 0, QualityLevel1: 1, QualityLevel2: 2, QualityLevel3: 3, QualityLevel4: 4, QualityLevel5: 5, QualityLevel6: 6, QualityLevel7: 7, QualityLevel8: 8, QualityLevel9: 9, QualityLevel10: 10 },
   ParticleCollision: { None: 0, Bounce: 1, Stick: 2, Die: 3 }, // Claude Studio's own (STUDIO_OWN)
   RaycastFilterType: { Exclude: 0, Include: 1, Blacklist: 0, Whitelist: 1 }, // the last two: deprecated names
@@ -871,6 +874,63 @@ defineClass('IKControl', 'Instance', {
     GetSmoothedFinalTarget(self) { return [(self.ik && self.ik.goal) || new CF()]; },
   },
 });
+// PathfindingService (mashup-research/ROBLOX_PATHFINDING_2026-11-25.md): Paths from CreatePath's agent parameters,
+// computed by web/pathfinding.js (yielding, as Roblox's ComputeAsync does). GetWaypoints is Luau's (PathWaypoint is a
+// Luau datatype: luau/lib_raycast.h) over __studioWaypoints. Blocked/Unblocked: runtime checks (checkPaths, play.js).
+function agentFrom(params) {
+  const a = { ...AGENT, Costs: {} };
+  if (params instanceof LuaTable) for (const [k, v] of params.entries) {
+    if (k === 'Costs' && v instanceof LuaTable) { for (const [m, c] of v.entries) if (typeof m === 'string' && typeof c === 'number') a.Costs[m] = c; }
+    else if (k in AGENT && k !== 'Costs' && typeof v === typeof AGENT[k]) a[k] = v;
+  }
+  return a;
+}
+function newPath(dm, agent) { const p = new Instance(dm, 'Path'); p.agent = agent; p.waypoints = []; (dm.paths || (dm.paths = new Set())).add(p); return p; }
+function computeInto(path, start, finish) {
+  if (!(start instanceof V3)) throw new Error('Unable to cast ' + typeName(start) + ' to Vector3');
+  if (!(finish instanceof V3)) throw new Error('Unable to cast ' + typeName(finish) + ' to Vector3');
+  const dm = path.dm, r = computePath(new NavWorld(collectObstacles(dm, isA), path.agent), start, finish);
+  path.waypoints = r.waypoints; path.blocked = false;
+  dm.set(path, 'Status', r.status);
+}
+const typeName = v => v === null || v === undefined ? 'nil' : v instanceof V3 ? 'Vector3' : typeof v;
+defineClass('PathfindingService', 'Instance', {
+  creatable: false, service: true,
+  methods: {
+    CreatePath(self, params) { return [newPath(self.dm, agentFrom(params))]; },
+    FindPathAsync(self, start, finish) { const p = newPath(self.dm, { ...AGENT }); computeInto(p, start, finish); return self.dm.defer(self, [p]); },
+  },
+});
+defineClass('Path', 'Instance', {
+  creatable: false,
+  props: { Status: ['Enum.PathStatus', 'NoPath'] }, // (OURS: before ComputeAsync)
+  methods: {
+    ComputeAsync(self, start, finish) { computeInto(self, start, finish); return self.dm.defer(self, []); }, // (computed at once; yields a frame, as Roblox's does)
+    // GetWaypoints' engine half: position, action name, label, for each waypoint in turn.
+    __studioWaypoints(self) { return [self.waypoints.flatMap(w => [new V3(...w.pos), w.action, w.label])]; },
+    CheckOcclusionAsync(self, start) {
+      const n = self.waypoints.length;
+      if (typeof start !== 'number' || start < 0 || start > n) throw new Error('Start index out of range');
+      return self.dm.defer(self, [occlusion(new NavWorld(collectObstacles(self.dm, isA), self.agent), self.waypoints, Math.max(1, Math.floor(start)))]);
+    },
+  },
+  events: ['Blocked', 'Unblocked'],
+});
+/** Each frame: computed paths that scripts listen to are checked twice a second; Blocked(index) when one becomes
+ *  blocked, Unblocked(index) when it clears (OURS: the interval). */
+export function checkPaths(dm, t) {
+  if (!dm.paths || !dm.paths.size || (dm.pathsAt !== undefined && t - dm.pathsAt < 0.5)) return;
+  dm.pathsAt = t;
+  let nav = null;
+  for (const p of dm.paths) {
+    if (p.destroyed) { dm.paths.delete(p); continue; }
+    const conns = dm.connsOf.get(p), listened = conns && ((conns.get('Blocked') || new Set()).size || (conns.get('Unblocked') || new Set()).size);
+    if (!listened || p.props.Status !== 'Success' || p.waypoints.length < 2) continue;
+    const i = occlusion(nav || (nav = new NavWorld(collectObstacles(dm, isA), p.agent)), p.waypoints, 1);
+    if (i > 0 && p.blocked !== i) { p.blocked = i; dm.fire(p, 'Blocked', [i]); }
+    else if (i < 0 && p.blocked) { const was = p.blocked; p.blocked = false; dm.fire(p, 'Unblocked', [was]); }
+  }
+}
 // Keyframe animation (create.roblox.com/docs/animation): the data, Animator and
 // AnimationTrack. The sampling and blending are in animation.js; the renderer
 // applies the result to rigs (runtime/rigs.js, runtime/character.js).
@@ -1020,6 +1080,19 @@ export class DataModel {
     const ev = '__async' + (this.nextAsync = (this.nextAsync || 0) + 1);
     promise.then(vals => this.fire(inst, ev, vals), err => { console.warn(err && err.message || err); this.fire(inst, ev, []); });
     return new Yield(inst, ev);
+  }
+  // A yield whose values are ready now: the script resumes with them on the next frame (flushDeferred, called by
+  // the frame before scripts resume), the same in a live page and in a test's run of frames (a Promise would
+  // wait for the test's whole run to end).
+  defer(inst, vals) {
+    const ev = '__async' + (this.nextAsync = (this.nextAsync || 0) + 1);
+    (this.deferred || (this.deferred = [])).push([inst, ev, vals]);
+    return new Yield(inst, ev);
+  }
+  flushDeferred() {
+    const d = this.deferred; if (!d || !d.length) return;
+    this.deferred = [];
+    for (const [inst, ev, vals] of d) this.fire(inst, ev, vals);
   }
   create(cls) { return CLASSES[cls] && CLASSES[cls].creatable ? new Instance(this, cls) : null; }
 
@@ -1384,7 +1457,7 @@ export const STUDIO_OWN = new Map([
 ]);
 const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
 const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
-'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'Path.Status', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {
