@@ -34,6 +34,6 @@ npc:PivotTo(CFrame.new(6, npc.HumanoidRootPart.Position.Y, 0))
 npc.Parent = workspace
 game:GetService("Players").PlayerAdded:Connect(function(pl)
   local pg = pl:WaitForChild("PlayerGui")
-  local mine = board(pg, "Mine", UDim2.fromOffset(80, 24), "MINE"); mine.Adornee = workspace.Pad; mine.StudsOffset = Vector3.new(0, 2, 0); mine.AlwaysOnTop = true
+  local mine = board(pg, "Mine", UDim2.fromOffset(80, 24), "MINE"); mine.Adornee = pad; mine.StudsOffset = Vector3.new(0, 2, 0); mine.AlwaysOnTop = true
   mine.ResetOnSpawn = false
 end)
