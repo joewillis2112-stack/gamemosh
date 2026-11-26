@@ -56,6 +56,7 @@ run --place places/billboard-lab.luau --scenario test/scenarios/billboards.mjs
 run --noshots --phone --place places/billboard-lab.luau --scenario test/scenarios/billboards.mjs
 run --place places/surfacegui-lab.luau --scenario test/scenarios/surfaceguis.mjs
 run --noshots --phone --place places/surfacegui-lab.luau --scenario test/scenarios/surfaceguis.mjs
+run --noshots --place places/constraints-lab.luau --scenario test/scenarios/constraints.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs

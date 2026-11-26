@@ -12,6 +12,7 @@ import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './f
 import { Assemblies, isJoint } from './assembly.js';
 import { BODY_PRESETS, SHAPE_PROPS, makeBody, describedBody } from './runtime/bodygen.js';
 import { NavWorld, collectObstacles, computePath, occlusion, AGENT } from './pathfinding.js';
+import { PHYSICAL } from './runtime/physprops.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
 // UI datatypes: UDim (scale, integer offset), UDim2 (x and y UDims), Vector2.
@@ -117,6 +118,11 @@ export const ENUMS = {
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
   SurfaceGuiSizingMode: { FixedSize: 0, PixelsPerStud: 1 }, // (API dump)
+  // Constraints' (API dump).
+  ActuatorType: { None: 0, Motor: 1, Servo: 2 }, ActuatorRelativeTo: { Attachment0: 0, Attachment1: 1, World: 2 }, ForceLimitMode: { Magnitude: 0, PerAxis: 1 },
+  PositionAlignmentMode: { OneAttachment: 0, TwoAttachment: 1 }, OrientationAlignmentMode: { OneAttachment: 0, TwoAttachment: 1 },
+  AlignType: { Parallel: 0, Perpendicular: 1, PrimaryAxisParallel: 2, PrimaryAxisPerpendicular: 3, PrimaryAxisLookAt: 4, AllAxes: 5 },
+  VelocityConstraintMode: { Line: 0, Plane: 1, Vector: 2 },
   // ScrollingFrame's (API dump).
   AutomaticSize: { None: 0, X: 1, Y: 2, XY: 3 }, ScrollingDirection: { X: 1, Y: 2, XY: 4 }, ElasticBehavior: { WhenScrollable: 0, Always: 1, Never: 2 },
   ScrollBarInset: { None: 0, ScrollBar: 1, Always: 2 }, VerticalScrollBarPosition: { Right: 0, Left: 1 },
@@ -450,8 +456,12 @@ defineClass('BasePart', 'Instance', {
     AssemblyLinearVelocity: ['Vector3', [0, 0, 0]], AssemblyAngularVelocity: ['Vector3', [0, 0, 0]],
     // Assemblies (web/assembly.js): parts joined by rigid joints move as one, from a root part.
     Massless: ['bool', false], RootPriority: ['number', 0], AssemblyRootPart: ['Instance', null],
+    // Its assembly's mass (Massless parts but the root add none), worked out when read.
+    AssemblyMass: ['number', 0],
   },
   methods: {
+    // Its mass: its material's density x its shape's volume (as World's bodies have it; OURS: a MeshPart's as its box).
+    GetMass(self) { return [partMass(self)]; },
     GetPivot(self) { return [self.props.CFrame]; },
     GetRootPart(self) { self.dm.assemblies.flush(); return [self.props.AssemblyRootPart || self]; },
     // The parts joined to this one by active rigid joints; recursive: its whole assembly, itself
@@ -669,6 +679,26 @@ defineClass('Weld', 'JointInstance', {});
 defineClass('Snap', 'JointInstance', {});
 defineClass('Motor', 'JointInstance', { props: { CurrentAngle: ['number', 0], DesiredAngle: ['number', 0], MaxVelocity: ['number', 0] } });
 defineClass('Motor6D', 'Motor', { props: { Transform: ['CFrame'], ChildName: ['string', ''] } });
+// Constraints (mashup-research/ROBLOX_CONSTRAINTS_2026-11-26.md; runtime/constraints.js does what they do): between
+// two Attachments' parts. Defaults: rbx-dom's (Instance.new's; its nulls are infinities). Color (a BrickColor, for
+// Studio's drawing of them) isn't kept: constraints aren't drawn yet; nor the Softlock*UponReachingTarget flags (no docs). Active, CurrentAngle, CurrentDistance,
+// CurrentLength, CurrentPosition: the engine's.
+const ANG = { AngularResponsiveness: ['number', 45], AngularSpeed: ['number', 0], AngularVelocity: ['number', 0], LowerAngle: ['number', -45], UpperAngle: ['number', 45], ServoMaxTorque: ['number', 0], TargetAngle: ['number', 0] };
+defineClass('Constraint', 'Instance', { creatable: false, props: { Active: ['bool', false], Attachment0: ['Instance', null], Attachment1: ['Instance', null], Enabled: ['bool', true], Visible: ['bool', false] } });
+defineClass('HingeConstraint', 'Constraint', { props: { ...ANG, ActuatorType: ['Enum.ActuatorType', 'None'], CurrentAngle: ['number', 0], LimitsEnabled: ['bool', false], MotorMaxAcceleration: ['number', 500000], MotorMaxTorque: ['number', 0], Radius: ['number', 0.15], Restitution: ['number', 0] } });
+defineClass('BallSocketConstraint', 'Constraint', { props: { LimitsEnabled: ['bool', false], MaxFrictionTorque: ['number', 0], Radius: ['number', 0.15], Restitution: ['number', 0], TwistLimitsEnabled: ['bool', false], TwistLowerAngle: ['number', -45], TwistUpperAngle: ['number', 45], UpperAngle: ['number', 45] } });
+defineClass('RopeConstraint', 'Constraint', { props: { CurrentDistance: ['number', 0], Length: ['number', 5], Restitution: ['number', 0], Thickness: ['number', 0.1], WinchEnabled: ['bool', false], WinchForce: ['number', 10000], WinchResponsiveness: ['number', 45], WinchSpeed: ['number', 2], WinchTarget: ['number', 5] } });
+defineClass('RodConstraint', 'Constraint', { props: { CurrentDistance: ['number', 0], Length: ['number', 5], LimitAngle0: ['number', 90], LimitAngle1: ['number', 90], LimitsEnabled: ['bool', false], Thickness: ['number', 0.1] } });
+defineClass('SpringConstraint', 'Constraint', { props: { Coils: ['number', 3], CurrentLength: ['number', 0], Damping: ['number', 0], FreeLength: ['number', 1], LimitsEnabled: ['bool', false], MaxForce: ['number', Infinity], MaxLength: ['number', 5], MinLength: ['number', 0], Radius: ['number', 0.4], Stiffness: ['number', 0], Thickness: ['number', 0.1] } });
+defineClass('SlidingBallConstraint', 'Constraint', { creatable: false, props: { ActuatorType: ['Enum.ActuatorType', 'None'], CurrentPosition: ['number', 0], LimitsEnabled: ['bool', false], LinearResponsiveness: ['number', 45], LowerLimit: ['number', 0], MotorMaxAcceleration: ['number', Infinity], MotorMaxForce: ['number', 0], Restitution: ['number', 0], ServoMaxForce: ['number', 0], Size: ['number', 0.15], Speed: ['number', 0], TargetPosition: ['number', 0], UpperLimit: ['number', 5], Velocity: ['number', 0] } });
+defineClass('PrismaticConstraint', 'SlidingBallConstraint', {});
+defineClass('CylindricalConstraint', 'SlidingBallConstraint', { props: { ...ANG, AngularActuatorType: ['Enum.ActuatorType', 'None'], AngularLimitsEnabled: ['bool', false], AngularRestitution: ['number', 0], CurrentAngle: ['number', 0], InclinationAngle: ['number', 0], MotorMaxAngularAcceleration: ['number', 500000], MotorMaxTorque: ['number', 0], RotationAxisVisible: ['bool', false] } });
+defineClass('VectorForce', 'Constraint', { props: { ApplyAtCenterOfMass: ['bool', false], Force: ['Vector3', [1000, 0, 0]], RelativeTo: ['Enum.ActuatorRelativeTo', 'Attachment0'] } });
+defineClass('Torque', 'Constraint', { props: { RelativeTo: ['Enum.ActuatorRelativeTo', 'Attachment0'], Torque: ['Vector3', [0, 0, 0]] } });
+defineClass('LinearVelocity', 'Constraint', { props: { ForceLimitMode: ['Enum.ForceLimitMode', 'Magnitude'], ForceLimitsEnabled: ['bool', true], LineDirection: ['Vector3', [1, 0, 0]], LineVelocity: ['number', 0], MaxAxesForce: ['Vector3', [1000, 1000, 1000]], MaxForce: ['number', 1000], MaxPlanarAxesForce: ['Vector2', [1000, 1000]], PlaneVelocity: ['Vector2', [0, 0]], PrimaryTangentAxis: ['Vector3', [1, 0, 0]], ReactionForceEnabled: ['bool', true], RelativeTo: ['Enum.ActuatorRelativeTo', 'World'], SecondaryTangentAxis: ['Vector3', [0, 1, 0]], VectorVelocity: ['Vector3', [0, 0, 0]], VelocityConstraintMode: ['Enum.VelocityConstraintMode', 'Vector'] } });
+defineClass('AngularVelocity', 'Constraint', { props: { AngularVelocity: ['Vector3', [0, 0, 0]], MaxTorque: ['number', 0], ReactionTorqueEnabled: ['bool', false], RelativeTo: ['Enum.ActuatorRelativeTo', 'World'] } });
+defineClass('AlignPosition', 'Constraint', { props: { ApplyAtCenterOfMass: ['bool', false], ForceLimitMode: ['Enum.ForceLimitMode', 'Magnitude'], ForceRelativeTo: ['Enum.ActuatorRelativeTo', 'World'], MaxAxesForce: ['Vector3', [10000, 10000, 10000]], MaxForce: ['number', 10000], MaxVelocity: ['number', Infinity], Mode: ['Enum.PositionAlignmentMode', 'TwoAttachment'], Position: ['Vector3', [0, 0, 0]], ReactionForceEnabled: ['bool', false], Responsiveness: ['number', 10], RigidityEnabled: ['bool', false] } });
+defineClass('AlignOrientation', 'Constraint', { props: { AlignType: ['Enum.AlignType', 'AllAxes'], CFrame: ['CFrame'], MaxAngularVelocity: ['number', Infinity], MaxTorque: ['number', 10000], Mode: ['Enum.OrientationAlignmentMode', 'TwoAttachment'], PrimaryAxisOnly: ['bool', false], ReactionTorqueEnabled: ['bool', false], Responsiveness: ['number', 10], RigidityEnabled: ['bool', false] } });
 defineClass('WeldConstraint', 'Instance', { props: { Part0: ['Instance', null], Part1: ['Instance', null], Enabled: ['bool', true], Active: ['bool', false] } });
 // Local lights: direct children of a BasePart (mashup-research/ROBLOX_LIGHTING_2026-10-09.md
 // section 7). Instance.new defaults from rbx-dom's reflection database; Range is
@@ -1476,8 +1506,14 @@ export const STUDIO_OWN = new Map([
   ['BodyShape.Chest', 'How much wider the upper torso is at the shoulders than at the waist (0 none).'],
   ['BodyShape.Face', 'The face on the head: 0 none, 1 our eyes and smile.'],
 ]);
-const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
-const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
+const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'AssemblyMass', 'Active', 'ChildName']);
+// A part's mass, as World's bodies have it (runtime/world.js): density x the shape's own volume.
+export function partMass(p) {
+  const P = p.props, S = P.Size, density = (PHYSICAL[P.Material] || PHYSICAL.Plastic)[0], wedge = p.ClassName === 'WedgePart' || P.Shape === 'Wedge';
+  const volume = P.Shape === 'Ball' ? Math.PI / 6 * Math.min(S.x, S.y, S.z) ** 3 : P.Shape === 'Cylinder' ? Math.PI / 4 * Math.min(S.y, S.z) ** 2 * S.x : wedge ? S.x * S.y * S.z / 2 : S.x * S.y * S.z;
+  return density * volume;
+}
+const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'BasePart.AssemblyMass', 'JointInstance.Active', 'WeldConstraint.Active', 'Constraint.Active', 'HingeConstraint.CurrentAngle', 'CylindricalConstraint.CurrentAngle', 'RopeConstraint.CurrentDistance', 'RodConstraint.CurrentDistance', 'SpringConstraint.CurrentLength', 'SlidingBallConstraint.CurrentPosition', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'Path.Status', 'BillboardGui.CurrentDistance', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
@@ -1605,6 +1641,7 @@ export function makeHost(dm, log = console.log) {
       if (ASSEMBLY_READS.has(key)) dm.assemblies.flush(); // joints placed before a placement is read
       if (key in inst.props) {
         if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
+        if (key === 'AssemblyMass' && isA(inst.ClassName, 'BasePart')) { const a = dm.assemblies.of.get(inst); inst.props.AssemblyMass = a ? a.parts.reduce((m, q) => m + (q.props.Massless && q !== a.root ? 0 : partMass(q)), 0) : partMass(inst); }
         const ty = typeOf(inst.ClassName, key);
         const v = inst.props[key];
         host.ret = host.put([], ty && ty.startsWith('Enum.') && typeof v === 'string' ? enumItem(ty.slice(5), v) : v);

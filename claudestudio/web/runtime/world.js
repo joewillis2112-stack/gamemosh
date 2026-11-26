@@ -18,6 +18,7 @@ import { isA, CF, V3 } from '../datamodel.js';
 import { loadGltfContainer } from './gltf.js';
 import { loadMesh, renderArrays, extent } from '../modeling/editable.js';
 import { TerrainView } from './terrain.js';
+import { Constraints } from './constraints.js';
 import { cubeProjectUVs } from './cubeuv.js';
 import { operate, faceColors } from '../modeling/csg.js';
 
@@ -61,6 +62,9 @@ const FACES = {
 const FACE_UV = { Top: ['x', 'z'], Bottom: ['x', 'z'], Front: ['x', 'y'], Back: ['x', 'y'], Right: ['z', 'y'], Left: ['z', 'y'] };
 const AXIS_FACES = [['Left', 'Right'], ['Bottom', 'Top'], ['Front', 'Back']]; // by axis: [the negative side, the positive side]
 const isWedge = inst => inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge';
+// No damping: Havok's bodies start with an angular damping of 0.1 (a spin lost 9.5% a second in the air); Roblox's
+// parts keep their motion in the air (no air resistance without FluidForces).
+const undamped = b => { b.setAngularDamping(0); b.setLinearDamping(0); };
 
 /** The NormalId face triangle `t` of a part's unit mesh belongs to: its outward normal's largest axis
  *  in studs (Blender's Cube Projection, on the part's Size), and on a wedge the slope is its Front.
@@ -110,6 +114,7 @@ export class World {
     this.pendingCompounds = new Set(); // roots whose compound is to be (re)built before the next step
     this.syncing = false; // while physics writes placements (they move meshes only)
     dm.assemblies.onRebuild = () => this.reassemble();
+    this.constraints = new Constraints(this, dm, scene); // stepped before each physics substep (play.js)
     this.reassemble();
   }
 
@@ -554,6 +559,7 @@ export class World {
     const mass = e.fixed ? 0 : density * volume;
     e.agg = new PhysicsAggregate(e.mesh, type, { mass, friction, restitution: elasticity }, this.scene);
     e.agg.shape.material = { friction, restitution: elasticity, frictionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN, restitutionCombine: PhysicsMaterialCombineMode.ARITHMETIC_MEAN };
+    undamped(e.agg.body);
     if (!P.CanCollide) { e.agg.shape.filterMembershipMask = 0; e.agg.shape.filterCollideMask = 0; }
   }
 
@@ -686,6 +692,7 @@ export class World {
     }
     const body = new PhysicsBody(node, PhysicsMotionType.DYNAMIC, false, this.scene);
     body.shape = shape;
+    undamped(body);
     if (lv) { body.setLinearVelocity(lv); body.setAngularVelocity(av); }
     this.compounds.set(root, { node, body, shape, children });
   }

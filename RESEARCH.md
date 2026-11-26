@@ -546,6 +546,12 @@ A working log for this repo. It records common themes, what has been learned, mi
   - A cache keyed on the DOM misses what the DOM doesn't show. A font finishing loading moves every character but leaves innerHTML the same, so the SurfaceGui image kept the fallback font's spacing. Invalidate on `document.fonts` loadingdone.
   - Decals had been mirrored left to right on every face, probably since the right-handed switch (2026-10-08). The paint tests only checked up and down. An orientation test needs a pattern that's asymmetric both ways, with the expected places worked out from the camera's own axes, not from the code under test.
   - A screenshot sample just off a phone's narrow portrait view read the next row's pixel (the index wrapped). A sampler must return "no colour" outside the image.
+- [Studio] **Constraint lessons (2026-11-26):**
+  - Havok integrates gravity over 4 internal solver steps: a body falls 0.625 g dt^2 in a step, not g dt^2. An impulse given before the step moves it by its full dv dt, so an impulse that exactly cancels gravity still crept up 0.3 studs/s. Split each force's impulse 0.625 before and 0.375 after the step; found by stepping the engine by hand and measuring each step.
+  - Havok's effective inverse mass is off from the nominal by up to 0.34% (1.00078, 0.99658, 0.99976 on three blocks), so a VectorForce of exactly m g drifts. Measure each body's response once (a test impulse and its undo) and scale by it.
+  - `getMassProperties().inertia` is per unit mass. A 2 x 2 x 2 block of mass 5.6 reports 0.667 and answers a unit angular impulse with 0.268 rad/s (1 / 3.73). Multiply by the mass.
+  - Havok's defaults aren't Roblox's: bodies start with angular damping 0.1, and the world caps speed at 200 per second. A falling block lost 1% of its sideways speed a second at the cap. Exact checks against physics (Torque at T / I, a hover at m g) found both; looser ones (within 4%) would have hidden them.
+  - `scene._advancePhysicsEngineStep` fires onBefore/onAfterPhysicsObservable once per substep, but Babylon's `applyForce` scales by the plugin's fixed step, not the substep. Apply impulses with the substep's own dt.
 
 ## 5. Ways to work that held up
 

@@ -45,6 +45,9 @@ const GRAVITY = 196.2; // studs/s², Roblox's default
 async function main() {
   const havok = await HavokPhysics({ locateFile: () => '../build/web/HavokPhysics.wasm' });
   scene.enablePhysics(new Vector3(0, -GRAVITY, 0), new HavokPlugin(true, havok));
+  // Havok caps speed at 200 per second (a part falling from 100 studs reached it, and the cap shrank its sideways speed
+  // too); Roblox has no such cap. Ours: high enough that nothing in a place meets it.
+  scene.getPhysicsEngine().getPhysicsPlugin().setVelocityLimits(10000, 1000);
 
   const dm = new DataModel();
   const graphics = new Graphics(R, dm, q.get('quality'));
@@ -256,6 +259,9 @@ async function main() {
   scene.getPhysicsEngine().setSubTimeStep(1000 / 240);
   let framePhysics = false;
   scene.onBeforePhysicsObservable.add(() => { if (!framePhysics) { framePhysics = true; beforePhysics(frameDt()); } });
+  // Constraints act every substep (runtime/constraints.js), after the frame's bodies are built.
+  scene.onBeforePhysicsObservable.add(() => world.constraints.substep(scene.getPhysicsEngine().getSubTimeStep() / 1000 || 1 / 60));
+  scene.onAfterPhysicsObservable.add(() => world.constraints.after());
   scene.onBeforeRenderObservable.add(() => { if (!simulating) tick(frameDt()); if (!fixed) graphics.frame(); });
   await scene.whenReadyAsync();
   // Played from the editor: Stop goes back to it with the place as it was before Play (Studio's Stop).
