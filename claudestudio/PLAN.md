@@ -120,7 +120,16 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
   - OURS: AlwaysOnTop off hides the whole billboard while a ray to its anchor is blocked; nearer above farther, below ScreenGuis.
   Tested: `billboards.mjs` (12 checks, desktop and phone).
   Fixed on the way: the GUI used to re-lay out every frame whenever any character existed (body parts notify each frame); now only GUI-relevant changes dirty it (120 relayouts in 120 frames down to 0).
-- Not done: `SurfaceGui`, `ViewportFrame`, `CanvasGroup`; UIGradient's Scale, TileMode and Type; TextBox CursorPosition/SelectionStart; ScrollingFrame's ScrollToTop and the velocity methods; UIGridLayout cells spanning several cells.
+- [Studio] **SurfaceGui (2026-11-26).** Every property but the hidden Shape and HorizontalCurvature, defaults from the API dump (`mashup-research/ROBLOX_SURFACEGUI_2026-11-26.md`). It draws in the Workspace on its parent part, and in PlayerGui on its Adornee.
+  - The canvas: FixedSize (CanvasSize stretched over the face) or PixelsPerStud (the face's studs x PixelsPerStud, following the part's Size). ClipsDescendants off lets content past the canvas draw beyond the face (up to a canvas past each edge).
+  - Faces: readable from outside; on the sides up is up. OURS (UNSURE): Top's up toward the part's Back, Bottom's toward its Front, as our Decals. A wedge's Front is the slope, up the slope. Balls and cylinders: their box's flat face.
+  - Drawn (`runtime/surfacegui.js`, `runtime/surfaces.js`): laid out as DOM, then drawn into an image (SVG foreignObject, text as the bundled glyph outlines at the page's character positions, images inlined) on a quad over the face, occluded like any surface. Redrawn when its DOM changes or fonts load (at most 4 new images a frame); 2 image px per canvas px (1 on low and phone).
+  - Light: LightInfluence blends lit and unlit; Brightness scales the unlit part. OURS: white at Brightness 1 just under our default Bloom threshold, so it doesn't glow; brighter does.
+  - AlwaysOnTop: the live DOM over the page through a CSS matrix3d (exact ScreenGui colours, sharp text); farther ones below nearer.
+  - Input in PlayerGui when Active and the part's CanQuery: an invisible copy over the face takes clicks; a press where something stands between the camera and that point doesn't reach the button. MaxDistance (0: none) and the back of the face hide it.
+  Tested: `surfaceguis.mjs` (15 checks, desktop and phone, from the page's pixels): every cube face and a wedge's slope the right way round and up; text over the page's own text (93-95% of letter pixels shared); a wall hides it and AlwaysOnTop draws over it; a change redraws it; MaxDistance; Brightness and LightInfluence; both sizing modes; a click/tap on a button, not through a wall.
+  Not yet: SurfaceGuis in the editor (edit mode); AlwaysOnTop on a face crossing the camera's plane (hidden); characters the bundled fonts lack (emoji) aren't drawn on faces; ToolPunchThroughDistance (no Tools yet).
+- Not done: `ViewportFrame`, `CanvasGroup`; UIGradient's Scale, TileMode and Type; TextBox CursorPosition/SelectionStart; ScrollingFrame's ScrollToTop and the velocity methods; UIGridLayout cells spanning several cells.
 
 ## Architecture
 

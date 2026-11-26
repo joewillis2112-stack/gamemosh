@@ -26,6 +26,7 @@ import { BODY_PRESETS, describedBody, bodyColors, bodyFile as makeBodyFile } fro
 import { Rigs } from './runtime/rigs.js';
 import { animatedJoints } from './animation.js';
 import { Gui } from './runtime/gui.js';
+import { Surfaces } from './runtime/surfaces.js';
 import { LightingController } from './runtime/lighting.js';
 import { Graphics } from './runtime/graphics.js';
 import { Menu } from './runtime/menu.js';
@@ -149,12 +150,21 @@ async function main() {
       return v.z > 0 && v.z < 1 ? { x: r.left + v.x * r.width / W, y: r.top + v.y * r.height / H } : null;
     },
     perStud(d) { const r = canvas.getBoundingClientRect(); return (r.height / 2) / (Math.max(d, 1e-3) * Math.tan(scene.activeCamera.fov / 2)); },
+    // A homogeneous world point [x, y, z, w]'s page position as [X, Y, W] (page px = X/W, Y/W; W > 0 in front of
+    // the camera), linear in the point: SurfaceGuis' CSS 3D transform.
+    homog(p) {
+      const cam = scene.activeCamera, r = canvas.getBoundingClientRect(), T = cam.getViewMatrix(true).multiply(cam.getProjectionMatrix(true)).m;
+      const c = [0, 1, 2, 3].map(j => p[0] * T[j] + p[1] * T[4 + j] + p[2] * T[8 + j] + p[3] * T[12 + j]);
+      return [r.left * c[3] + (c[0] + c[3]) / 2 * r.width, r.top * c[3] + (c[3] - c[1]) / 2 * r.height, c[3]];
+    },
     occluded(from, to, ignore) {
       const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]], len = Math.hypot(...d);
       const hit = dm.raycast(new V3(...from), new V3(...d), { filter: ignore });
       return hit.length > 0 && hit[4] < len - 0.05;
     },
   };
+  gui.setTier(quality); graphics.add(gui);
+  const surfaces = new Surfaces(scene, world, gui); // SurfaceGuis on their faces
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);
@@ -229,6 +239,7 @@ async function main() {
     camSync.apply();
     rigs.update(dt);
     gui.update(dt);
+    surfaces.update();
     lighting.update();
     localLights.update();
     particles.update(dt);
@@ -260,7 +271,7 @@ async function main() {
     output.mount();
   }
   window.studio = {
-    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, graphics, menu, player, players, rigs, npcs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, ready: true,
+    dm, vm, world, scene, output, cam: camera.cam, camera, camSync, graphics, menu, player, players, rigs, npcs, controls, audio, sounds, gui, lighting, localLights, particles, highlights, styles, sky, R, surfaces, ready: true,
     // Test hook: render n frames, each one fixed step, holding `input` ({ move: [x, y], jump, touch }).
     frames(n, input) { controls.override = input === 'live' ? null : input || { move: [0, 0] }; for (let i = 0; i < n; i++) scene.render(); controls.override = null; },
     // Same steps without drawing (physics, then the tick, as scene.render orders them), for measuring.

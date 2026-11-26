@@ -116,6 +116,7 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  SurfaceGuiSizingMode: { FixedSize: 0, PixelsPerStud: 1 }, // (API dump)
   // ScrollingFrame's (API dump).
   AutomaticSize: { None: 0, X: 1, Y: 2, XY: 3 }, ScrollingDirection: { X: 1, Y: 2, XY: 4 }, ElasticBehavior: { WhenScrollable: 0, Always: 1, Never: 2 },
   ScrollBarInset: { None: 0, ScrollBar: 1, Always: 2 }, VerticalScrollBarPosition: { Right: 0, Left: 1 },
@@ -288,6 +289,16 @@ defineClass('BillboardGui', 'LayerCollector', {
     CurrentDistance: ['number', 0], DistanceLowerLimit: ['number', 0], DistanceStep: ['number', 0], DistanceUpperLimit: ['number', -1],
     ExtentsOffset: ['Vector3', [0, 0, 0]], ExtentsOffsetWorldSpace: ['Vector3', [0, 0, 0]], LightInfluence: ['number', 0], MaxDistance: ['number', Infinity],
     PlayerToHideFrom: ['Instance', null], Size: ['UDim2', [0, 0, 0, 0]], SizeOffset: ['Vector2', [0, 0]], StudsOffset: ['Vector3', [0, 0, 0]], StudsOffsetWorldSpace: ['Vector3', [0, 0, 0]],
+  },
+});
+// SurfaceGui (Roblox): a GUI canvas drawn on a face of its Adornee (or its parent part), by runtime/gui.js (layout,
+// the texture, AlwaysOnTop) and runtime/surfaces.js (the face in the 3D view). Defaults from the API dump (Active:
+// the docs, "true by default"; SurfaceGuiBase isn't creatable, so the dump has none). MaxDistance 0: no limit.
+defineClass('SurfaceGui', 'LayerCollector', {
+  props: {
+    Active: ['bool', true], Adornee: ['Instance', null], Face: ['Enum.NormalId', 'Front'], AlwaysOnTop: ['bool', false], Brightness: ['number', 1],
+    CanvasSize: ['Vector2', [800, 600]], ClipsDescendants: ['bool', false], LightInfluence: ['number', 0], MaxDistance: ['number', 0],
+    PixelsPerStud: ['number', 50], SizingMode: ['Enum.SurfaceGuiSizingMode', 'FixedSize'], ToolPunchThroughDistance: ['number', 0], ZOffset: ['number', 0],
   },
 });
 defineClass('GuiObject', 'GuiBase2d', {

@@ -21,11 +21,14 @@
 import { V2, EnumItem, isA } from '../datamodel.js';
 
 import { PlayerList } from './playerlist.js';
+import { faceFrame, toWorld, canvasPoint, surfaceMatrix, measure, raster } from './surfacegui.js';
 import { ENUM_FONTS, fontFromEnum, cssFont } from '../fonts.js';
 
 export const GUI_INSET = 58;
 // Every family in assets/fonts (families.json: its files, weights and licences).
 import FAMILIES from '../../assets/fonts/families.json' with { type: 'json' };
+// The GUI's own rule for its boxes (also drawn into SurfaceGuis' images).
+const GUI_CSS = '.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}';
 const FONTS = Object.values(FAMILIES).flatMap(f => f.files.map(x => [f.family, x.file, x.weight, x.style]));
 // What draws a font: a text object's FontFace (Roblox's family, weight and style) -> a bundled CSS family
 // (web/fonts.js: Roblox's own families where open, labelled stand-ins elsewhere; unknown ones in Arimo).
@@ -57,12 +60,21 @@ export class Gui {
     document.body.appendChild(this.root);
     const st = document.createElement('style');
     st.textContent = FONTS.map(([f, file, w, style]) => `@font-face{font-family:'${f}';src:url('${base}${file}') format('woff2');font-weight:${w};font-style:${style || 'normal'};font-display:block}`).join('\n') +
-      '\n.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}' +
+      '\n' + GUI_CSS +
+      '\n.cs-sg-measure,.cs-sg-measure .cs-gui{transform:none !important}' + // a SurfaceGui measured for its image
       '\n.cs-pl-row:hover{background:rgba(255,255,255,0.1)}' + // the player list's row hover (BackgroundOnHover)
       '\n.cs-tb::placeholder{color:var(--ph);opacity:1}' + // a focused TextBox's PlaceholderText
       '\n.cs-bb-inert *{pointer-events:none !important}'; // a billboard that takes no input (in the Workspace, or not Active)
     document.head.appendChild(st);
     this.els = new Map(); // instance -> { el, text, cache }
+    // SurfaceGuis lay out in their own layer (below the billboards): drawn over the page by a CSS 3D transform
+    // when AlwaysOnTop, else into an image for their face's texture (runtime/surfaces.js), with an invisible
+    // copy over the face to take clicks when they're in PlayerGui. sgScale: image pixels per canvas pixel.
+    this.sgLayer = document.createElement('div');
+    Object.assign(this.sgLayer.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', zIndex: '0', pointerEvents: 'none' });
+    this.root.appendChild(this.sgLayer);
+    this.sgScale = 2;
+    this.sgDraws = [];
     // BillboardGuis draw in their own layer, below the ScreenGuis. view: the page's camera ({ project, perStud,
     // occluded }), set by play.js; without it no billboard draws.
     this.bbLayer = document.createElement('div');
@@ -70,7 +82,8 @@ export class Gui {
     this.root.appendChild(this.bbLayer);
     this.view = null;
     // A font finishing loading changes text metrics: re-fit TextScaled and re-lay out.
-    document.fonts.addEventListener('loadingdone', () => { this.fitCache = new Map(); this.dirty = true; });
+    // (A SurfaceGui's image is drawn again: its characters' places change, though its DOM doesn't.)
+    document.fonts.addEventListener('loadingdone', () => { this.fitCache = new Map(); this.dirty = true; for (const e of this.els.values()) if (e.sgLayout) e.sgKey = null; });
     this.dirty = true;
     // Only changes that can change what's drawn re-lay it out: GUI objects and what's inside them, anything's parent
     // (things arrive and leave), anything in a Player (its leaderstats), Players and StarterGui. (Every character's parts move every frame: they used
@@ -113,7 +126,7 @@ export class Gui {
   update(dt = 0) {
     this.stepScroll(dt); // released touch drags: flings and elastic spring-back
     const W = innerWidth, H = innerHeight;
-    if (!this.dirty && W === this.W && H === this.H) { this.placeBillboards(false); return; }
+    if (!this.dirty && W === this.W && H === this.H) { this.placeBillboards(false); this.placeSurfaces(false); return; }
     this.dirty = false; this.W = W; this.H = H;
     const pg = this.players.player && child(this.players.player, 'PlayerGui');
     const seen = new Set();
@@ -131,8 +144,9 @@ export class Gui {
         if (g.props.Enabled) this.layoutChildren(g, e.el, W / k, (H - top) / k, 0, top - GUI_INSET, seen, k);
       });
     }
-    this.bbList = null; // (found again: something changed)
+    this.bbList = null; this.sgList = null; // (found again: something changed)
     this.placeBillboards(true, seen);
+    this.placeSurfaces(true, seen);
     // A focused TextBox that left the screen (destroyed, hidden, its ScreenGui off) lets go of the keyboard.
     const fb = this.dm.focusedTextBox;
     if (fb && (!seen.has(fb) || !this.shown(fb))) this.dm.releaseTextBox(fb, false);
@@ -215,6 +229,87 @@ export class Gui {
     }
     drawn.sort((a, b) => b[0] - a[0]).forEach(([, e], i) => { e.el.style.zIndex = String(i); }); // farther first: the nearer draw above
   }
+  // ---- SurfaceGuis
+  // Every SurfaceGui that may draw: in the Workspace (not inside another GUI container), and in the local PlayerGui.
+  surfaceGuis() {
+    if (this.sgList) return this.sgList;
+    const out = [], walk = i => { for (const c of i.children) { if (c.ClassName === 'SurfaceGui') out.push(c); else if (!isA(c.ClassName, 'LayerCollector')) walk(c); } };
+    walk(this.dm.workspace);
+    const pg = this.players.player && child(this.players.player, 'PlayerGui');
+    if (pg) for (const c of pg.children) if (c.ClassName === 'SurfaceGui') out.push(c);
+    return (this.sgList = out);
+  }
+  // The part a SurfaceGui draws on: its Adornee, else its parent; a part in the Workspace, or none.
+  sgPart(sg) {
+    const P = sg.props, p = P.Adornee || sg.parent;
+    return P.Enabled && p && !p.destroyed && isA(p.ClassName, 'BasePart') && p.ClassName !== 'Terrain' && this.inWorld(p) ? p : null;
+  }
+  // Each frame: each SurfaceGui laid out at its canvas size (CanvasSize, or the face's studs x PixelsPerStud),
+  // again when that changes; placed over its face on the page (AlwaysOnTop, or to take clicks), else off the
+  // page; its image drawn again when what it shows changed (at most four new drawings a frame).
+  placeSurfaces(full, seen = null) {
+    const V = this.view, cam = this.dm.workspace.props.CurrentCamera, C = cam && cam.props.CFrame, draws = [], tops = [];
+    let budget = 4;
+    for (const sg of this.surfaceGuis()) {
+      if (sg.destroyed) continue;
+      const part = this.sgPart(sg), f = part && faceFrame(part, en(sg.props.Face));
+      let e = this.els.get(sg);
+      if (!f || !V || !C) { if (e) e.el.style.display = 'none'; if (seen && e) { seen.add(sg); this.markKids(sg, seen); } continue; }
+      const P = sg.props, fixed = en(P.SizingMode) !== 'PixelsPerStud';
+      const W = Math.max(1, fixed ? P.CanvasSize.x : f.w * P.PixelsPerStud), H = Math.max(1, fixed ? P.CanvasSize.y : f.h * P.PixelsPerStud);
+      if (!e || seen) e = this.element(sg, this.sgLayer, seen || new Set());
+      if (!e.sgWired) { // a click on its copy over a face that something hides doesn't reach the button
+        e.sgWired = true;
+        e.el.addEventListener('pointerdown', ev => { if (this.sgBlocked(sg, e, ev)) { ev.stopPropagation(); ev.preventDefault(); } }, { capture: true });
+      }
+      const L = e.sgLayout;
+      if (full || !L || L.W !== W || L.H !== H) {
+        e.sgLayout = { W, H }; e.sgPending = true;
+        Object.assign(e.el.style, { width: W + 'px', height: H + 'px', overflow: P.ClipsDescendants ? 'hidden' : 'visible', transformOrigin: '0 0', pointerEvents: 'none' });
+        this.setAbs(sg, 0, 0, W, H);
+        this.layoutChildren(sg, e.el, W, H, 0, 0, seen || new Set());
+      }
+      const cf = part.props.CFrame, centre = toWorld(cf, f.c), nrm = toWorld(cf, f.n, 0);
+      const to = [C.x - centre[0], C.y - centre[1], C.z - centre[2]], dist = Math.hypot(...to);
+      const front = to[0] * nrm[0] + to[1] * nrm[1] + to[2] * nrm[2] > 0, far = P.MaxDistance > 0 && dist > P.MaxDistance;
+      // Clicks: only in PlayerGui (the docs), Active, on a part that queries can find.
+      const aot = P.AlwaysOnTop, input = !this.inWorld(sg) && P.Active && part.props.CanQuery !== false;
+      const M = !far && front && (aot || input) ? surfaceMatrix(part, f, W, H, V.homog) : null;
+      e.sgAt = { part, f, W, H, M };
+      e.el.classList.toggle('cs-bb-inert', !input);
+      if (M) Object.assign(e.el.style, { display: 'block', left: '0px', top: '0px', transform: M.css, opacity: aot ? '1' : '0' });
+      else Object.assign(e.el.style, { display: 'block', left: '-100000px', top: '0px', transform: 'none', opacity: '1' }); // (laid out, off the page)
+      if (aot) { if (M) tops.push([dist, e]); continue; }
+      // Its image, drawn again when what it shows changed.
+      if (e.sgPending && !e.sgBusy && budget > 0) {
+        e.sgPending = false;
+        const key = W + 'x' + H + (P.ClipsDescendants ? 'c' : '') + e.el.innerHTML;
+        if (key !== e.sgKey) { budget--; e.sgKey = key; this.capture(sg, e, W, H); }
+      }
+      if (e.sgImage && !far) draws.push({ sg, part, frame: f, W, H, image: e.sgImage, props: P });
+    }
+    tops.sort((a, b) => b[0] - a[0]).forEach(([, e], i) => { e.el.style.zIndex = String(i); }); // farther first
+    this.sgDraws = draws;
+  }
+  // Its image from its laid-out DOM (measured now, drawn when its glyphs and images have loaded).
+  capture(sg, e, W, H) {
+    let snap;
+    try { snap = measure(e.el, W, H, !!sg.props.ClipsDescendants, host => host._inst === this.dm.focusedTextBox); }
+    catch (err) { console.warn('SurfaceGui', err); return; }
+    e.sgBusy = true;
+    raster(snap, this.sgScale, GUI_CSS).then(img => { e.sgImage = { ...img, version: (e.sgImage ? e.sgImage.version : 0) + 1 }; this.sgDrawn = (this.sgDrawn || 0) + 1; }, err => console.warn('SurfaceGui', err))
+      .finally(() => { e.sgBusy = false; if (e.sgLayout && e.sgKey !== null) e.sgPending = true; });
+  }
+  // A press on a SurfaceGui's (invisible) copy over its face, at a point something in the world hides.
+  sgBlocked(sg, e, ev) {
+    const A = e.sgAt, V = this.view, cam = this.dm.workspace.props.CurrentCamera, C = cam && cam.props.CFrame;
+    if (!A || !A.M || sg.props.AlwaysOnTop || !V || !C) return false;
+    const [u, v] = A.M.toCanvas(ev.clientX, ev.clientY), at = toWorld(A.part.props.CFrame, canvasPoint(A.f, A.W, A.H, u, v));
+    return V.occluded([C.x, C.y, C.z], at, [topModel(A.part)]);
+  }
+  /** A graphics tier: SurfaceGui images at 1 (low, phone) or 2 (high, ultra) pixels per canvas pixel. */
+  setTier(t) { const k = t === 'low' || t === 'phone' ? 1 : 2; if (k !== this.sgScale) { this.sgScale = k; for (const e of this.els.values()) if (e.sgLayout) { e.sgKey = null; e.sgPending = true; } } }
+
   // A hidden billboard's elements stay (seen) while it's hidden.
   markKids(i, seen) { for (const c of i.children) { if (this.els.has(c)) seen.add(c); this.markKids(c, seen); } }
 

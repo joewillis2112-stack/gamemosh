@@ -35,6 +35,8 @@ export function glyphFile(family, bold, italic) {
   return { file: `${family}-${pick.w}${pick.italic ? 'i' : ''}.json.gz`, fauxBold: bold && pick.w < 600, fauxItalic: !!italic && !pick.italic };
 }
 
+/** A glyph file's data ({ upm, ascender, descender, glyphs: { char: [advance, path] } }), loaded once. */
+export async function loadGlyphs(file) { return load(file); }
 async function load(file) {
   if (!cache.has(file)) cache.set(file, (async () => {
     const res = await fetch(new URL(encodeURIComponent(file), BASE));

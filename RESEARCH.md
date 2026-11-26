@@ -540,6 +540,13 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Its twin: `s.replace(anchor, new)` meant as "insert before the anchor" drops the anchor when `new` doesn't end with it. Humanoid lost ApplyDescriptionAsync that way, and only a scenario's Luau error ("not a valid member") showed it. Insert with `new + anchor`, then grep that the anchor is still there.
   - A flag that hides an object from one system hides it from every system that shares the test. Marking an NPC's model a character (so rigs.js stops drawing its statue) also made rigParts turn it away from the NPC driver, which then stopped it. Give each system its own test.
 
+- [Studio] **SurfaceGui lessons (2026-11-26):**
+  - An SVG `<foreignObject>` image drawn into a canvas taints it when loaded from a blob URL and doesn't from a data URL (Chromium 153). Test the taint with `getImageData` before building on one.
+  - Such an image can't reach the page's fonts or files. Embedding a woff2 cost 15-45 ms of main thread per drawing (no cache between images); the bundled fonts' glyph outlines, placed at the page's own character positions (a Range per character), cost about 2 ms and keep the DOM's stacking.
+  - A cache keyed on the DOM misses what the DOM doesn't show. A font finishing loading moves every character but leaves innerHTML the same, so the SurfaceGui image kept the fallback font's spacing. Invalidate on `document.fonts` loadingdone.
+  - Decals had been mirrored left to right on every face, probably since the right-handed switch (2026-10-08). The paint tests only checked up and down. An orientation test needs a pattern that's asymmetric both ways, with the expected places worked out from the camera's own axes, not from the code under test.
+  - A screenshot sample just off a phone's narrow portrait view read the next row's pixel (the index wrapped). A sampler must return "no colour" outside the image.
+
 ## 5. Ways to work that held up
 
 **Research pipeline**
