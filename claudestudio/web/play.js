@@ -1,12 +1,12 @@
 // Play a place: the shared look, Havok physics, the DataModel drawn by World,
 // the place's scripts in Luau, and the player: character, camera, controls.
-import { Vector3 } from '@babylonjs/core/Maths/math.js';
+import { Vector3, Matrix } from '@babylonjs/core/Maths/math.js';
 import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
 import '@babylonjs/core/Physics/v2/physicsEngineComponent.js';
 import '@babylonjs/core/Physics/joinedPhysicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 import { createRenderer, createSkybox } from './render.js';
-import { DataModel, baseplateLighting, C3, endWalk, checkPaths } from './datamodel.js';
+import { DataModel, baseplateLighting, C3, V3, endWalk, checkPaths } from './datamodel.js';
 import { walkStep } from './runtime/walk.js';
 import { Npcs } from './runtime/npcs.js';
 import { loadPlace } from './placefile.js';
@@ -139,6 +139,22 @@ async function main() {
   await rigs.load();
   players.join();
   const gui = new Gui(dm, players);
+  // BillboardGuis' view of the world (runtime/gui.js): where a point draws on the page, how many page pixels a stud
+  // is at a distance, and whether something stands between the camera and a point.
+  gui.view = {
+    project(p) {
+      const cam = scene.activeCamera, W = engine.getRenderWidth(), H = engine.getRenderHeight(), r = canvas.getBoundingClientRect();
+      const T = cam.getViewMatrix(true).multiply(cam.getProjectionMatrix(true)); // (this frame's camera: the scene's matrix is last frame's until it renders)
+      const v = Vector3.Project(new Vector3(p[0], p[1], p[2]), Matrix.IdentityReadOnly, T, cam.viewport.toGlobal(W, H));
+      return v.z > 0 && v.z < 1 ? { x: r.left + v.x * r.width / W, y: r.top + v.y * r.height / H } : null;
+    },
+    perStud(d) { const r = canvas.getBoundingClientRect(); return (r.height / 2) / (Math.max(d, 1e-3) * Math.tan(scene.activeCamera.fov / 2)); },
+    occluded(from, to, ignore) {
+      const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]], len = Math.hypot(...d);
+      const hit = dm.raycast(new V3(...from), new V3(...d), { filter: ignore });
+      return hit.length > 0 && hit[4] < len - 0.05;
+    },
+  };
   const camera = new FollowCamera(scene, player);
   scene.activeCamera = camera.cam;
   R.attachCamera(camera.cam);

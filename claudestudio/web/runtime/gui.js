@@ -9,6 +9,14 @@
 // - UIPadding insets the children, UIListLayout stacks them, UICorner rounds,
 //   UIStroke outlines (the glyphs, on text), UIAspectRatioConstraint and
 //   UITextSizeConstraint constrain.
+// - BillboardGuis (in the Workspace under a part or attachment, or in PlayerGui with an Adornee) stand at their
+//   adornee in 3D, facing the camera: Size's Scale in studs (so they shrink with distance, within
+//   DistanceLowerLimit/UpperLimit), Offset in pixels; StudsOffset (camera axes) and StudsOffsetWorldSpace,
+//   ExtentsOffset(WorldSpace) in half the adornee's box; SizeOffset anchors; MaxDistance; PlayerToHideFrom.
+//   Their appearance is laid out when it changes (as Roblox caches it) and scaled to the exact size each frame
+//   (OURS: laid out again when the size drifts 5%). OURS: AlwaysOnTop off hides the whole billboard while a ray
+//   from the camera to its anchor is blocked (Roblox occludes per pixel); nearer billboards draw above farther,
+//   all below ScreenGuis; LightInfluence and Brightness don't dim or brighten it.
 // Where Roblox leaves a choice open (hover tint amounts), the value is ours.
 import { V2, EnumItem, isA } from '../datamodel.js';
 
@@ -25,6 +33,13 @@ const FONTS = Object.values(FAMILIES).flatMap(f => f.files.map(x => [f.family, x
 const FONT_MAP = Object.fromEntries(Object.keys(ENUM_FONTS).map(n => [n, cssFont(fontFromEnum(n))]));
 const css = (c, a = 1) => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
 const child = (inst, cls) => inst.children.find(c => c.ClassName === cls);
+const guiRelevant = (inst, key) => {
+  if (key === 'Parent' || !inst) return true;
+  for (let i = inst; i; i = i.parent) if (isA(i.ClassName, 'GuiBase2d') || i.ClassName === 'Player') return true; // (a player's leaderstats: the player list)
+  return inst.ClassName === 'StarterGui' || inst.ClassName === 'Players';
+};
+// The outermost Model in the Workspace holding an instance (a character, an NPC), or the instance.
+const topModel = i => { let m = i; for (let p = i.parent; p && p.ClassName !== 'Workspace'; p = p.parent) if (p.ClassName === 'Model') m = p; return m; };
 const en = v => v && v.name || v; // an enum property's item name (stored as a name or an EnumItem)
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 // ScrollingFrame input (OURS where Roblox doesn't say): a touch moves SLOP px before it scrolls (and
@@ -44,13 +59,23 @@ export class Gui {
     st.textContent = FONTS.map(([f, file, w, style]) => `@font-face{font-family:'${f}';src:url('${base}${file}') format('woff2');font-weight:${w};font-style:${style || 'normal'};font-display:block}`).join('\n') +
       '\n.cs-gui{position:absolute;box-sizing:border-box;pointer-events:none;display:flex;white-space:pre;line-height:1;transform-origin:50% 50%}' +
       '\n.cs-pl-row:hover{background:rgba(255,255,255,0.1)}' + // the player list's row hover (BackgroundOnHover)
-      '\n.cs-tb::placeholder{color:var(--ph);opacity:1}'; // a focused TextBox's PlaceholderText
+      '\n.cs-tb::placeholder{color:var(--ph);opacity:1}' + // a focused TextBox's PlaceholderText
+      '\n.cs-bb-inert *{pointer-events:none !important}'; // a billboard that takes no input (in the Workspace, or not Active)
     document.head.appendChild(st);
     this.els = new Map(); // instance -> { el, text, cache }
+    // BillboardGuis draw in their own layer, below the ScreenGuis. view: the page's camera ({ project, perStud,
+    // occluded }), set by play.js; without it no billboard draws.
+    this.bbLayer = document.createElement('div');
+    Object.assign(this.bbLayer.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', zIndex: '0', pointerEvents: 'none' });
+    this.root.appendChild(this.bbLayer);
+    this.view = null;
     // A font finishing loading changes text metrics: re-fit TextScaled and re-lay out.
     document.fonts.addEventListener('loadingdone', () => { this.fitCache = new Map(); this.dirty = true; });
     this.dirty = true;
-    dm.watch(() => { this.dirty = true; });
+    // Only changes that can change what's drawn re-lay it out: GUI objects and what's inside them, anything's parent
+    // (things arrive and leave), anything in a Player (its leaderstats), Players and StarterGui. (Every character's parts move every frame: they used
+    // to re-lay out the whole GUI each frame. Billboards follow their parts in placeBillboards, every frame.)
+    dm.watch((inst, key) => { if (!this.dirty && guiRelevant(inst, key)) this.dirty = true; });
     dm.watch((inst, key) => { if (key === 'Focus') this.syncFocus(); }); // a TextBox gained or lost focus
     this.onFocus = null; // set by the game: drop held keys when a TextBox takes the keyboard
     dm.hooks.layoutNow = () => this.update(); // a script reading AbsoluteContentSize gets this frame's layout
@@ -88,7 +113,7 @@ export class Gui {
   update(dt = 0) {
     this.stepScroll(dt); // released touch drags: flings and elastic spring-back
     const W = innerWidth, H = innerHeight;
-    if (!this.dirty && W === this.W && H === this.H) return;
+    if (!this.dirty && W === this.W && H === this.H) { this.placeBillboards(false); return; }
     this.dirty = false; this.W = W; this.H = H;
     const pg = this.players.player && child(this.players.player, 'PlayerGui');
     const seen = new Set();
@@ -106,6 +131,8 @@ export class Gui {
         if (g.props.Enabled) this.layoutChildren(g, e.el, W / k, (H - top) / k, 0, top - GUI_INSET, seen, k);
       });
     }
+    this.bbList = null; // (found again: something changed)
+    this.placeBillboards(true, seen);
     // A focused TextBox that left the screen (destroyed, hidden, its ScreenGui off) lets go of the keyboard.
     const fb = this.dm.focusedTextBox;
     if (fb && (!seen.has(fb) || !this.shown(fb))) this.dm.releaseTextBox(fb, false);
@@ -113,6 +140,83 @@ export class Gui {
     if (this.dm.focusedTextBox) this.syncFocus(); // focused before it was first drawn (CaptureFocus on a new box)
     this.playerList.update(W, H, this.small, this.dm.coreGui.PlayerList);
   }
+
+  // ---- BillboardGuis
+  // Every billboard that may draw: in the Workspace (not inside another billboard), and in the local PlayerGui.
+  billboards() {
+    if (this.bbList) return this.bbList;
+    const out = [], walk = i => { for (const c of i.children) { if (c.ClassName === 'BillboardGui') out.push(c); else walk(c); } };
+    walk(this.dm.workspace);
+    const pg = this.players.player && child(this.players.player, 'PlayerGui');
+    if (pg) for (const c of pg.children) if (c.ClassName === 'BillboardGui') out.push(c);
+    return (this.bbList = out);
+  }
+  // Where a billboard draws now: { x, y, w, h (page px), dist }, or null when it doesn't.
+  bbPlace(bb, now) {
+    const V = this.view, P = bb.props, cam = this.dm.workspace.props.CurrentCamera, C = cam && cam.props.CFrame;
+    if (!V || !C || !P.Enabled) return null;
+    const lp = this.players.player;
+    if (lp && P.PlayerToHideFrom === lp) return null;
+    const ad = P.Adornee || bb.parent;
+    if (!ad || ad.destroyed || !this.inWorld(ad)) return null;
+    // The anchor and the adornee's box (its frame and half size): a part, an attachment (a point), a model (its
+    // primary part, or its first part: OURS).
+    let frame = null, half = [0, 0, 0];
+    if (isA(ad.ClassName, 'BasePart')) { frame = ad.props.CFrame; half = [ad.props.Size.x / 2, ad.props.Size.y / 2, ad.props.Size.z / 2]; }
+    else if (ad.ClassName === 'Attachment') { const pp = ad.parent; frame = pp && pp.props && pp.props.CFrame ? pp.props.CFrame.mul(ad.props.CFrame) : ad.props.CFrame; }
+    else if (ad.ClassName === 'Model') { const pp = ad.props.PrimaryPart || ad.children.find(c => isA(c.ClassName, 'BasePart')); if (pp) { frame = pp.props.CFrame; half = [pp.props.Size.x / 2, pp.props.Size.y / 2, pp.props.Size.z / 2]; } }
+    if (!frame) return null;
+    const m = C.m, right = [m[3], m[6], m[9]], up = [m[4], m[7], m[10]], back = [m[5], m[8], m[11]], f = frame.m;
+    const ext = a => half[0] * Math.abs(f[3] * a[0] + f[6] * a[1] + f[9] * a[2]) + half[1] * Math.abs(f[4] * a[0] + f[7] * a[1] + f[10] * a[2]) + half[2] * Math.abs(f[5] * a[0] + f[8] * a[1] + f[11] * a[2]);
+    const at = [frame.x, frame.y, frame.z], add = (v, k) => { at[0] += v[0] * k; at[1] += v[1] * k; at[2] += v[2] * k; };
+    const sw = P.StudsOffsetWorldSpace, so = P.StudsOffset, ew = P.ExtentsOffsetWorldSpace, eo = P.ExtentsOffset;
+    add([sw.x, sw.y, sw.z], 1); add(right, so.x); add(up, so.y); add(back, so.z);
+    add([1, 0, 0], ew.x * ext([1, 0, 0])); add([0, 1, 0], ew.y * ext([0, 1, 0])); add([0, 0, 1], ew.z * ext([0, 0, 1]));
+    add(right, eo.x * ext(right)); add(up, eo.y * ext(up)); add(back, eo.z * ext(back));
+    const d = [at[0] - C.x, at[1] - C.y, at[2] - C.z], dist = Math.hypot(...d);
+    // CurrentDistance: the distance (in DistanceStep steps, firing Changed, when it has one).
+    const step = P.DistanceStep, cd = step > 0 ? Math.round(dist / step) * step : dist;
+    if (cd !== P.CurrentDistance) { P.CurrentDistance = cd; if (step > 0) this.dm.fire(bb, 'Changed', ['CurrentDistance']); }
+    if (P.MaxDistance > 0 && dist > P.MaxDistance) return null;
+    if (-(d[0] * back[0] + d[1] * back[1] + d[2] * back[2]) <= 0.05) return null; // behind the camera
+    const s = V.project(at); if (!s) return null;
+    if (!P.AlwaysOnTop) { // (checked ten times a second)
+      const c = this.bbOcc.get(bb);
+      if (!c || now - c.t > 0.1) this.bbOcc.set(bb, { t: now, hid: V.occluded([C.x, C.y, C.z], at, [topModel(ad)]) });
+      if (this.bbOcc.get(bb).hid) return null;
+    }
+    let sd = Math.max(dist, P.DistanceLowerLimit); if (P.DistanceUpperLimit >= 0) sd = Math.min(sd, P.DistanceUpperLimit);
+    const pps = V.perStud(sd), S = P.Size, w = Math.max(0, S.xo + S.xs * pps), h = Math.max(0, S.yo + S.ys * pps);
+    const cx = s.x + P.SizeOffset.x * w, cy = s.y - P.SizeOffset.y * h;
+    return { x: cx - w / 2, y: cy - h / 2, w, h, dist };
+  }
+  inWorld(i) { for (let p = i; p; p = p.parent) if (p === this.dm.workspace) return true; return false; }
+  // Each frame: every billboard placed (laid out again if it changed or its size drifted), the nearer above.
+  placeBillboards(full, seen = null) {
+    if (!this.bbOcc) this.bbOcc = new Map();
+    const now = performance.now() / 1000, list = this.billboards(), drawn = [];
+    for (const bb of list) {
+      if (bb.destroyed) continue;
+      const g = this.bbPlace(bb, now);
+      let e = this.els.get(bb);
+      if (!g) { if (e) e.el.style.display = 'none'; if (seen && e) { seen.add(bb); this.markKids(bb, seen); } continue; }
+      if (!e || seen) e = this.element(bb, this.bbLayer, seen || new Set());
+      const L = e.bbLayout, drift = !L || Math.abs(g.w - L.w) > 0.05 * Math.max(L.w, 1) || Math.abs(g.h - L.h) > 0.05 * Math.max(L.h, 1);
+      if (full || drift) {
+        e.bbLayout = { w: Math.max(1, g.w), h: Math.max(1, g.h) };
+        const inert = !(bb.props.Active && !this.inWorld(bb));
+        e.el.classList.toggle('cs-bb-inert', inert);
+        Object.assign(e.el.style, { width: e.bbLayout.w + 'px', height: e.bbLayout.h + 'px', overflow: bb.props.ClipsDescendants ? 'hidden' : 'visible', transformOrigin: '0 0', pointerEvents: 'none' });
+        this.setAbs(bb, g.x, g.y - GUI_INSET, g.w, g.h);
+        this.layoutChildren(bb, e.el, e.bbLayout.w, e.bbLayout.h, g.x, g.y - GUI_INSET, seen || new Set());
+      }
+      Object.assign(e.el.style, { display: 'block', left: g.x + 'px', top: g.y + 'px', transform: `scale(${g.w / e.bbLayout.w}, ${g.h / e.bbLayout.h})` });
+      drawn.push([g.dist, e]);
+    }
+    drawn.sort((a, b) => b[0] - a[0]).forEach(([, e], i) => { e.el.style.zIndex = String(i); }); // farther first: the nearer draw above
+  }
+  // A hidden billboard's elements stay (seen) while it's hidden.
+  markKids(i, seen) { for (const c of i.children) { if (this.els.has(c)) seen.add(c); this.markKids(c, seen); } }
 
   // Visible, as are its GUI ancestors and its ScreenGui.
   shown(inst) { for (let i = inst; i && isA(i.ClassName, 'GuiBase2d'); i = i.parent) if (i.props.Visible === false || i.props.Enabled === false) return false; return true; }

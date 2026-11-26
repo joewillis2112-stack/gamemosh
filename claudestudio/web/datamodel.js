@@ -280,6 +280,16 @@ const rgb = (r, g, b) => [r / 255, g / 255, b / 255];
 defineClass('GuiBase2d', 'Instance', { creatable: false, props: { AbsolutePosition: ['Vector2', [0, 0]], AbsoluteSize: ['Vector2', [0, 0]], AbsoluteRotation: ['number', 0] } });
 defineClass('LayerCollector', 'GuiBase2d', { creatable: false, props: { Enabled: ['bool', true], ResetOnSpawn: ['bool', true], ZIndexBehavior: ['Enum.ZIndexBehavior', 'Sibling'] } });
 defineClass('ScreenGui', 'LayerCollector', { props: { IgnoreGuiInset: ['bool', false], DisplayOrder: ['number', 0] } });
+// BillboardGui (Roblox): a GUI canvas in the 3D world, facing the camera, at its Adornee (or its parent part or
+// attachment), drawn by runtime/gui.js. Size's Scale is studs, its Offset pixels. Defaults from the API dump.
+defineClass('BillboardGui', 'LayerCollector', {
+  props: {
+    Active: ['bool', false], Adornee: ['Instance', null], AlwaysOnTop: ['bool', false], Brightness: ['number', 1], ClipsDescendants: ['bool', false],
+    CurrentDistance: ['number', 0], DistanceLowerLimit: ['number', 0], DistanceStep: ['number', 0], DistanceUpperLimit: ['number', -1],
+    ExtentsOffset: ['Vector3', [0, 0, 0]], ExtentsOffsetWorldSpace: ['Vector3', [0, 0, 0]], LightInfluence: ['number', 0], MaxDistance: ['number', Infinity],
+    PlayerToHideFrom: ['Instance', null], Size: ['UDim2', [0, 0, 0, 0]], SizeOffset: ['Vector2', [0, 0]], StudsOffset: ['Vector3', [0, 0, 0]], StudsOffsetWorldSpace: ['Vector3', [0, 0, 0]],
+  },
+});
 defineClass('GuiObject', 'GuiBase2d', {
   creatable: false,
   props: {
@@ -1457,7 +1467,7 @@ export const STUDIO_OWN = new Map([
 ]);
 const ASSEMBLY_READS = new Set(['CFrame', 'Position', 'Orientation', 'AssemblyRootPart', 'Active', 'ChildName']);
 const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'JointInstance.Active', 'WeldConstraint.Active', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
-'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'Path.Status', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
+'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'Path.Status', 'BillboardGui.CurrentDistance', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.
 export function propertiesOf(cls) {

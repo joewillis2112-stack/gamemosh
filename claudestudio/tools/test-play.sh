@@ -52,6 +52,8 @@ run --noshots --place places/ik-lab.luau --quality low --scenario test/scenarios
 run --place places/npc-lab.luau --scenario test/scenarios/npcs.mjs
 run --noshots --place places/npc-lab.luau --quality low --scenario test/scenarios/npcs.mjs
 run --place places/path-lab.luau --scenario test/scenarios/pathfinding.mjs
+run --place places/billboard-lab.luau --scenario test/scenarios/billboards.mjs
+run --noshots --phone --place places/billboard-lab.luau --scenario test/scenarios/billboards.mjs
 run --noshots --place places/scripts-lab.luau --scenario test/scenarios/scripts.mjs
 run --place places/materials-lab.luau --scenario test/scenarios/materials.mjs
 run --noshots --scenario test/scenarios/defaults.mjs

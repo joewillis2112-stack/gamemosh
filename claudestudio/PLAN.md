@@ -111,7 +111,16 @@ Assets come from CC0 sources (Quaternius rigged characters and animations, Poly 
 - `UIGradient` (Color, Transparency, Rotation, Offset, Enabled) on the background, text and image, in the object's own box; `UIScale` (about the AnchorPoint; in a ScreenGui, the whole screen); `UISizeConstraint`.
 - Fonts: the `Font` datatype in the VM (new, fromEnum, fromName, fromId; Family, Weight, Style, Bold), `Enum.Font.Unknown`, `Enum.FontWeight`, `Enum.FontStyle`, `FontFace` kept in step with `Font`; `web/fonts.js` maps Roblox's family ids to the bundled families. Place files save FontFace.
 - UIPadding now insets a text object's own text, as in Roblox.
-- Not done: `BillboardGui`, `SurfaceGui`, `ViewportFrame`, `CanvasGroup`; UIGradient's Scale, TileMode and Type; TextBox CursorPosition/SelectionStart; ScrollingFrame's ScrollToTop and the velocity methods; UIGridLayout cells spanning several cells.
+- [Studio] **BillboardGui (2026-11-26).** Every property, with defaults from the API dump (`runtime/gui.js`). It draws in the Workspace (under a part, attachment or model) and in PlayerGui with an Adornee. Rules:
+  - Size: Scale in studs, Offset in pixels. Distance limits.
+  - Offsets: StudsOffset (camera axes) and StudsOffsetWorldSpace; ExtentsOffset and ExtentsOffsetWorldSpace, in half the adornee's box.
+  - Visibility and anchoring: SizeOffset anchors; MaxDistance; PlayerToHideFrom.
+  - CurrentDistance steps by DistanceStep, firing Changed. ClipsDescendants. Input only in PlayerGui when Active.
+  - Cached appearance, as Roblox's is: laid out when it changes, CSS-scaled each frame. OURS: re-laid out on a 5% size drift.
+  - OURS: AlwaysOnTop off hides the whole billboard while a ray to its anchor is blocked; nearer above farther, below ScreenGuis.
+  Tested: `billboards.mjs` (12 checks, desktop and phone).
+  Fixed on the way: the GUI used to re-lay out every frame whenever any character existed (body parts notify each frame); now only GUI-relevant changes dirty it (120 relayouts in 120 frames down to 0).
+- Not done: `SurfaceGui`, `ViewportFrame`, `CanvasGroup`; UIGradient's Scale, TileMode and Type; TextBox CursorPosition/SelectionStart; ScrollingFrame's ScrollToTop and the velocity methods; UIGridLayout cells spanning several cells.
 
 ## Architecture
 
