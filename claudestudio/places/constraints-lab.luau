@@ -72,3 +72,13 @@ hold.RigidityEnabled = true
 local torquer = part("Torquer", Vector3.new(2, 2, 4), CFrame.new(-70, 120, 0), false)
 local tq = constraint("Torque", "Twist", attach(torquer, "T0"), nil, torquer)
 tq.RelativeTo = Enum.ActuatorRelativeTo.World; tq.Torque = Vector3.new(0, 200, 0)
+-- NoCollisionConstraint: a block dropped on a slab with one between them falls through it; one without lands.
+local slab = part("Slab", Vector3.new(6, 1, 12), CFrame.new(80, 5, 0), true)
+local ghost = part("Ghost", Vector3.new(2, 2, 2), CFrame.new(80, 8, -3), false)
+local lander = part("Lander", Vector3.new(2, 2, 2), CFrame.new(80, 8, 3), false)
+local nc = Instance.new("NoCollisionConstraint"); nc.Part0 = ghost; nc.Part1 = slab; nc.Parent = ghost
+-- UniversalConstraint: a block hung from a beam by its primary (vertical) axis: it can tilt, not twist.
+local yoke = part("Yoke", Vector3.new(1, 1, 1), CFrame.new(95, 20, 0), true)
+local swing = part("Swing", Vector3.new(2, 4, 2), CFrame.new(95, 17.5, 0), false)
+swing.CanCollide = false -- (it would knock against the yoke: constrained parts collide, as in Roblox)
+constraint("UniversalConstraint", "Cardan", attach(yoke, "U0", CFrame.new(0, -0.5, 0) * up), attach(swing, "U1", CFrame.new(0, 2, 0) * up), yoke)

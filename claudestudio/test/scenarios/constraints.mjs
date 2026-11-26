@@ -83,6 +83,17 @@ export default async function (t) {
   await run(`workspace.Seeker.Seek.MaxForce = 500`);
   await t.sim(60);
   check((await q()).seeker[1] < 11, `AlignPosition with MaxForce 500 (below its weight ${mg.toFixed(0)}) can't hold its block up (y ${(await q()).seeker[1].toFixed(2)})`);
+  // NoCollisionConstraint: through the slab, onto the baseplate; the block without one rests on the slab.
+  const nc = await t.eval(() => { const ws = window.studio.dm.workspace, y = n => ws.children.find(c => c.props.Name === n).props.CFrame.y; return [y('Ghost'), y('Lander')]; });
+  check(nc[0] < 1.5 && near(nc[1], 6.5, 0.1), `NoCollisionConstraint: its block falls through the slab (y ${nc[0].toFixed(2)}), the other rests on it (y ${nc[1].toFixed(2)})`);
+  // UniversalConstraint: spun about its axis it doesn't turn (no twist); pushed aside it swings (tilt).
+  const yaw = () => t.eval(() => { const p = window.studio.dm.workspace.children.find(c => c.props.Name === 'Swing'), m = p.props.CFrame.m; return [Math.atan2(m[5], m[11]), m[7]]; });
+  const y0 = await yaw();
+  await run(`workspace.Swing.AssemblyAngularVelocity = Vector3.new(0, 6, 0)`); await t.sim(30);
+  const y1 = await yaw();
+  await run(`workspace.Swing.AssemblyLinearVelocity = Vector3.new(20, 0, 0)`); await t.sim(8);
+  const y2 = await yaw();
+  check(Math.abs(y1[0] - y0[0]) < 0.05 && y2[1] < 0.95, `UniversalConstraint: no twist when spun (${(y1[0] - y0[0]).toFixed(3)} rad), tilts when pushed (up ${y2[1].toFixed(3)})`);
   // Active.
   await run(`workspace.Post.Hinge.Enabled = false`); await t.sim(2);
   const off = (await q()).active;

@@ -33,7 +33,7 @@ import { isA } from '../datamodel.js';
 
 const DEG = Math.PI / 180;
 const en = v => v && v.name || v;
-const MECHANICAL = new Set(['HingeConstraint', 'BallSocketConstraint', 'RopeConstraint', 'RodConstraint', 'PrismaticConstraint', 'CylindricalConstraint', 'SpringConstraint']);
+const MECHANICAL = new Set(['HingeConstraint', 'BallSocketConstraint', 'RopeConstraint', 'RodConstraint', 'PrismaticConstraint', 'CylindricalConstraint', 'SpringConstraint', 'UniversalConstraint']);
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const scale = (a, k) => [a[0] * k, a[1] * k, a[2] * k], len = a => Math.hypot(a[0], a[1], a[2]);
@@ -51,12 +51,12 @@ export class Constraints {
     this.queue = []; // this substep's impulses: [body, linear impulse at the centre of mass, angular impulse]
     this.response = new WeakMap(); // body -> { lin, ang: [k0, k1, k2] } (measured dv per nominal dv)
     this.gravity = () => -dm.workspace.props.Gravity;
-    dm.watch((inst, key) => { if (key === 'Parent' || isA(inst.ClassName, 'Constraint')) this.list = null; });
+    dm.watch((inst, key) => { if (key === 'Parent' || isA(inst.ClassName, 'Constraint') || inst.ClassName === 'NoCollisionConstraint') this.list = null; });
   }
 
   constraints() {
     if (this.list) return this.list;
-    const out = [], walk = i => { for (const c of i.children) { if (isA(c.ClassName, 'Constraint')) out.push(c); walk(c); } };
+    const out = [], walk = i => { for (const c of i.children) { if (isA(c.ClassName, 'Constraint') || c.ClassName === 'NoCollisionConstraint') out.push(c); walk(c); } };
     walk(this.dm.workspace);
     return (this.list = out);
   }
@@ -94,7 +94,7 @@ export class Constraints {
       seen.add(c);
       let ok = false;
       try { ok = this.step(c, dt); } catch (err) { console.warn('constraint', c.props.Name, err); }
-      if (c.props.Active !== ok) { c.props.Active = ok; this.dm.fire(c, 'Changed', ['Active']); }
+      if ('Active' in c.props && c.props.Active !== ok) { c.props.Active = ok; this.dm.fire(c, 'Changed', ['Active']); }
     }
     for (const c of [...this.live.keys()]) if (!seen.has(c)) this.drop(c);
     this.apply(0.625);
@@ -147,8 +147,24 @@ export class Constraints {
     if (L && L.joint) try { L.joint.dispose(); } catch { /* its body went first */ }
   }
 
+  // A NoCollisionConstraint: a joint that holds nothing, with collisions between its two parts' bodies off.
+  noCollision(c) {
+    const P = c.props, ok = p => p && !p.destroyed && isA(p.ClassName, 'BasePart') && this.world.parts.has(p);
+    if (!P.Enabled || !ok(P.Part0) || !ok(P.Part1)) { this.drop(c); return false; }
+    const A = this.bodyOf(P.Part0), B = this.bodyOf(P.Part1);
+    if (!A || !B || A.body === B.body || (!A.dynamic && !B.dynamic)) { this.drop(c); return false; }
+    const L = this.live.get(c);
+    if (L && L.A === A.body && L.B === B.body) return true;
+    this.drop(c);
+    const joint = new Physics6DoFConstraint({ pivotA: Vector3.Zero(), pivotB: Vector3.Zero(), collision: false }, [], this.scene);
+    A.body.addConstraint(B.body, joint);
+    this.live.set(c, { joint, sig: '', A: A.body, B: B.body, state: {} });
+    return true;
+  }
+
   // One constraint this substep; whether it's active.
   step(c, dt) {
+    if (c.ClassName === 'NoCollisionConstraint') return this.noCollision(c);
     const P = c.props, a0 = P.Attachment0, a1 = P.Attachment1, two = !['VectorForce', 'Torque', 'LinearVelocity', 'AngularVelocity'].includes(c.ClassName) && !((c.ClassName === 'AlignPosition' || c.ClassName === 'AlignOrientation') && en(P.Mode) === 'OneAttachment');
     const part = a => a && !a.destroyed && a.ClassName === 'Attachment' && a.parent && isA(a.parent.ClassName, 'BasePart') && this.world.parts.has(a.parent) ? a.parent : null;
     const p0 = part(a0), p1 = two ? part(a1) : null;
@@ -232,6 +248,11 @@ export class Constraints {
       out.push(...lin.map(lock));
       if (P.LimitsEnabled) { const u = Math.max(0, P.UpperAngle) * DEG; out.push({ axis: AX.ANGULAR_Y, minLimit: -u, maxLimit: u }, { axis: AX.ANGULAR_Z, minLimit: -u, maxLimit: u }); }
       if (P.LimitsEnabled && P.TwistLimitsEnabled) out.push({ axis: AX.ANGULAR_X, minLimit: Math.min(P.TwistLowerAngle, P.TwistUpperAngle) * DEG, maxLimit: Math.max(P.TwistLowerAngle, P.TwistUpperAngle) * DEG });
+    } else if (cls === 'UniversalConstraint') {
+      // The attachments' primary (X) axes kept together but free to tilt (within a cone of MaxAngle: as each tilt
+      // axis's limit), no twist between them (UNSURE: the docs say only that "two axes remain perpendicular").
+      out.push(...lin.map(lock), lock(AX.ANGULAR_X));
+      if (P.LimitsEnabled) { const u = Math.max(0, P.MaxAngle) * DEG; out.push({ axis: AX.ANGULAR_Y, minLimit: -u, maxLimit: u }, { axis: AX.ANGULAR_Z, minLimit: -u, maxLimit: u }); }
     } else if (cls === 'RopeConstraint') {
       out.push({ axis: AX.LINEAR_DISTANCE, minLimit: 0, maxLimit: Math.max(0, P.Length) }); // (the winch moves it without a rebuild)
     } else if (cls === 'RodConstraint') {
