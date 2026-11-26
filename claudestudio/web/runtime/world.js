@@ -196,7 +196,7 @@ export class World {
     c.width = c.height = N;
     const g = c.getContext('2d');
     g.fillStyle = 'rgba(0,0,0,0.21)'; // blended in linear light: matches the old 10% sRGB darkening
-    g.fillRect(0, 0, N, 3); g.fillRect(0, 0, 3, N);
+    g.fillRect(0, 0, N, 3); g.fillRect(N - 3, 0, 3, N); // (its left edge as drawn on a face: images lie unmirrored, decals())
     return (this._builtin[id] = c.toDataURL('image/png'));
   }
 
@@ -222,7 +222,13 @@ export class World {
       const plane = curved ? this.projectedFace(inst, e, D.Face, pos, rot) : MeshBuilder.CreatePlane(inst.Name + '.' + c.Name, { size: 1 }, this.scene);
       if (!plane) continue; // no triangles face that way
       plane.parent = e.mesh;
-      if (!curved) plane.position.set(...pos), plane.rotation.set(...rot);
+      if (!curved) {
+        plane.position.set(...pos), plane.rotation.set(...rot);
+        // The image the right way round seen from outside: CreatePlane's u runs along its local +x, which, seen
+        // from in front of the face in our right-handed view, runs right to left (images drew mirrored).
+        const uv = plane.getVerticesData('uv'); for (let i = 0; i < uv.length; i += 2) uv[i] = 1 - uv[i];
+        plane.setVerticesData('uv', uv);
+      }
       // A wedge's front face is its slope: in the unit box it runs corner to corner, sqrt(2) long.
       if (wedgeFront) plane.scaling.y = Math.SQRT2;
       plane.isPickable = false;
@@ -252,7 +258,7 @@ export class World {
   }
 
   // The part mesh's triangles on `face` (triangleFace), as a mesh in the part's unit space, UV'd as
-  // the face's plane (at `pos`, turned by `rot`; CreatePlane's UV = its local x, y + 0.5) would be.
+  // the face's plane (at `pos`, turned by `rot`; its UV = 0.5 - local x, local y + 0.5) would be.
   projectedFace(inst, e, face, pos, rot) {
     // A solid-modelling result: its drawn mesh, in studs about its centre, brought into the part's unit space.
     const op = e.meshPart && e.meshPart.editable, src = op ? e.meshPart.render[0] : e.mesh, P = src.getVerticesData('position'), N = src.getVerticesData('normal'), idx = src.getIndices();
@@ -266,7 +272,7 @@ export class World {
         const i = idx[t * 3 + k], x = unit(i, 0), y = unit(i, 1), z = unit(i, 2);
         p.push(x, y, z); n.push(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]);
         Vector3.TransformCoordinatesFromFloatsToRef(x, y, z, inv, q);
-        uv.push(q.x + 0.5, q.y + 0.5);
+        uv.push(0.5 - q.x, q.y + 0.5); // (u mirrored, as the flat plane's)
       }
     }
     if (!p.length) return null;

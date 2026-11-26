@@ -132,6 +132,19 @@ export default async function (t) {
   const inert = await t.eval(() => { const g = window.studio.gui, sg = g.surfaceGuis().find(s => s.props.Name === 'Screen'); const e = g.els.get(sg); return e.el.classList.contains('cs-bb-inert') && !e.sgAt.M; });
   check(inert, 'in the Workspace: no input (no copy over the face)');
 
+  // Decals face the same way (the docs: SurfaceGuis lie "similar to Decals"): the pattern as an image on every face
+  // of the cube instead (they drew mirrored left to right until 2026-11-26), and as a Texture tiled once per face.
+  const img = await t.eval(() => { const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#e61e1e'; g.fillRect(0, 0, 32, 64); g.fillStyle = '#1e32e6'; g.fillRect(32, 0, 32, 64); g.fillStyle = '#1ed232'; g.fillRect(0, 0, 64, 13); return c.toDataURL(); });
+  await t.eval(img => { const S = window.studio, dm = S.dm, cube = dm.workspace.children.find(c => c.props.Name === 'Cube');
+    for (const c of cube.children.slice()) if (c.ClassName === 'SurfaceGui') dm.destroy(c);
+    for (const f of ['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom']) { const d = dm.create(f === 'Front' ? 'Texture' : 'Decal'); dm.set(d, 'Face', f); dm.set(d, 'Texture', img); if (f === 'Front') { dm.set(d, 'StudsPerTileU', 6); dm.set(d, 'StudsPerTileV', 6); } dm.setParent(d, cube); } }, img);
+  for (const [name, n, up] of faces) {
+    const fc = C.map((v, i) => v + n[i] * 3);
+    await look(C.map((v, i) => v + n[i] * 15).join(', '), fc.join(', '), up.join(', '));
+    for (let i = 0; i < 10; i++) { await t.eval(() => window.studio.frames(1)); await new Promise(r => setTimeout(r, 30)); } // (the image loads)
+    const got = await pattern(fc, 3);
+    check(got === 'red blue green', `a ${name === 'Front' ? 'Texture' : 'Decal'} on the cube's ${name}: the same way round and up (${got})`);
+  }
   if (t.shot) { await look('14, 14, 34', '0, 8, 0'); await t.shot('surfaceguis'); }
   if (fail.length) throw new Error(fail.length + ' failed');
 }
