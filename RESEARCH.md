@@ -566,6 +566,11 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Waypoint heights taken at grid-column middles sit up to 0.1 off sloped ground, and a guess carried from the last waypoint falls out of tolerance on a 23 degree ramp (1.6 studs of rise per 4-stud spacing). Follow the height along the run as the straightness check did, then take the exact floor at the waypoint.
   - The place-file round trip broke on two things the constraints work added: an attachment's axes (derived from its CFrame, which the loader writes directly) and AssemblyMass (worked out on read, so a fresh copy's is 0). Derived values need re-deriving on load, and read-time values must stay out of the comparison.
   - A Properties row for a read-time value showed 0 because the panel read the props table, not the script's getter. Put the "bring it up to date" step in one DataModel method (`readout`) that both use.
+- [Studio] **Shoreline lessons (2026-11-27):**
+  - Treating ground cells beside water as 0.95 full of water raised the water 0.18 above its level near the shore and rounded it off early. The mesher's field gives a partly filled cell's centre an exact distance and pushes the full cells beside it further in, so one partial value bends the surface around it. Give extended cells the same occupancy as the water they continue.
+  - Extending water into partly filled ground (a hill's edge) put the water's boundary outside the hill's drawn surface: a dark wedge of water on dry ground beside the hill, caught only by a golden. Water may extend only where full ground surrounds it, so its boundary stays inside the ground.
+  - The blended water field (swimming, buoyancy) must not take the drawing's extension: water drawn under a bank's top would float parts lying within 12 studs of the shore.
+  - Keep one rule for "drawn water" and let the mesher pass a faster cell reader into it, rather than copying the rule into the mesher's loop. The copy had already drifted once in this session.
 
 ## 5. Ways to work that held up
 

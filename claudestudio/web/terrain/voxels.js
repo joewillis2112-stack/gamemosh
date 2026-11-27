@@ -14,6 +14,13 @@ export const CELL = 4, CHUNK = 16, CHUNK_CELLS = CHUNK * CHUNK * CHUNK;
 export const TERRAIN_MATERIALS = ['Air', 'Water', 'Grass', 'Slate', 'Concrete', 'Brick', 'Sand', 'WoodPlanks', 'Rock', 'Glacier', 'Snow', 'Sandstone', 'Mud', 'Basalt', 'Ground', 'CrackedLava', 'Asphalt', 'Cobblestone', 'Ice', 'LeafyGrass', 'Salt', 'Limestone', 'Pavement'];
 export const MATERIAL_INDEX = Object.fromEntries(TERRAIN_MATERIALS.map((m, i) => [m, i]));
 const WATER = 1; // TERRAIN_MATERIALS' index of Water
+/** Shorelines (terrain/mesher.js, Voxels.drawnWater): full ground cells within SHORE_REACH cells of water on its own
+ *  layer, and with only water or full ground around them on it, are drawn as full of water as it (the water's surface
+ *  runs on, flat, under the bank, where the ground hides it, rounding down two cells in where the ground's top is
+ *  flat). A partly filled cell, or one beside one or beside air, isn't: the ground's surface passes through or by it,
+ *  and water there would show past it. Only the drawing: swimming and buoyancy (waterAt) count
+ *  water cells alone, or a part lying on a beach would float. */
+export const SHORE_REACH = 2;
 const NONE = [];
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -271,14 +278,28 @@ export class Voxels {
     for (const [ck, tri] of this.rayOwned.get(kk) || []) { const l = this.rayCells.get(ck); if (l) { const i = l.indexOf(tri); if (i >= 0) l.splice(i, 1); if (!l.length) this.rayCells.delete(ck); } }
     this.rayOwned.delete(kk);
   }
-  /** How much water a world point is in (0..1): water's occupancy at the cells' centres, blended between them (so
-   *  0.5 is the surface the mesher draws). */
+  /** A cell's water as the mesher draws it: a water cell's occupancy; a shore cell (SHORE_REACH) the fullest water's
+   *  within reach on its layer; else 0. */
+  drawnWater(i, j, k, get = (x, y, z) => this.get(x, y, z)) { // (get: a faster reader of the same cells, the mesher's)
+    const g = get(i, j, k);
+    if (g.mat === WATER) return g.occ;
+    if (g.occ < 1) return 0;
+    let m = 0;
+    for (let a = -SHORE_REACH; a <= SHORE_REACH; a++) for (let b = -SHORE_REACH; b <= SHORE_REACH; b++) if (a || b) {
+      const n = get(i + a, j, k + b);
+      if (Math.abs(a) <= 1 && Math.abs(b) <= 1 && n.mat !== WATER && n.occ < 1) return 0; // (beside air or a partly filled cell)
+      if (n.mat === WATER && n.occ > m) m = n.occ;
+    }
+    return m;
+  }
+  /** How much water a world point is in (0..1): water cells' occupancy at their centres, blended between them (0.5:
+   *  the drawn surface, away from shores). */
   waterAt(px, py, pz) {
     const u = px / CELL - 0.5, v = py / CELL - 0.5, w = pz / CELL - 0.5, i = Math.floor(u), j = Math.floor(v), k = Math.floor(w), fu = u - i, fv = v - j, fw = w - k;
     let sum = 0;
     for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
-      const g = this.get(i + a, j + b, k + c), wt = (a ? fu : 1 - fu) * (b ? fv : 1 - fv) * (c ? fw : 1 - fw);
-      if (g.mat === WATER) sum += g.occ * wt;
+      const g = this.get(i + a, j + b, k + c);
+      if (g.mat === WATER) sum += g.occ * (a ? fu : 1 - fu) * (b ? fv : 1 - fv) * (c ? fw : 1 - fw);
     }
     return sum;
   }

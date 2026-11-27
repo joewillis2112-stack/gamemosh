@@ -68,9 +68,9 @@ export default async function (t) {
   check(wood !== null && near(w0.Raft.y, 0.5 - wood, 0.04), `a Wood slab (density 0.35) floats higher: ${w0.Raft.y.toFixed(3)} (${(0.5 - wood).toFixed(2)})`);
   check(near(w0.Sink.y, -11, 0.1), `a Concrete block sinks to the floor: ${w0.Sink.y.toFixed(2)} (-11)`);
   check(w0.Sink.full && w0.Sink.touch && !w0.Float.full && w0.Float.touch && !w0.Dry.full && !w0.Dry.touch, `BuoyancySensor: the sunk block FullySubmerged (${w0.Sink.full}), the floating one TouchingSurface only (${w0.Float.touch}, ${w0.Float.full}), the dry one neither (${w0.Dry.touch})`);
-  await run(`workspace.Float.AssemblyLinearVelocity = Vector3.new(20, 0, 0)`); await t.sim(60);
+  await run(`workspace.Float.AssemblyLinearVelocity = Vector3.new(0, 0, 20)`); await t.sim(60); // (along the pool, 30 studs of open water: not into the bank)
   const w1 = await bl();
-  check(Math.abs(w1.Float.v.x) < 20 * Math.exp(-1.5 * 0.7) * 1.15 && Math.abs(w1.Float.v.x) > 1, `the water drags: a floating block thrown at 20 studs/s goes ${w1.Float.v.x.toFixed(2)} a second later`);
+  check(Math.abs(w1.Float.v.z) < 20 * Math.exp(-1.5 * 0.7) * 1.15 && Math.abs(w1.Float.v.z) > 1, `the water drags: a floating block thrown at 20 studs/s goes ${w1.Float.v.z.toFixed(2)} a second later`);
   // workspace:Raycast meets the Terrain as drawn: the ground (Rock, normal up), the pool's surface (Water), the pool's
   // floor with IgnoreWater; and nothing with the Terrain filtered out.
   await run(`local function r(o, d, p) local h = workspace:Raycast(o, d, p); return h and string.format("%s %.3f %s %.2f", h.Instance.ClassName, h.Position.Y, h.Material.Name, h.Normal.Y) or "none" end

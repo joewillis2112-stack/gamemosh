@@ -7,10 +7,13 @@
 // - Normals come from the field's gradient in each vertex's cube, so they
 //   agree across chunk borders. Colours blend the material colours of the
 //   solid corners, weighted by occupancy.
-// - Water is meshed apart from solid ground (drawn see-through, no collision).
+// - Water is meshed apart from solid ground (drawn see-through, no collision). Ground cells near water on its own
+//   layer count as water too (Voxels.drawnWater, SHORE_REACH): Roblox's Shorelines lets water fill the rest of a cell
+//   at its edge; here the water's surface runs on, flat, under the bank, where the ground hides it, instead of
+//   bevelling down to meet the ground's bevel (which left a V of air 2.5 deep along every shore).
 // Engine-free (Node tests run it).
 import SurfaceNets from '../vendor/sculptgl/SurfaceNets.js';
-import { CELL, CHUNK, TERRAIN_MATERIALS, Voxels } from './voxels.js';
+import { CELL, CHUNK, TERRAIN_MATERIALS, Voxels, SHORE_REACH } from './voxels.js';
 
 const N = CHUNK + 2; // samples per axis: cells -1..CHUNK
 const M = N + 2; // cells read per axis: -2..CHUNK+1
@@ -33,7 +36,20 @@ export function meshChunk(vox, cx, cy, cz) {
   if (!any) return { solid: null, water: null };
   const origin = [ox + 1, oy + 1, oz + 1]; // cell of sample 0
   const solid = net(vox, occ, mat, m => m !== WATER, origin);
-  const water = net(vox, occ, mat, m => m === WATER, origin);
+  // The water's field: its cells, and ground cells near them (Voxels.drawnWater; read from the voxels past the grid's
+  // edge, so every chunk gets the same value for a cell).
+  const wocc = new Float32Array(M * M * M), wmat = new Uint8Array(M * M * M);
+  let anyW = false;
+  let near = false; // (no water in this chunk or its neighbours: none to draw, shores included)
+  for (let a = -1; a <= 1 && !near; a++) for (let b = -1; b <= 1 && !near; b++) for (let e = -1; e <= 1 && !near; e++) { const c = vox.chunk(cx + a, cy + b, cz + e); if (c && c.mat.includes(WATER)) near = true; }
+  const cellAt = (i, j, k) => { if (i >= 0 && i < M && j >= 0 && j < M && k >= 0 && k < M) { const s = i + M * (j + M * k); return { occ: occ[s], mat: mat[s] }; } return vox.get(ox + i, oy + j, oz + k); };
+  if (near) for (let k = 0; k < M; k++) for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+    const s = i + M * (j + M * k);
+    if (mat[s] !== WATER && occ[s] < 1) continue;
+    const w = vox.drawnWater(i, j, k, cellAt);
+    if (w > 0) { wocc[s] = w; wmat[s] = WATER; anyW = true; }
+  }
+  const water = anyW ? net(vox, wocc, wmat, m => m === WATER, origin) : null;
   return { solid, water };
 }
 

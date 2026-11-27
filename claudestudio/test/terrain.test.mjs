@@ -251,6 +251,18 @@ function windingBad({ P, N: Nn, T }) {
   const part = new Voxels(); part.set(0, -1, 0, 0.75, 1); part.set(0, -2, 0, 1, 1);
   check(lv(0, -5, -20) === '0.00' && lv(-19, -3, -39) === '0.00' && lv(21.5, -1, -20) === '0.00' && lv(-40, 0.5, 40) === 'none' && lv(-30, -6, -10) === '-4.00' && lv(-20.5, -6, -2) === '0.00',
     `water level: in the pool ${lv(0, -5, -20)}, at its shore ${lv(-19, -3, -39)}, over the bank's bevel ${lv(21.5, -1, -20)}, dry land ${lv(-40, 0.5, 40)}, the lower pool ${lv(-30, -6, -10)}, between the two ${lv(-20.5, -6, -2)}`);
+  // Shorelines: rays down across a pool's edge meet the water's level or the bank, never the V of air the two meshes'
+  // bevels used to leave between them (2.5 deep); ground cells up to 2 from water on its own layer are drawn full of
+  // it (not further, nor above or below it), while a swimmer's water (waterAt) stays the water cells'.
+  const sh = new Voxels(); sh.fill(shapes.block(cf(0, -8, 0), { x: 128, y: 16, z: 128 }), [-64, -16, -64], [64, 0, 64], 'Rock');
+  sh.fill(shapes.block(cf(0, -6, -20), { x: 40, y: 12, z: 40 }), [-20, -12, -40], [20, 0, 0], 'Water');
+  let deepest = 0;
+  for (let z = -10; z <= 10; z += 0.25) { const h = sh.raycast([3, 20, z], [0, -1, 0], 60); deepest = Math.min(deepest, h ? 20 - h.t : -99); }
+  check(deepest > -0.05, `across a shore, the first thing a ray down meets is never deeper than ${deepest.toFixed(2)} (the water's level 0, the bank 0)`);
+  const dw = (i, j, k) => sh.drawnWater(i, j, k);
+  check(dw(0, -1, 0) === 1 && dw(0, -1, 1) === 1 && dw(0, -1, 2) === 0 && dw(0, -4, -5) === 0 && dw(0, -2, -5) === 1 && sh.waterAt(2, -2, 2) === 0, `drawn water: ground cells 1 and 2 from the water ${dw(0, -1, 0)}, ${dw(0, -1, 1)}, 3 away ${dw(0, -1, 2)}; the floor under it ${dw(0, -4, -5)}; water ${dw(0, -2, -5)}; but in the ground a swimmer's water is ${sh.waterAt(2, -2, 2)}`);
+  sh.set(4, -1, 0, 0.6, 8); // (a partly filled rock cell on the shore: the ground's surface passes through it)
+  check(sh.drawnWater(4, -1, 0) === 0 && sh.drawnWater(4, -1, 1) === 0 && sh.drawnWater(3, -1, 1) === 0 && sh.drawnWater(1, -1, 1) === 1, `drawn water: not in a partly filled ground cell (${sh.drawnWater(4, -1, 0)}) nor one beside it (${sh.drawnWater(4, -1, 1)}, ${sh.drawnWater(3, -1, 1)}); further off, yes (${sh.drawnWater(1, -1, 1)})`);
   const pl = part.waterLevel(2, -5, 2), wantPl = -2 + 4 * (0.75 - 0.5) / 0.75;
   check(pl !== null && Math.abs(pl - wantPl) < 0.01, `water level of a cell three quarters full: ${pl && pl.toFixed(3)}, where its field crosses 0.5 (${wantPl.toFixed(3)})`);
   check(v.inside(5, -4, 5) && !v.inside(5, 4, 5) && b.inside(0, 0, 0) && b.inside(9, 0, 0) && !b.inside(11, 0, 0) && !b.inside(0, 12, 0), 'inside: under the ground and in the ball yes, above it and beside the ball no');
