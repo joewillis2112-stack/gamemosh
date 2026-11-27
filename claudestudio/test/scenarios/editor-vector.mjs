@@ -269,8 +269,10 @@ export default async function (t) {
   check(!s6.open && /^data:image\/svg\+xml;base64,/.test(s6.tex) && s6.steps === steps0 + 1, 'Apply writes an SVG into Decal.Texture as one undo step and closes');
   await t.page.waitForTimeout(500);
   const colourAt = async p => { await E(() => window.editor.frames(2)); const [x, y] = await E(p => { const ed = window.editor; const c = document.getElementById('c'), r = c.getBoundingClientRect(), cam = ed.camera.cam, V = cam.position.constructor, s = ed.camera.scale(); const q = V.Project(new V(...p), ed.scene.getTransformMatrix().constructor.Identity(), ed.scene.getTransformMatrix(), cam.viewport.toGlobal(c.width, c.height)); return [r.left + q.x / s, r.top + q.y / s]; }, p); const png = PNG.sync.read(await t.page.screenshot({ clip: { x: Math.round(x) - 1, y: Math.round(y) - 1, width: 3, height: 3 } })); const i = 4 * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
-  // Drawing (180, 140) on an 8-stud sign: x = (180/512 - 0.5) * 8, y = 6 + (0.5 - 140/512) * 8.
-  const onSign = await colourAt([(180 / 512 - 0.5) * 8, 6 + (0.5 - 140 / 512) * 8, -20.51]);
+  // Drawing (180, 140) on an 8-stud sign's Front (-Z) face, seen from in front of it (where the image's left is
+  // the world's +X): x = (0.5 - 180/512) * 8, y = 6 + (0.5 - 140/512) * 8. (Until 2026-11-26 decals drew mirrored and
+  // this read the mirrored place.)
+  const onSign = await colourAt([(0.5 - 180 / 512) * 8, 6 + (0.5 - 140 / 512) * 8, -20.51]);
   check(onSign[0] > 120 && onSign[0] > onSign[1] * 2 && onSign[0] > onSign[2] * 2, `the sign shows the rectangle in red in the 3D view (${onSign})`);
   await btn('#paintbar [data-vector]');
   await t.page.waitForFunction(() => window.editor.vectorEditor.active);
