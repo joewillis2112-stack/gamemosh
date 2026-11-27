@@ -117,6 +117,7 @@ export const ENUMS = {
   SortOrder: { Name: 0, Custom: 1, LayoutOrder: 2 }, ZIndexBehavior: { Global: 0, Sibling: 1 }, ApplyStrokeMode: { Contextual: 0, Border: 1 },
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
+  Style: { AlternatingSupports: 0, BridgeStyleSupports: 1, NoSupports: 2 },
   SurfaceGuiSizingMode: { FixedSize: 0, PixelsPerStud: 1 }, // (API dump)
   // Constraints' (API dump).
   ActuatorType: { None: 0, Motor: 1, Servo: 2 }, ActuatorRelativeTo: { Attachment0: 0, Attachment1: 1, World: 2 }, ForceLimitMode: { Magnitude: 0, PerAxis: 1 },
@@ -521,6 +522,14 @@ defineClass('Part', 'BasePart', { props: { Shape: ['Enum.PartType', 'Block'] } }
 defineClass('SpawnLocation', 'Part');
 // A wedge: its sloped face is the front (-Z), rising to the back (+Z) top edge.
 defineClass('WedgePart', 'BasePart');
+// TrussPart (classes/TrussPart.yaml): a lattice characters climb (runtime/character.js), colliding as its box. Its size
+// is 2 x 2 x n, n a multiple of 2 up to 512 (the docs; OURS: any one axis is the long one, each rounded to its
+// nearest multiple of 2, the other two 2). Defaults from rbx-dom (Size 2, 2, 2).
+defineClass('TrussPart', 'BasePart', { props: { Size: ['Vector3', [2, 2, 2]], Style: ['Enum.Style', 'AlternatingSupports'] } });
+export function trussSize(v) {
+  const r = x => Math.min(512, Math.max(2, Math.round(x / 2) * 2)), a = [r(v.x), r(v.y), r(v.z)], long = a.indexOf(Math.max(...a));
+  return new V3(...a.map((x, i) => (i === long ? x : 2)));
+}
 // Meshes from glTF 2.0 files, drawn by runtime/world.js through runtime/gltf.js
 // (checked against Khronos's goldens: mashup-research/GLTF_FIDELITY_2026-10-09.md).
 // Roblox's names and semantics: Size stretches the mesh's own bounding box
@@ -859,7 +868,7 @@ defineClass('Humanoid', 'Instance', {
     ApplyDescription(self, desc) { return applyDescription(self, desc); }, // (deprecated in Roblox for ApplyDescriptionAsync)
     GetAppliedDescription(self) { const d = self.children.find(c => c.ClassName === 'HumanoidDescription'); return [(d && self.dm.clone(d)) || new Instance(self.dm, 'HumanoidDescription')]; },
   },
-  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Touched', 'ApplyDescriptionFinished', 'MoveToFinished'],
+  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Climbing', 'Touched', 'ApplyDescriptionFinished', 'MoveToFinished'],
 });
 /** A humanoid's MoveTo ends: reached, or not (the 8 s timer, a new goal or direction, a teleport). */
 export function endWalk(hum, reached) {
@@ -1218,6 +1227,7 @@ export class DataModel {
     }
     if ((key === 'CFrame' || key === 'Position' || key === 'Orientation') && inst.props.CFrame) return this.place(inst, key, value);
     if (inst.ClassName === 'Humanoid' && key === 'Health') value = Math.min(Math.max(value, 0), inst.props.MaxHealth); // as Roblox clamps it
+    if (inst.ClassName === 'TrussPart' && key === 'Size' && value instanceof V3) value = trussSize(value); // 2 x 2 x n
     if (inst.ClassName === 'Lighting' && (key === 'ClockTime' || key === 'TimeOfDay')) {
       // Two views of one time (Roblox): ClockTime wraps into [0, 24); TimeOfDay is its "HH:MM:SS".
       const h = key === 'ClockTime' ? (((+value % 24) + 24) % 24) : (() => { const m = /^(-?\d+):(\d+):(\d+)$/.exec(String(value)); return m ? (((+m[1] + m[2] / 60 + m[3] / 3600) % 24) + 24) % 24 : inst.props.ClockTime; })();

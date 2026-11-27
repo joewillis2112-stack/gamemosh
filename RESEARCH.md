@@ -756,3 +756,10 @@ A working log for this repo. It records common themes, what has been learned, mi
 - [Studio] **2026-11-24 (Studio: suite 22):** failed only on four phone editor goldens (the toolbar's rig selector in their scrolled view) and on completions (IKControl's docs, regenerated since). Both fixed; suite 23 running on d54c7b1.
 - [Studio] **2026-11-25 (Studio: NPC events, PathfindingService):** suite 23 green, main at a238efd. Then NPCs fire Humanoid events and touches (shared with the player), characters touch characters, and Roblox's PathfindingService runs on our own solver (PathWaypoint in Luau, Blocked/Unblocked, an NPC following its waypoints round a wall and up a ledge). Ready values now yield one frame (dm.defer).
 - [Studio] **2026-11-26 (Studio: BillboardGui):** suite 24 green, main at b14b702. BillboardGui with every property (placed from the frame's camera, Scale in studs, cached layout CSS-scaled, occlusion by ray). The GUI no longer re-lays out every frame when characters move (120 of 120 frames down to 0).
+- [Studio] **2026-11-27 (Studio: SurfaceGui, mirrored decals, constraints, trusses):**
+  - Suite 25 failed only on the script checker (a lab reading `workspace.Pad`); fixed and pushed (0a8d3c2).
+  - SurfaceGui, with every property: the DOM is drawn into an image on the face, text as glyph outlines; AlwaysOnTop as CSS 3D; clicks in PlayerGui, not through walls.
+  - Its orientation check found Decals mirrored left to right on every face; fixed. The baseplate grid looks the same; editor-vector's check had read the mirrored place.
+  - Suite 26 green apart from that check. Main went to b484ec1 (SurfaceGui, decals, the test fix).
+  - Constraints: the mechanical ones as Havok joints, the movers as impulses. Exact checks against physics turned up Havok's integration of gravity, its effective mass, its default damping and its speed cap; all fixed.
+  - TrussPart and climbing.

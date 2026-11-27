@@ -314,7 +314,8 @@ export class World {
     const P = inst.props;
     const shape = inst.ClassName === 'WedgePart' ? 'Wedge' : (P.Shape || 'Block');
     let mesh;
-    if (shape === 'Wedge') mesh = this.wedgeMesh(inst.Name);
+    if (inst.ClassName === 'TrussPart') mesh = this.trussMesh(inst);
+    else if (shape === 'Wedge') mesh = this.wedgeMesh(inst.Name);
     else if (shape === 'Ball') mesh = MeshBuilder.CreateSphere(inst.Name, { diameter: 1, segments: 24 }, this.scene);
     else if (shape === 'Cylinder') { mesh = MeshBuilder.CreateCylinder(inst.Name, { diameter: 1, height: 1, tessellation: 32 }, this.scene); mesh.rotation.z = Math.PI / 2; mesh.bakeCurrentTransformIntoVertices(); }
     else mesh = MeshBuilder.CreateBox(inst.Name, { size: 1 }, this.scene);
@@ -469,6 +470,55 @@ export class World {
   // A unit wedge (Roblox's): bottom, back (+Z) and the two side triangles are
   // flat; the slope runs from the bottom-front edge up to the top-back edge,
   // facing front (-Z) and up. Flat-shaded: each face has its own vertices.
+  // A TrussPart's lattice (OURS: drawn to read as Roblox's, not copied from it): four corner posts along its long
+  // axis, a square ring of bars every 2 studs, and per Style diagonal supports in each 2-stud bay: alternating
+  // directions face to face and bay to bay (AlternatingSupports), crossed on two opposite faces (BridgeStyleSupports),
+  // or none. In the unit box (Size scales it, as every part's mesh), its normals divided by Size so the shader's
+  // scaling turns them back (the bars run diagonally: a scaled normal would lean).
+  trussMesh(inst) {
+    const S = inst.props.Size, s = [S.x, S.y, S.z], L = s.indexOf(Math.max(...s)), n = s[L], [a, b] = [0, 1, 2].filter(i => i !== L);
+    const P = (u, v, w) => { const p = [0, 0, 0]; p[a] = u; p[L] = v; p[b] = w; return p; };
+    const norm = v => { const l = Math.hypot(...v); return v.map(x => x / l); }, cross = (x, y) => [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    const pos = [], nrm = [], idx = [];
+    // A box: centre, three unit axes, half extents (studs).
+    const box = (c, U, V, W, h) => {
+      for (const [ax, k] of [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1], [2, -1]]) {
+        const A = [U, V, W], N = A[ax].map(x => x * k), o = [0, 1, 2].filter(i => i !== ax), e1 = A[o[0]], e2 = A[o[1]], h1 = h[o[0]], h2 = h[o[1]];
+        const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => [0, 1, 2].map(d => c[d] + N[d] * h[ax] + e1[d] * h1 * i + e2[d] * h2 * j));
+        const base = pos.length / 3, nu = norm([N[0] / s[0], N[1] / s[1], N[2] / s[2]]);
+        for (const p of pts) { pos.push(p[0] / s[0], p[1] / s[1], p[2] / s[2]); nrm.push(...nu); }
+        // Wound as the other parts' meshes are: (b-a)x(c-a) into the solid.
+        const t = cross([0, 1, 2].map(d => pts[1][d] - pts[0][d]), [0, 1, 2].map(d => pts[2][d] - pts[0][d]));
+        if (t[0] * N[0] + t[1] * N[1] + t[2] * N[2] > 0) idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+        else idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+    };
+    const post = 0.14, bar = 0.08, brace = 0.07, c = 1 - post, corners = [[-c, -c], [c, -c], [c, c], [-c, c]];
+    const along = P(0, 1, 0), across = [P(1, 0, 0), P(0, 0, 1)];
+    for (const [u, w] of corners) box(P(u, 0, w), across[0], along, across[1], [post, n / 2, post]);
+    for (let k = 0; k <= n / 2; k++) {
+      const y = Math.min(n / 2 - bar, Math.max(-n / 2 + bar, -n / 2 + 2 * k));
+      for (let f = 0; f < 4; f++) {
+        const [u0, w0] = corners[f], [u1, w1] = corners[(f + 1) % 4], d = norm(P(u1 - u0, 0, w1 - w0)), out = norm(P((u0 + u1) / 2, 0, (w0 + w1) / 2));
+        box(P((u0 + u1) / 2, y, (w0 + w1) / 2), d, out, cross(d, out), [c, bar, bar]);
+      }
+    }
+    const style = inst.props.Style && inst.props.Style.name || inst.props.Style;
+    if (style !== 'NoSupports') for (let k = 0; k < n / 2; k++) {
+      const y0 = -n / 2 + 2 * k, y1 = y0 + 2;
+      for (let f = 0; f < 4; f++) {
+        const [u0, w0] = corners[f], [u1, w1] = corners[(f + 1) % 4], out = norm(P((u0 + u1) / 2, 0, (w0 + w1) / 2));
+        const brace2 = (p, q) => { const d = [0, 1, 2].map(i => q[i] - p[i]), l = Math.hypot(...d), u = d.map(x => x / l); box([0, 1, 2].map(i => (p[i] + q[i]) / 2), u, out, cross(u, out), [l / 2 - post, brace, brace]); };
+        if (style === 'BridgeStyleSupports') { if (f % 2 === 0) { brace2(P(u0, y0, w0), P(u1, y1, w1)); brace2(P(u1, y0, w1), P(u0, y1, w0)); } }
+        else if ((k + f) % 2 === 0) brace2(P(u0, y0, w0), P(u1, y1, w1)); else brace2(P(u1, y0, w1), P(u0, y1, w0));
+      }
+    }
+    const mesh = new Mesh(inst.Name, this.scene), vd = new VertexData();
+    vd.positions = pos; vd.normals = nrm; vd.indices = idx;
+    vd.applyToMesh(mesh);
+    return mesh;
+  }
+
   wedgeMesh(name) {
     const h = 0.5;
     const A = [-h, -h, -h], B = [h, -h, -h], C = [h, -h, h], D = [-h, -h, h]; // bottom: front-left, front-right, back-right, back-left
@@ -598,9 +648,9 @@ export class World {
       case 'CollisionFidelity': return this.body(inst, e);
       case 'Size':
         if (e.meshPart) { this.transform(inst, e); return this.body(inst, e); }
-        if (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge' || inst.props.Shape === 'Cylinder') return this.build(inst); // hull from the mesh
+        if (inst.ClassName === 'WedgePart' || inst.props.Shape === 'Wedge' || inst.props.Shape === 'Cylinder' || inst.ClassName === 'TrussPart') return this.build(inst); // hull from the mesh (a truss: its bars, per 2 studs)
         this.transform(inst, e); this.decals(inst, e); if (TEXTURED[inst.props.Material]) this.studUVs(e.mesh, inst.props.Size, TEXTURED[inst.props.Material].tile); return this.body(inst, e);
-      case 'Shape': return this.build(inst);
+      case 'Shape': case 'Style': return this.build(inst);
       case 'CanCollide': case 'Anchored': e.moving = false; return this.body(inst, e);
       // On an unanchored part, setting a velocity sets it for this frame and physics takes over (Roblox).
       // On an anchored part it's only read: by whatever stands on it.

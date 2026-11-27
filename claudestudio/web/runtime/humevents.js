@@ -1,6 +1,6 @@
 // A driven character's Humanoid events and touches, written once for the player's character
 // (runtime/players.js) and NPCs (runtime/npcs.js):
-// - after each step: MoveDirection, FloorMaterial; Jumping(true) on takeoff, FreeFalling(true/false)
+// - after each step: MoveDirection, FloorMaterial; Jumping(true) on takeoff, Climbing(speed), FreeFalling(true/false)
 //   entering and leaving a fall, Running(speed over the floor) whenever it changes (including to 0);
 // - Touched / TouchEnded: the body as a capsule from the soles to the top of the head, radius the collision
 //   capsule's plus a 0.15-stud skin, tested exactly against each part's shape (box, ball, cylinder, wedge);
@@ -29,6 +29,10 @@ export class HumanoidEvents {
     }
     const speed = c.grounded ? Math.hypot(c.velocity.x - c.floorVel.x, c.velocity.z - c.floorVel.z) : 0; // over the floor (ours: Roblox doesn't say)
     if (c.grounded && Math.abs(speed - (this.lastSpeed ?? -1)) > 0.1) { this.lastSpeed = speed; this.dm.fire(hum, 'Running', [speed]); }
+    // Climbing(speed) whenever the climbing speed changes (Roblox: "will not always fire with a speed of 0" when it
+    // stops; ours does once).
+    if (c.climbing) { const cs = Math.abs(c.vy); if (Math.abs(cs - (this.lastClimb ?? -1)) > 0.1) { this.lastClimb = cs; this.dm.fire(hum, 'Climbing', [cs]); } }
+    else if (this.lastClimb !== undefined) { if (this.lastClimb > 0) this.dm.fire(hum, 'Climbing', [0]); this.lastClimb = undefined; }
   }
 
   // The body's touching capsule: [ax, ay, az, by, R] (vertical, from the soles up).

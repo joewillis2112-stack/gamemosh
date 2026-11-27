@@ -469,6 +469,28 @@ export class Character {
   // The floor under the body: physics rays (so CanCollide=false parts don't
   // count) from the capsule centre and four points around it, down past the
   // feet. Returns the highest walkable hit at most StepUp above the feet.
+  // A TrussPart within reach ahead (toward the input; while climbing, toward the truss held): physics rays at the
+  // feet, the waist and the chest. { dir (unit, toward it, flat), gap (from the capsule's surface), part } or null.
+  climbProbe() {
+    const H = this.p, c = this.ctrl.getPosition(), foot = this.footY, eng = this.scene.getPhysicsEngine();
+    let d = this.climbing && this.climbDir ? this.climbDir : this.moveDir.lengthSquared() > 0.01 ? this.moveDir : new Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const l = Math.hypot(d.x, d.z); if (l < 1e-6) return null;
+    d = new Vector3(d.x / l, 0, d.z / l);
+    const reach = H.Radius + 0.6;
+    for (const h of [0.2, H.Height * 0.5, H.Height * 0.85]) {
+      const from = new Vector3(c.x, foot + h, c.z);
+      eng.raycastToRef(from, from.add(d.scale(reach)), this.ray);
+      if (!this.ray.hasHit) continue;
+      const node = this.ray.body && this.ray.body.transformNode, part = node && node.metadata && node.metadata.instance;
+      if (!part || part.ClassName !== 'TrussPart') continue;
+      const n = this.ray.hitNormalWorld, nl = Math.hypot(n.x, n.z);
+      const dir = nl > 0.5 ? new Vector3(-n.x / nl, 0, -n.z / nl) : d;
+      const dist = Vector3.Distance(from, this.ray.hitPointWorld);
+      return { dir, gap: dist - H.Radius, part };
+    }
+    return null;
+  }
+
   probeFloor() {
     const H = this.p, c = this.ctrl.getPosition(), foot = this.footY;
     const eng = this.scene.getPhysicsEngine();
@@ -586,10 +608,41 @@ export class Character {
 
     const want = this.moveDir.scale(H.WalkSpeed).addInPlace(new Vector3(base.x, 0, base.z));
     const k = 1 - Math.exp(-(grounded ? H.Accel : H.AirAccel) * dt);
-    const horiz = new Vector3(v.x, 0, v.z);
+    let horiz = new Vector3(v.x, 0, v.z);
     horiz.addInPlace(want.subtract(horiz).scale(k));
     let outY;
-    if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x - fv.x, 0, v.z - fv.z), gravity))) {
+    // Climbing (Roblox: TrussParts, at 70% of WalkSpeed; Humanoid.Climbing's page). OURS where Roblox doesn't say:
+    // walking into a truss takes hold of it; on it, input toward it climbs, away from it climbs down (and walks off
+    // it at the bottom), none holds still, sideways input is ignored; a fresh jump pushes off it (JumpPower up,
+    // WalkSpeed away) and it can't be taken again for 0.3 s; past its top the climb's speed carries the feet over.
+    const climb = this.dead ? null : this.climbProbe();
+    const fresh = this.jumpHeld && !this.prevJump;
+    this.climbOff = Math.max(0, (this.climbOff || 0) - dt);
+    let climbing = false, toward = 0;
+    if (climb) {
+      toward = this.moveDir.x * climb.dir.x + this.moveDir.z * climb.dir.z;
+      if (this.climbing && fresh) {
+        this.climbing = false; this.climbOff = 0.3; this.justJumped = 0.1; this.jumpAnim = 0.31;
+        horiz = new Vector3(-climb.dir.x * H.WalkSpeed, 0, -climb.dir.z * H.WalkSpeed);
+        this.vy = H.JumpPower; this.on.jump && this.on.jump();
+      } else climbing = this.climbing ? !(grounded && toward < -0.2) : toward > 0.2 && this.climbOff <= 0;
+    }
+    if (this.climbing && !climbing && climb === null && this.vy > 0) this.climbOver = 0.25; // over the top: keep walking onto it
+    this.climbing = climbing;
+    if (climbing) {
+      // Up or down at 70% of WalkSpeed, held against the truss (its face 0.05 studs off the capsule).
+      const sp = 0.7 * H.WalkSpeed, vy = sp * Math.max(-1, Math.min(1, toward / 0.7));
+      const pull = Math.max(-5, Math.min(5, (climb.gap - 0.05) * 20));
+      horiz = new Vector3(climb.dir.x * pull, 0, climb.dir.z * pull);
+      outY = vy; this.vy = vy; grounded = false;
+      this.climbDir = climb.dir;
+      this.yaw = Math.atan2(climb.dir.x, climb.dir.z);
+    } else if (this.climbOver > 0 && this.climbDir) {
+      this.climbOver -= dt; // stepping over the top
+      horiz = new Vector3(this.climbDir.x * H.WalkSpeed * 0.5, 0, this.climbDir.z * H.WalkSpeed * 0.5);
+    }
+    if (climbing) { /* (set above) */ }
+    else if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x - fv.x, 0, v.z - fv.z), gravity))) {
       // Jump: vertical speed is tracked here and the body moves by the step's
       // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
       grounded = false;
@@ -627,10 +680,12 @@ export class Character {
     this.grounded = grounded;
     this.airTime = grounded ? 0 : (this.airTime || 0) + dt;
     if (!grounded) this.blockedTime = 0;
+    if (climbing) this.airTime = 0;
+    this.prevJump = this.jumpHeld;
 
-    // Turn toward movement.
+    // Turn toward movement (not while climbing: facing the truss).
     const sp = Math.hypot(this.velocity.x - fv.x, this.velocity.z - fv.z); // over the floor: carried standing still is idle
-    if (this.moveDir.lengthSquared() > 0.01) {
+    if (this.moveDir.lengthSquared() > 0.01 && !climbing) {
       const target = Math.atan2(this.moveDir.x, this.moveDir.z);
       let d = target - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -644,6 +699,7 @@ export class Character {
     this.jumpAnim = Math.max(0, (this.jumpAnim || 0) - dt);
     let state;
     if (this.dead) state = this.anim.clips.die ? 'die' : 'idle';
+    else if (this.climbing) state = 'climb';
     else if (!this.grounded && this.jumpAnim > 0) state = 'jump';
     else if (!this.grounded && (this.justJumped > 0 || this.airTime > 0.12 || this.state === 'jump' || this.state === 'fall')) state = 'fall';
     else if (sp > (this.state === 'walk' ? 0.3 : 0.75)) state = 'walk'; // Roblox walks above 0.75; the lower exit stops flicker when pushing into a wall
@@ -685,6 +741,12 @@ export class Character {
         rate = adv / dt;
       }
       if (this.anim.current !== clip) this.anim.play(clip, 0.2, rate);
+      else this.anim.layers.find(l => l.clip === clip).speed = rate;
+    } else if (state === 'climb') {
+      // Animate's climb: faded in over 0.1 s, played at speed / 5 (held still: paused). A body without a climb clip
+      // (the blocky one) climbs with its walk at its natural rate for the speed (OURS).
+      const clip = this.anim.clips.climb ? 'climb' : 'walk', rate = Math.abs(this.vy) / (clip === 'climb' ? 5 : this.walkNatural || 5);
+      if (this.anim.current !== clip) this.anim.play(clip, 0.1, rate);
       else this.anim.layers.find(l => l.clip === clip).speed = rate;
     } else if (this.anim.current !== state) {
       this.anim.play(state, state === 'jump' ? 0.1 : 0.2);
