@@ -10,7 +10,7 @@
 // - Water is meshed apart from solid ground (drawn see-through, no collision).
 // Engine-free (Node tests run it).
 import SurfaceNets from '../vendor/sculptgl/SurfaceNets.js';
-import { CELL, CHUNK, TERRAIN_MATERIALS } from './voxels.js';
+import { CELL, CHUNK, TERRAIN_MATERIALS, Voxels } from './voxels.js';
 
 const N = CHUNK + 2; // samples per axis: cells -1..CHUNK
 const M = N + 2; // cells read per axis: -2..CHUNK+1
@@ -147,3 +147,6 @@ function tri(idx, P, Nn, a, b, c) {
   const out = (Nn[a * 3] + Nn[b * 3] + Nn[c * 3]) * nx + (Nn[a * 3 + 1] + Nn[b * 3 + 1] + Nn[c * 3 + 1]) * ny + (Nn[a * 3 + 2] + Nn[b * 3 + 2] + Nn[c * 3 + 2]) * nz;
   if (out < 0) idx.push(a, b, c); else idx.push(a, c, b);
 }
+
+// Rays against the drawn terrain use these meshes too (Voxels.raycast).
+Voxels.meshChunk = meshChunk;

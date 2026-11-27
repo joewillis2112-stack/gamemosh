@@ -7,6 +7,7 @@ import { castRay } from './raycast.js';
 import { ease, lerpValue } from './tween.js';
 import { compileSequence, stepTracks, stopTrack } from './animation.js';
 import { Voxels, CELL, shapes, boxBounds, TERRAIN_MATERIALS } from './terrain/voxels.js';
+import './terrain/mesher.js'; // (its meshes serve workspace:Raycast against Terrain)
 import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
 import { Assemblies, isJoint } from './assembly.js';
@@ -203,8 +204,8 @@ defineClass('Workspace', 'Instance', {
     // The engine half of WorldRoot:Raycast (the Luau half, with RaycastParams and
     // RaycastResult, is in luau/lib_raycast.h). Returns instance, position, normal,
     // material, distance; or nothing.
-    __studioRaycast(self, origin, direction, filter, filterType, respectCanCollide) {
-      return self.dm.raycast(origin, direction, { filter: filter instanceof LuaTable ? filter.list() : (filter || []), include: filterType === 1, respectCanCollide: !!respectCanCollide });
+    __studioRaycast(self, origin, direction, filter, filterType, respectCanCollide, ignoreWater) {
+      return self.dm.raycast(origin, direction, { filter: filter instanceof LuaTable ? filter.list() : (filter || []), include: filterType === 1, respectCanCollide: !!respectCanCollide, ignoreWater: !!ignoreWater });
     },
   },
 });
@@ -1439,7 +1440,7 @@ export class DataModel {
 
   // WorldRoot:Raycast's engine half (web/raycast.js): the nearest queryable part the ray
   // enters. Rays longer than 15000 studs are cut there (UNSURE: Roblox's documented cap).
-  raycast(origin, direction, { filter = [], include = false, respectCanCollide = false } = {}) {
+  raycast(origin, direction, { filter = [], include = false, respectCanCollide = false, ignoreWater = false } = {}) {
     const len = Math.min(Math.hypot(direction.x, direction.y, direction.z), 15000);
     if (!(len > 0)) return [];
     const dir = [direction.x / Math.hypot(direction.x, direction.y, direction.z), direction.y / Math.hypot(direction.x, direction.y, direction.z), direction.z / Math.hypot(direction.x, direction.y, direction.z)];
@@ -1456,10 +1457,16 @@ export class DataModel {
       }
     };
     walk(this.workspace);
-    const hit = castRay([origin.x, origin.y, origin.z], dir, len, cands, this.hooks.meshRaycast);
+    let hit = castRay([origin.x, origin.y, origin.z], dir, len, cands, this.hooks.meshRaycast);
+    // Terrain (its surface as drawn; water unless IgnoreWater), when the filter lets it through.
+    const T = this.workspace.children.find(c => c.ClassName === 'Terrain');
+    if (T && T.voxels && inList(T) === include) {
+      const th = T.voxels.raycast([origin.x, origin.y, origin.z], dir, hit ? hit.t : len, ignoreWater);
+      if (th) hit = { inst: T, t: th.t, normal: th.normal, material: th.material };
+    }
     if (!hit) return [];
     const p = [0, 1, 2].map(k => [origin.x, origin.y, origin.z][k] + dir[k] * hit.t);
-    return [hit.inst, new V3(...p), new V3(...hit.normal), enumItem('Material', hit.inst.props.Material || 'Plastic'), hit.t];
+    return [hit.inst, new V3(...p), new V3(...hit.normal), enumItem('Material', hit.material || hit.inst.props.Material || 'Plastic'), hit.t];
   }
   notify(inst, key) { for (const w of this.watchers) w(inst, key); }
 }

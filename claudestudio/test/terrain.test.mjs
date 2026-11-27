@@ -182,5 +182,52 @@ function windingBad({ P, N: Nn, T }) {
   check(undone === start && JSON.stringify(vox.save()) === end, `a stroke of ${stroke.length} cell changes undoes and redoes exactly`);
 }
 
+// Rays against the surface as drawn (where the occupancy crosses 0.5): Voxels.raycast.
+{
+  const v = new Voxels(), mi = n => n;
+  v.fill(shapes.block(cf(0, -8, 0), { x: 64, y: 16, z: 64 }), [-32, -16, -32], [32, 0, 32], mi('Grass')); // ground, top at 0
+  v.fill(shapes.block(cf(16, 4, 16), { x: 16, y: 8, z: 16 }), [8, 0, 8], [24, 8, 24], mi('Water')); // a pond on it, its top at 8
+  const down = v.raycast([1, 10, 1], [0, -1, 0], 100);
+  check(down && Math.abs(down.t - 10) < 0.01 && down.normal[1] > 0.999 && down.material === 'Grass', `a ray down onto flat ground: at its top (${down && down.t.toFixed(3)} studs), normal up, Grass`);
+  const pond = v.raycast([17, 20, 17], [0, -1, 0], 100), dry = v.raycast([17, 20, 17], [0, -1, 0], 100, true);
+  check(pond && Math.abs(pond.t - 12) < 0.01 && pond.material === 'Water' && dry && Math.abs(dry.t - 20) < 0.01 && dry.material === 'Grass', `water: hit at its surface (${pond && pond.t.toFixed(2)}, ${pond && pond.material}); with IgnoreWater, the ground under it (${dry && dry.t.toFixed(2)}, ${dry && dry.material})`);
+  const under = v.raycast([17, 4, 17], [0, -1, 0], 100);
+  check(under && Math.abs(under.t - 4) < 0.01 && under.material === 'Grass', `from inside the water: the ground (${under && under.t.toFixed(2)})`);
+  const side = v.raycast([-60, -4, 3], [1, 0, 0], 200);
+  check(side && Math.abs(side.t - 28) < 0.01 && side.normal[0] < -0.999, `sideways into the ground's side: at x -32 (${side && side.t.toFixed(3)}), normal facing the ray`);
+  const miss = v.raycast([0, 50, 0], [1, 0, 0], 500), short = v.raycast([1, 10, 1], [0, -1, 0], 5), inside = v.raycast([0, -4, 0], [0, -1, 0], 20);
+  check(!miss && !short && !inside, 'no hit: above it, short of it, or starting inside it');
+  const b = new Voxels(); b.fill(shapes.ball({ x: 0, y: 0, z: 0 }, 10), [-12, -12, -12], [12, 12, 12], mi('Slate'));
+  const hb = b.raycast([-40, 0.3, 0.4], [1, 0, 0], 100), diag = b.raycast([30, 30, 30], [-1 / Math.sqrt(3), -1 / Math.sqrt(3), -1 / Math.sqrt(3)], 100);
+  check(hb && Math.abs(hb.t - 30) < 0.6 && hb.normal[0] < -0.95 && hb.material === 'Slate', `a ball of radius 10: hit near its surface (${hb && (40 - hb.t).toFixed(2)} from its centre), normal outward`);
+  check(diag && Math.abs(Math.hypot(30, 30, 30) - diag.t - 10) < 0.8 && diag.normal.every(n => n > 0.5), `a ball, along a diagonal: ${diag && (Math.hypot(30, 30, 30) - diag.t).toFixed(2)} from its centre, normal along it`);
+  // Against the drawn surface itself: the mesher's triangles, hit by the same rays from 20 directions.
+  const { P, T } = meshAll(b);
+  const triHit = (o, d) => { let best = Infinity; for (let i = 0; i < T.length; i += 3) {
+    const A = T.slice(i, i + 3).map(k => [P[k * 3], P[k * 3 + 1], P[k * 3 + 2]]), e1 = A[1].map((x, j) => x - A[0][j]), e2 = A[2].map((x, j) => x - A[0][j]);
+    const pv = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]], det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+    if (Math.abs(det) < 1e-9) continue;
+    const tv = o.map((x, j) => x - A[0][j]), u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det; if (u < 0 || u > 1) continue;
+    const qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]], vv = (d[0] * qv[0] + d[1] * qv[1] + d[2] * qv[2]) / det; if (vv < 0 || u + vv > 1) continue;
+    const t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det; if (t > 0 && t < best) best = t; } return best; };
+  let worst = 0;
+  for (let n = 0; n < 20; n++) {
+    const th = n * 2.39996, z = 1 - 2 * (n + 0.5) / 20, r = Math.sqrt(1 - z * z), dir = [-r * Math.cos(th), -z, -r * Math.sin(th)], o = dir.map(x => -x * 40);
+    const a = b.raycast(o, dir, 100), m = triHit(o, dir);
+    worst = Math.max(worst, a && isFinite(m) ? Math.abs(a.t - m) : Infinity);
+  }
+  check(worst < 0.3, `rays at the ball from 20 directions meet its drawn triangles within ${worst.toFixed(3)} studs`);
+  // The nearest hit, not the first found: a long triangle bucketed in the ray's first cell but hit far along it, and a
+  // small one in the next cell hit sooner (synthetic triangles in the rays' buckets).
+  const sy = new Voxels(); sy.fill(shapes.block(cf(32, -40, 32), { x: 64, y: 8, z: 64 }), [0, -44, 0], [64, -36, 64], 'Slate');
+  for (let cx = -1; cx <= 4; cx++) for (let cy = -4; cy <= 1; cy++) for (let cz = -1; cz <= 4; cz++) sy.rayMeshed.add(`${cx},${cy},${cz}`); // (no meshing: only these)
+  const far = { p: [[1, 0, -3], [1, 4, -3], [27, 2, 7]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], mat: 3, water: false }; // spans x 1..27, met at x = 14
+  const nearT = { p: [[5.5, 0, 0], [5.5, 4, 0], [5.5, 2, 4]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], mat: 3, water: false }; // in cell x = 1, met at x = 5.5
+  for (let x = 0; x <= 6; x++) { const k = `${x},0,0`; sy.rayCells.set(k, (sy.rayCells.get(k) || []).concat(far)); }
+  sy.rayCells.set('1,0,0', (sy.rayCells.get('1,0,0') || []).concat(nearT));
+  const nh = sy.raycast([0.5, 2, 2], [1, 0, 0], 100);
+  check(nh && Math.abs(nh.t - 5) < 1e-6, `the nearest of two triangles (5 studs on), not the first one found (13.5): ${nh && nh.t.toFixed(2)}`);
+}
+
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('terrain test PASS');

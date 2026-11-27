@@ -109,7 +109,7 @@ function lib.Raycast(self, origin, direction, params)
   else
     d = ParamsData[RaycastParams.new()]
   end
-  local inst, pos, normal, material, dist = self:__studioRaycast(origin, direction, d.FilterDescendantsInstances, d.FilterType.Value, d.RespectCanCollide)
+  local inst, pos, normal, material, dist = self:__studioRaycast(origin, direction, d.FilterDescendantsInstances, d.FilterType.Value, d.RespectCanCollide, d.IgnoreWater)
   if inst == nil then return nil end
   local r = setmetatable({}, ResultMT)
   ResultData[r] = { inst, pos, normal, material, dist }

@@ -71,6 +71,14 @@ export default async function (t) {
   await run(`workspace.Float.AssemblyLinearVelocity = Vector3.new(20, 0, 0)`); await t.sim(60);
   const w1 = await bl();
   check(Math.abs(w1.Float.v.x) < 20 * Math.exp(-1.5 * 0.7) * 1.15 && Math.abs(w1.Float.v.x) > 1, `the water drags: a floating block thrown at 20 studs/s goes ${w1.Float.v.x.toFixed(2)} a second later`);
+  // workspace:Raycast meets the Terrain as drawn: the ground (Rock, normal up), the pool's surface (Water), the pool's
+  // floor with IgnoreWater; and nothing with the Terrain filtered out.
+  await run(`local function r(o, d, p) local h = workspace:Raycast(o, d, p); return h and string.format("%s %.3f %s %.2f", h.Instance.ClassName, h.Position.Y, h.Material.Name, h.Normal.Y) or "none" end
+    local iw = RaycastParams.new(); iw.IgnoreWater = true
+    local ex = RaycastParams.new(); ex.FilterDescendantsInstances = { workspace.Terrain }
+    print("rays|" .. r(Vector3.new(30, 10, 30), Vector3.new(0, -50, 0)) .. "|" .. r(Vector3.new(4, 10, -24), Vector3.new(0, -50, 0)) .. "|" .. r(Vector3.new(4, 10, -24), Vector3.new(0, -50, 0), iw) .. "|" .. r(Vector3.new(30, 10, 30), Vector3.new(0, -50, 0), ex))`); await t.sim(1);
+  const rays = (logs('rays|').split('rays|')[1] || '').split('|');
+  check(rays[0] === 'Terrain 0.000 Rock 1.00' && rays[1] === 'Terrain 0.000 Water 1.00' && rays[2] === 'Terrain -12.000 Rock 1.00' && rays[3] === 'none', `workspace:Raycast hits the Terrain: the ground (${rays[0]}), the water (${rays[1]}), its floor with IgnoreWater (${rays[2]}); filtered out: ${rays[3]}`);
   if (t.shot) { await place(0, 3, -16); await t.sim(120); await t.frames(3); await t.shot('swimming'); }
   if (fail.length) throw new Error(fail.length + ' failed');
 }
