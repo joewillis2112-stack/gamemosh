@@ -18,7 +18,9 @@ export default async function (t) {
   await place(0, 3, -20); await t.sim(150);
   const s1 = await st();
   check(s1.swimming && s1.floor === 'Water' && s1.waist >= 0.5 && s1.chest < 0.5 && Math.abs(s1.vy) < 0.1, `in the pool: swimming (FloorMaterial ${s1.floor}), resting at the surface (waist ${s1.waist.toFixed(2)} in, chest ${s1.chest.toFixed(2)} out, vy ${s1.vy.toFixed(3)})`);
-  // Swimming along: 87.5% of WalkSpeed 16 = 14.
+  // Swimming along: 87.5% of WalkSpeed 16 = 14 (the camera looking level).
+  const cam = async (pitchDeg) => { await run(`local c = workspace.CurrentCamera; c.CameraType = Enum.CameraType.Scriptable; local p = game.Players.LocalPlayer.Character.HumanoidRootPart.Position; c.CFrame = CFrame.new(p + Vector3.new(0, 4, 10)) * CFrame.Angles(math.rad(-${pitchDeg}), 0, 0)`); };
+  await cam(0);
   await t.sim(20, { move: [0, 1] });
   const a0 = await st(); await t.sim(30, { move: [0, 1] }); const a1 = await st();
   const speed = (a0.z - a1.z) / 0.5;
@@ -26,6 +28,17 @@ export default async function (t) {
   const swims = logs('swims').replace(/^.*swims /, '').split(' ').map(Number);
   check(near(speed, 14, 0.2) && a1.swimming, `swims at 87.5% of WalkSpeed 16: ${speed.toFixed(2)} studs/s`);
   check(swims.some(v => near(v, 14, 0.1)), `Humanoid.Swimming fires that speed (${swims.filter(v => v > 13).slice(0, 3).map(v => v.toFixed(2)).join(', ')})`);
+  // Looking 45 degrees down under water: forward swims down it, 14 x sin 45 = 9.9 down and along.
+  await place(0, -2, -20); await t.sim(5); await cam(45); // (under, chest and all, well above the floor at -12)
+  await t.sim(15, { move: [0, 1] });
+  const d0 = await st(); await t.sim(12, { move: [0, 1] }); const d1 = await st();
+  const down = (d0.foot - d1.foot) / 0.2, along = (d0.z - d1.z) / 0.2;
+  check(d1.swimming && near(down, 9.9, 0.4) && near(along, 9.9, 0.4), `looking 45 degrees down, forward swims down along the look (${down.toFixed(2)} down, ${along.toFixed(2)} along, studs/s)`);
+  // At the surface, the camera 15 degrees down (as it starts): along the surface, not under.
+  await place(0, 3, -20); await t.sim(150); await cam(15);
+  const g0 = await st(); await t.sim(30, { move: [0, 1] }); const g1 = await st();
+  check(g1.swimming && Math.abs(g1.foot - g0.foot) < 0.15, `at the surface, looking 15 degrees down, it swims along the surface (feet ${g0.foot.toFixed(2)} -> ${g1.foot.toFixed(2)})`);
+  await run(`workspace.CurrentCamera.CameraType = Enum.CameraType.Custom`);
   // Deep under, holding jump: up at 14.
   await place(0, -8, -20); await t.sim(10);
   await t.sim(20, { jump: true });

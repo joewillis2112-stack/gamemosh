@@ -618,8 +618,10 @@ export class Character {
     const fresh = this.jumpHeld && !this.prevJump;
     // Swimming (Roblox: in Terrain water, at 87.5% of WalkSpeed; Humanoid.Swimming's page). this.water(x, y, z): how
     // much water a point is in (play.js: the Terrain's). OURS where Roblox doesn't say: swimming while the waist is
-    // under water (shallower is wading: walking); input swims level; holding jump swims up; with no jump the body
-    // floats up at 4 studs/s until its chest is out, and rests there; there a fresh jump leaps out (JumpPower).
+    // under water (shallower is wading: walking); input forward swims where the camera looks (this.look(): its look
+    // vector; Roblox moves the swimmer along the camera's facing), sideways input level; holding jump swims up; with
+    // no input the body floats up at 4 studs/s until its chest is out, and rests there; there a fresh jump leaps out
+    // (JumpPower); swimming never lifts the chest out of the water on its own.
     const pos0 = this.ctrl.getPosition(), wet = h => this.water && !this.dead ? this.water(pos0.x, foot + h, pos0.z) : 0;
     const swimming = wet(H.Height * 0.5) >= 0.5;
     const climb = this.dead || swimming ? null : this.climbProbe();
@@ -649,10 +651,24 @@ export class Character {
     }
     if (swimming) {
       const sp = 0.875 * H.WalkSpeed, chestIn = wet(H.Height * 0.75) >= 0.5, kk = 1 - Math.exp(-H.Accel * dt);
+      // The input in 3D: its forward part along the camera's look (pitch and all), the rest level.
+      let m3 = new Vector3(this.moveDir.x, 0, this.moveDir.z);
+      const L = this.look && this.look();
+      if (L) {
+        const fl = Math.hypot(L[0], L[2]);
+        if (fl > 1e-3) { const f = new Vector3(L[0] / fl, 0, L[2] / fl), amt = this.moveDir.x * f.x + this.moveDir.z * f.z, n = Math.hypot(...L); m3 = m3.subtract(f.scale(amt)).add(new Vector3(L[0] / n, L[1] / n, L[2] / n).scale(amt)); }
+      }
       horiz = new Vector3(v.x, 0, v.z);
-      horiz.addInPlace(this.moveDir.scale(sp).subtract(horiz).scale(kk));
+      horiz.addInPlace(new Vector3(m3.x, 0, m3.z).scale(sp).subtract(horiz).scale(kk));
+      const moving = m3.lengthSquared() > 0.01;
       if (!chestIn && fresh) { this.vy = H.JumpPower; this.justJumped = 0.1; this.jumpAnim = 0.31; this.on.jump && this.on.jump(); } // out
-      else { const up = this.jumpHeld && chestIn, want = up ? sp : this.jumpHeld ? 0 : chestIn ? 4 : 0; this.vy += (want - this.vy) * (up ? kk : 1 - Math.exp(-6 * dt)); } // (swimming up eases in as swimming along)
+      else {
+        // Under water, moving: along the look. At the surface only a look more than 30 degrees down dives (OURS: so a
+        // camera looking a little down, as it starts, swims along the surface).
+        const up = this.jumpHeld && chestIn, along = moving && !this.jumpHeld && (chestIn || m3.y < -0.5);
+        const want = up ? sp : this.jumpHeld ? 0 : along ? m3.y * sp : chestIn ? 4 : 0;
+        this.vy += (want - this.vy) * (up || along ? kk : 1 - Math.exp(-6 * dt)); // (swimming eases in as walking does; floating gently)
+      }
       outY = this.vy; grounded = false;
     }
     this.swimming = swimming;

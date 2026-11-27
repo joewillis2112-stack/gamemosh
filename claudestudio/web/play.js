@@ -134,6 +134,8 @@ async function main() {
   // How much Terrain water a point is in (runtime/character.js swims in it), for the player and NPCs.
   const waterAt = (x, y, z) => { const T = dm.workspace.children.find(c => c.ClassName === 'Terrain'); return T && T.voxels ? T.voxels.waterAt(x, y, z) : 0; };
   player.water = waterAt;
+  // The camera's look vector (the player swims where it looks).
+  player.look = () => { const c = dm.workspace.props.CurrentCamera, f = c && c.props.CFrame; return f ? [-f.m[5], -f.m[8], -f.m[11]] : null; };
   // The character's AnimationTracks (its Humanoid's Animator) pose it over its own clips.
   player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
   const rigs = new Rigs(scene, dm, R.shadows, { quality });
