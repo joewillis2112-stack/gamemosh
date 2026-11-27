@@ -28,8 +28,14 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Physics6DoFConstraint } from '@babylonjs/core/Physics/v2/physicsConstraint.js';
 import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody.js';
 import { PhysicsShapeSphere } from '@babylonjs/core/Physics/v2/physicsShape.js';
+import { PHYSICAL } from './physprops.js';
 import { PhysicsConstraintAxis as AX, PhysicsConstraintMotorType as MOTOR, PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
-import { isA } from '../datamodel.js';
+import { isA, partMass } from '../datamodel.js';
+
+const WATER_DRAG = 1.5; // per second, fully under (OURS)
+// A part's own mass (World's, density x volume), and the volume it displaces (that mass over its density).
+const partMassOf = p => partMass(p);
+const partMassVolume = p => partMass(p) / ((PHYSICAL[p.props.Material] || PHYSICAL.Plastic)[0]);
 
 const DEG = Math.PI / 180;
 const en = v => v && v.name || v;
@@ -51,7 +57,7 @@ export class Constraints {
     this.queue = []; // this substep's impulses: [body, linear impulse at the centre of mass, angular impulse]
     this.response = new WeakMap(); // body -> { lin, ang: [k0, k1, k2] } (measured dv per nominal dv)
     this.gravity = () => -dm.workspace.props.Gravity;
-    dm.watch((inst, key) => { if (key === 'Parent' || isA(inst.ClassName, 'Constraint') || inst.ClassName === 'NoCollisionConstraint') this.list = null; });
+    dm.watch((inst, key) => { if (key === 'Parent' || isA(inst.ClassName, 'Constraint') || inst.ClassName === 'NoCollisionConstraint') this.list = null; if (key === 'Parent' || inst.ClassName === 'BuoyancySensor') this.sensors = null; });
   }
 
   constraints() {
@@ -97,6 +103,7 @@ export class Constraints {
       if ('Active' in c.props && c.props.Active !== ok) { c.props.Active = ok; this.dm.fire(c, 'Changed', ['Active']); }
     }
     for (const c of [...this.live.keys()]) if (!seen.has(c)) this.drop(c);
+    this.water(dt);
     this.apply(0.625);
     for (const [p, a] of this.anchors) if (p.destroyed || !this.world.parts.has(p)) { a.body.dispose(); a.node.dispose(); this.anchors.delete(p); }
   }
@@ -145,6 +152,67 @@ export class Constraints {
     const L = this.live.get(c);
     this.live.delete(c);
     if (L && L.joint) try { L.joint.dispose(); } catch { /* its body went first */ }
+  }
+
+  // ---- Terrain water (OURS: Roblox doesn't publish its fluid model; water's density is 1 RMU per cubic stud,
+  // physics/units.md, the scale our material densities are on). Each part in the water, as its box cut into 3 x 3 x 3
+  // cells: each cell's share under the surface (found between its bottom and top in the voxels' water, whose 0.5 is
+  // the surface) pushes up by 1 x its volume x g at the cell, so a part floats with its density's share under and
+  // rights itself; water drags against the motion (below). BuoyancySensors
+  // report on their parts (anchored ones too).
+  water(dt) {
+    const T = this.dm.workspace.children.find(c => c.ClassName === 'Terrain'), V = T && T.voxels;
+    if (!V) return;
+    if (this.waterKey !== V.version) { this.waterKey = V.version; this.waterBox = V.waterBounds(); }
+    const box = this.waterBox, g = -this.gravity();
+    const sensors = this.sensorList();
+    if (!box && !sensors.length) return;
+    const sensed = new Map(sensors.map(s => [s.parent, s]));
+    for (const [part, e] of this.world.parts) {
+      if (part.isCharacter || part.ClassName === 'Terrain') continue;
+      const sensor = sensed.get(part);
+      if (!sensor && (e.fixed || !box)) continue; // (anchored parts don't float: no body asked for, none made)
+      const A = e.fixed ? null : this.bodyOf(part);
+      if (!sensor && (!A || !A.dynamic)) continue;
+      const P = part.props, cf = P.CFrame, S = P.Size, ax = axes(cf);
+      // Skip what's nowhere near the water (its box's reach against the water's bounds).
+      const reach = [0, 1, 2].map(i => Math.abs(ax.x[i]) * S.x / 2 + Math.abs(ax.y[i]) * S.y / 2 + Math.abs(ax.z[i]) * S.z / 2);
+      const near = box && [0, 1, 2].every(i => ax.p[i] + reach[i] >= box[0][i] && ax.p[i] - reach[i] <= box[1][i]);
+      if (!near) { if (sensor) this.sense(sensor, false, false); continue; }
+      const N = 3, cell = [S.x / N, S.y / N, S.z / N], hz = (Math.abs(ax.x[1]) * cell[0] + Math.abs(ax.y[1]) * cell[1] + Math.abs(ax.z[1]) * cell[2]) / 2;
+      const vol = partMassVolume(part) / (N * N * N);
+      let under = 0, all = true, any = false;
+      const M = A && A.dynamic ? this.mass(A) : null;
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) for (let k = 0; k < N; k++) {
+        const l = [(i + 0.5) * cell[0] - S.x / 2, (j + 0.5) * cell[1] - S.y / 2, (k + 0.5) * cell[2] - S.z / 2];
+        const p = [0, 1, 2].map(d => ax.p[d] + ax.x[d] * l[0] + ax.y[d] * l[1] + ax.z[d] * l[2]);
+        const wb = V.waterAt(p[0], p[1] - hz, p[2]), wt = V.waterAt(p[0], p[1] + hz, p[2]);
+        const f = wt >= 0.5 ? 1 : wb < 0.5 ? 0 : (wb - 0.5) / Math.max(1e-6, wb - wt);
+        if (f < 1) all = false; if (f > 0) any = true;
+        if (f <= 0 || !M) continue;
+        under += f / (N * N * N);
+        this.push(A, [0, vol * f * g, 0], p, dt); // buoyancy at the cell
+      }
+      if (sensor) this.sense(sensor, all, any);
+      if (M && under > 0) {
+        // Drag: along the water at WATER_DRAG x the share under; up and down at half the critical damping of the part's
+        // bob at the waterline (a floating part is a spring there, at sqrt(g / its depth under)), so it settles.
+        const v = arr(A.body.getLinearVelocity()), w = arr(A.body.getAngularVelocity()), m = partMassOf(part);
+        const depth = Math.max(0.25, under * 2 * reach[1]), heave = 2 * 0.5 * Math.sqrt(g / depth);
+        this.push(A, [-WATER_DRAG * under * m * v[0], -heave * m * v[1], -WATER_DRAG * under * m * v[2]], M.com, dt);
+        this.twist(A, scale(M.inertia(w), -2 * WATER_DRAG * m / Math.max(1e-6, M.m)), dt);
+      }
+    }
+  }
+  sense(s, full, touching) {
+    const P = s.props, before = [P.FullySubmerged, P.TouchingSurface];
+    if (P.FullySubmerged !== full) { P.FullySubmerged = full; this.dm.fire(s, 'Changed', ['FullySubmerged']); }
+    if (P.TouchingSurface !== touching) { P.TouchingSurface = touching; this.dm.fire(s, 'Changed', ['TouchingSurface']); }
+    if (before[0] !== P.FullySubmerged || before[1] !== P.TouchingSurface) this.dm.fire(s, 'OnSensorOutputChanged', []);
+  }
+  sensorList() {
+    if (!this.sensors) { const out = [], walk = i => { for (const c of i.children) { if (c.ClassName === 'BuoyancySensor' && c.parent && isA(c.parent.ClassName, 'BasePart')) out.push(c); walk(c); } }; walk(this.dm.workspace); this.sensors = out; }
+    return this.sensors;
   }
 
   // A NoCollisionConstraint: a joint that holds nothing, with collisions between its two parts' bodies off.

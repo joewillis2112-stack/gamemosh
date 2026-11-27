@@ -30,6 +30,7 @@ export class Voxels {
   constructor() {
     this.chunks = new Map(); // "cx,cy,cz" -> { occ: Uint8Array, mat: Uint8Array }
     this.dirty = new Set();  // chunk keys changed since the last take()
+    this.version = 0;        // bumped on every change
     this.colors = Object.fromEntries(Object.entries(MATERIAL_COLORS).map(([k, v]) => [k, v.slice()]));
   }
   chunk(cx, cy, cz, make = false) {
@@ -64,7 +65,7 @@ export class Voxels {
     if (!c) return;
     const i = idx(x, y, z);
     if (c.occ[i] === o && c.mat[i] === m) return;
-    c.occ[i] = o; c.mat[i] = m;
+    c.occ[i] = o; c.mat[i] = m; this.version++;
     // A cell's change shows in its own chunk and in neighbours whose meshes sample it.
     const lx = x - cx * CHUNK, ly = y - cy * CHUNK, lz = z - cz * CHUNK;
     for (let dx = lx === 0 ? -1 : 0; dx <= (lx === CHUNK - 1 ? 1 : 0); dx++)
@@ -94,7 +95,21 @@ export class Voxels {
       if (occ !== cur.occ || mat !== cur.mat) this.set(x, y, z, occ, mat);
     }
   }
-  clear() { for (const k of this.chunks.keys()) this.dirty.add(k); this.chunks.clear(); }
+  clear() { for (const k of this.chunks.keys()) this.dirty.add(k); this.chunks.clear(); this.version++; }
+  /** The world box [[min], [max]] holding every water cell (and a cell's reach beyond), or null when there's none. */
+  waterBounds() {
+    let lo = null, hi = null;
+    for (const [k, c] of this.chunks) {
+      if (!c.mat.includes(WATER)) continue;
+      const [cx, cy, cz] = k.split(',').map(Number);
+      for (let i = 0; i < CHUNK_CELLS; i++) {
+        if (c.mat[i] !== WATER || !c.occ[i]) continue;
+        const x = cx * CHUNK + (i % CHUNK), y = cy * CHUNK + (Math.floor(i / CHUNK) % CHUNK), z = cz * CHUNK + Math.floor(i / (CHUNK * CHUNK));
+        const p = [x, y, z]; lo = lo ? lo.map((v, d) => Math.min(v, p[d])) : p.slice(); hi = hi ? hi.map((v, d) => Math.max(v, p[d])) : p.slice();
+      }
+    }
+    return lo && [lo.map(v => (v - 1) * CELL), hi.map(v => (v + 2) * CELL)];
+  }
   /** Cells with any occupancy. */
   count() { let n = 0; for (const c of this.chunks.values()) for (const o of c.occ) if (o) n++; return n; }
 

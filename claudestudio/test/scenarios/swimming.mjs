@@ -56,6 +56,21 @@ export default async function (t) {
   await t.sim(1, { move: [0, -1], jump: true }); await t.sim(40, { move: [0, -1] }); await t.sim(30);
   const out = await st();
   check(!out.swimming && out.grounded && near(out.foot, 0, 0.1) && out.z > 0, `at the edge a jump gets it out onto the bank, standing (feet ${out.foot.toFixed(2)}, z ${out.z.toFixed(2)})`);
+  // Parts in the water (they fell in at the start, 6 s ago): a 1-stud slab of Plastic (0.7) floats with 70% under (its
+  // centre 0.2 below the surface at 0), of Wood (0.35) with 35% (0.15 above), Concrete sinks to the floor (-12); the
+  // sensors say so; and the water drags: a block thrown along it slows.
+  const bl = () => t.eval(() => { const ws = window.studio.dm.workspace, f = n => ws.children.find(c => c.props.Name === n), out = {};
+    for (const n of ['Float', 'Raft', 'Sink', 'Dry']) { const p = f(n), s = p.children.find(c => c.ClassName === 'BuoyancySensor'); out[n] = { y: p.props.CFrame.y, full: s.props.FullySubmerged, touch: s.props.TouchingSurface, v: p.props.AssemblyLinearVelocity }; }
+    return out; });
+  const w0 = await bl();
+  const wood = (await t.eval(() => window.studio.dm.workspace.children.find(c => c.props.Name === 'Raft').props.Material)) === 'Wood' ? 0.35 : null;
+  check(near(w0.Float.y, -0.2, 0.04), `a Plastic slab floats with 70% of it under: its centre at ${w0.Float.y.toFixed(3)} (-0.2)`);
+  check(wood !== null && near(w0.Raft.y, 0.5 - wood, 0.04), `a Wood slab (density 0.35) floats higher: ${w0.Raft.y.toFixed(3)} (${(0.5 - wood).toFixed(2)})`);
+  check(near(w0.Sink.y, -11, 0.1), `a Concrete block sinks to the floor: ${w0.Sink.y.toFixed(2)} (-11)`);
+  check(w0.Sink.full && w0.Sink.touch && !w0.Float.full && w0.Float.touch && !w0.Dry.full && !w0.Dry.touch, `BuoyancySensor: the sunk block FullySubmerged (${w0.Sink.full}), the floating one TouchingSurface only (${w0.Float.touch}, ${w0.Float.full}), the dry one neither (${w0.Dry.touch})`);
+  await run(`workspace.Float.AssemblyLinearVelocity = Vector3.new(20, 0, 0)`); await t.sim(60);
+  const w1 = await bl();
+  check(Math.abs(w1.Float.v.x) < 20 * Math.exp(-1.5 * 0.7) * 1.15 && Math.abs(w1.Float.v.x) > 1, `the water drags: a floating block thrown at 20 studs/s goes ${w1.Float.v.x.toFixed(2)} a second later`);
   if (t.shot) { await place(0, 3, -16); await t.sim(120); await t.frames(3); await t.shot('swimming'); }
   if (fail.length) throw new Error(fail.length + ' failed');
 }

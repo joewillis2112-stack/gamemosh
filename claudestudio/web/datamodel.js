@@ -118,6 +118,7 @@ export const ENUMS = {
   ScaleType: { Stretch: 0, Slice: 1, Tile: 2, Fit: 3, Crop: 4 }, AspectType: { FitWithinMaxSize: 0, ScaleWithParentSize: 1 }, DominantAxis: { Width: 0, Height: 1 },
   TextTruncate: { None: 0, AtEnd: 1, SplitWord: 2 },
   Style: { AlternatingSupports: 0, BridgeStyleSupports: 1, NoSupports: 2 },
+  SensorUpdateType: { OnRead: 0, Manual: 1 },
   SurfaceGuiSizingMode: { FixedSize: 0, PixelsPerStud: 1 }, // (API dump)
   // Constraints' (API dump).
   ActuatorType: { None: 0, Motor: 1, Servo: 2 }, ActuatorRelativeTo: { Attachment0: 0, Attachment1: 1, World: 2 }, ForceLimitMode: { Magnitude: 0, PerAxis: 1 },
@@ -703,6 +704,10 @@ defineClass('SlidingBallConstraint', 'Constraint', { creatable: false, props: { 
 defineClass('PrismaticConstraint', 'SlidingBallConstraint', {});
 defineClass('CylindricalConstraint', 'SlidingBallConstraint', { props: { ...ANG, AngularActuatorType: ['Enum.ActuatorType', 'None'], AngularLimitsEnabled: ['bool', false], AngularRestitution: ['number', 0], CurrentAngle: ['number', 0], InclinationAngle: ['number', 0], MotorMaxAngularAcceleration: ['number', 500000], MotorMaxTorque: ['number', 0], RotationAxisVisible: ['bool', false] } });
 defineClass('UniversalConstraint', 'Constraint', { props: { LimitsEnabled: ['bool', false], MaxAngle: ['number', 45], Radius: ['number', 0.2], Restitution: ['number', 0] } });
+// BuoyancySensor (classes/BuoyancySensor.yaml): under a part, whether it's all under Terrain water and whether any of
+// it touches water (runtime/constraints.js, every physics step; UpdateType is kept, both update every step: OURS).
+defineClass('SensorBase', 'Instance', { creatable: false, props: { UpdateType: ['Enum.SensorUpdateType', 'OnRead'] }, methods: { Sense() { return []; } }, events: ['OnSensorOutputChanged'] }); // (Sense: its outputs are already this step's)
+defineClass('BuoyancySensor', 'SensorBase', { props: { FullySubmerged: ['bool', false], TouchingSurface: ['bool', false] } });
 // NoCollisionConstraint: no Attachments; Part0 and Part1 don't collide with each other.
 defineClass('NoCollisionConstraint', 'Instance', { props: { Enabled: ['bool', true], Part0: ['Instance', null], Part1: ['Instance', null] } });
 defineClass('VectorForce', 'Constraint', { props: { ApplyAtCenterOfMass: ['bool', false], Force: ['Vector3', [1000, 0, 0]], RelativeTo: ['Enum.ActuatorRelativeTo', 'Attachment0'] } });
@@ -1526,7 +1531,7 @@ export function partMass(p) {
   const volume = P.Shape === 'Ball' ? Math.PI / 6 * Math.min(S.x, S.y, S.z) ** 3 : P.Shape === 'Cylinder' ? Math.PI / 4 * Math.min(S.y, S.z) ** 2 * S.x : wedge ? S.x * S.y * S.z / 2 : S.x * S.y * S.z;
   return density * volume;
 }
-const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'BasePart.AssemblyMass', 'JointInstance.Active', 'WeldConstraint.Active', 'Constraint.Active', 'HingeConstraint.CurrentAngle', 'CylindricalConstraint.CurrentAngle', 'RopeConstraint.CurrentDistance', 'RodConstraint.CurrentDistance', 'SpringConstraint.CurrentLength', 'SlidingBallConstraint.CurrentPosition', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
+const READ_ONLY = new Set(['BasePart.AssemblyRootPart', 'BasePart.AssemblyMass', 'BuoyancySensor.FullySubmerged', 'BuoyancySensor.TouchingSurface', 'JointInstance.Active', 'WeldConstraint.Active', 'Constraint.Active', 'HingeConstraint.CurrentAngle', 'CylindricalConstraint.CurrentAngle', 'RopeConstraint.CurrentDistance', 'RodConstraint.CurrentDistance', 'SpringConstraint.CurrentLength', 'SlidingBallConstraint.CurrentPosition', 'Motor6D.ChildName', 'Attachment.Axis', 'Attachment.SecondaryAxis', 'Attachment.WorldAxis', 'Attachment.WorldSecondaryAxis', // (OURS: Roblox lets scripts set the axes; here they follow CFrame)
 'TriangleMeshPart.MeshSize', 'PartOperation.TriangleCount', 'Path.Status', 'BillboardGui.CurrentDistance', 'GuiBase2d.AbsolutePosition', 'GuiBase2d.AbsoluteSize', 'GuiBase2d.AbsoluteRotation', 'ScrollingFrame.AbsoluteCanvasSize', 'ScrollingFrame.AbsoluteWindowSize', 'UIGridStyleLayout.AbsoluteContentSize', 'UIGridLayout.AbsoluteCellCount', 'UIGridLayout.AbsoluteCellSize', 'TweenBase.PlaybackState', 'Tween.Instance', 'Tween.TweenInfo', 'Humanoid.MoveDirection', 'Humanoid.FloorMaterial', 'Players.LocalPlayer', 'Player.UserId', 'Instance.ClassName', 'Camera.ViewportSize', 'Camera.NearPlaneZ', 'AnimationTrack.Animation', 'AnimationTrack.IsPlaying', 'AnimationTrack.Length', 'AnimationTrack.Speed', 'AnimationTrack.WeightCurrent', 'AnimationTrack.WeightTarget']);
 // The editor's view of a class: every property, the class's own first (as Studio lists them
 // by class), with its type and whether scripts may write it.

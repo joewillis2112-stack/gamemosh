@@ -11,3 +11,16 @@ game:GetService("Players").PlayerAdded:Connect(function(pl)
     ch:WaitForChild("Humanoid").Swimming:Connect(function(speed) table.insert(_G.swims, speed) end)
   end)
 end)
+-- Parts dropped into the pool: slabs (4 x 1 x 4: a cube of these densities floats tilted, as a real one does) of Plastic
+-- (density 0.7) and Wood float, a 2 x 2 x 2 block of Concrete sinks; each carries a BuoyancySensor, as does a block on
+-- dry land.
+local function block(name, mat, pos, size)
+  local p = Instance.new("Part"); p.Name = name; p.Size = size or Vector3.new(2, 2, 2); p.Material = mat; p.CFrame = CFrame.new(pos)
+  Instance.new("BuoyancySensor").Parent = p
+  p.Parent = workspace
+  return p
+end
+block("Float", Enum.Material.Plastic, Vector3.new(12, 6, -30), Vector3.new(4, 1, 4))
+block("Raft", Enum.Material.Wood, Vector3.new(-12, 6, -30), Vector3.new(4, 1, 4))
+block("Sink", Enum.Material.Concrete, Vector3.new(12, 6, -10))
+block("Dry", Enum.Material.Plastic, Vector3.new(30, 2, 20))
