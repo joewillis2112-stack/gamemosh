@@ -10,7 +10,9 @@
 //   terrain (exact shape tests). Characters and the parts of humanoid models aren't obstacles.
 // - Moves: to a neighbour (8 ways, no corner cutting) within a 1-stud step; a jump up to 7 studs (AgentCanJump)
 //   or a drop of up to 20, reaching across the ledge the clearance keeps the agent from; out of water onto land is a
-//   jump too (a swimmer gets out with one).
+//   jump too (a swimmer gets out with one). With AgentCanClimb, up an upright TrussPart: from a floor beside it to
+//   the top of it, at Costs.Climb a stud climbed (Roblox: Label "Climb", cost 1 by default; per stud, and up only,
+//   are OURS: Roblox's docs don't say), its waypoints on the truss's face, every WaypointSpacing up, labelled Climb.
 // - A* (Costs multiply the cost of walking on a floor of that material), then the walking runs straightened by line
 //   of sight over walkable floor (never across a floor costlier than the segment's ends) and spaced by WaypointSpacing. Waypoints stand on the floor; a jump's take-off is
 //   Action Jump, Label "Jump".
@@ -32,7 +34,7 @@ export function collectObstacles(dm, isA) {
       if (c.ClassName === 'Model' && c.children.some(k => k.ClassName === 'Humanoid')) continue; // characters move: not the map
       if (isA(c.ClassName, 'BasePart') && c.ClassName !== 'Terrain' && c.props.CFrame && c.props.CanCollide) {
         const shape = c.ClassName === 'WedgePart' ? 'Wedge' : c.props.Shape === 'Ball' ? 'Ball' : c.props.Shape === 'Cylinder' ? 'Cylinder' : 'Block'; // (meshes as their boxes)
-        out.push({ inst: c, cf: c.props.CFrame, size: c.props.Size, shape, material: c.props.Material || 'Plastic' });
+        out.push({ inst: c, cf: c.props.CFrame, size: c.props.Size, shape, material: c.props.Material || 'Plastic', truss: c.ClassName === 'TrussPart' });
       }
       walk(c);
     }
@@ -64,6 +66,12 @@ export class NavWorld {
           const k = bx + ',' + bz; if (!this.buckets.has(k)) this.buckets.set(k, []); this.buckets.get(k).push(rec);
         }
       return rec;
+    });
+    // Upright trusses (climbable): one axis vertical, at least 4 long, the other two its 2-stud cross-section.
+    this.trusses = this.parts.filter(p => {
+      if (!p.truss) return false;
+      const m = p.cf.m, sz = [p.size.x, p.size.y, p.size.z], c = [0, 1, 2].find(a => Math.abs(m[6 + a]) > 0.99);
+      return c !== undefined && sz[c] >= 4 && sz.every((v, a) => a === c || v <= 2.5);
     });
     this.top = Math.max(0, ...this.parts.map(p => p.hi[1]), terrain ? terrain.bounds()[1][1] : 0) + 1;
     this.bottom = Math.min(0, ...this.parts.map(p => p.lo[1]), terrain ? terrain.bounds()[0][1] : 0) - 1;
@@ -175,6 +183,23 @@ export function computePath(nav, start, finish) {
   // A binary heap of [f, node].
   const heap = [], push = (fv, n) => { heap.push([fv, n]); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  // Climbs (AgentCanClimb): from a floor beside an upright truss, within its height, to the floor over its middle.
+  const climbs = new Map();
+  if (A.AgentCanClimb) for (const T of nav.trusses) {
+    if (T.hi[0] < x0 || T.lo[0] > x1 || T.hi[2] < z0 || T.lo[2] > z1) continue;
+    const cx = (T.lo[0] + T.hi[0]) / 2, cz = (T.lo[2] + T.hi[2]) / 2, half = Math.max(T.hi[0] - T.lo[0], T.hi[2] - T.lo[2]) / 2;
+    const ti = Math.floor((cx - x0) / CELL), tk = Math.floor((cz - z0) / CELL), tl = g.level(ti, tk, T.hi[1], 0.1);
+    if (tl < 0) continue;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const si = Math.floor((cx + dx * (half + A.AgentRadius + CELL) - x0) / CELL), sk = Math.floor((cz + dz * (half + A.AgentRadius + CELL) - z0) / CELL), c = g.col(si, sk);
+      if (!c) continue;
+      const sl = c.findIndex(f => f.ok && f.h >= T.lo[1] - STEP && f.h <= T.hi[1] - STEP);
+      if (sl < 0) continue;
+      const k0 = key(g, si, sk, sl);
+      if (!climbs.has(k0)) climbs.set(k0, []);
+      climbs.get(k0).push({ to: { i: ti, k: tk, l: tl }, face: [cx + dx * half, cz + dz * half] });
+    }
+  }
   const gScore = new Map(), from = new Map(), sk = key(g, s.i, s.k, s.l);
   gScore.set(sk, 0); push(heur(s), s);
   let found = false, expanded = 0;
@@ -183,6 +208,10 @@ export function computePath(nav, start, finish) {
     if (nk === goalKey) { found = true; break; }
     expanded++;
     const h = hOf(n), gn = gScore.get(nk);
+    for (const L of climbs.get(nk) || []) {
+      const m = L.to, mk = key(g, m.i, m.k, m.l), t = gn + (hOf(m) - h) * costOf('Climb') + A.AgentRadius + 1;
+      if (t < (gScore.get(mk) ?? Infinity)) { gScore.set(mk, t); from.set(mk, { prev: nk, node: n, kind: 'climb', face: L.face }); push(t + heur(m), m); }
+    }
     for (const [di, dk] of DIRS) {
       const diag = di && dk;
       // A step to the neighbour.
@@ -222,7 +251,7 @@ export function computePath(nav, start, finish) {
   if (!found) return { status: 'NoPath', waypoints: [] };
   // The nodes from start to goal, each with how it was reached.
   const chain = [{ node: f, kind: 'walk' }];
-  for (let k = goalKey; from.has(k); ) { const e = from.get(k); chain[0].kind = e.kind; chain.unshift({ node: e.node, kind: 'walk' }); k = e.prev; }
+  for (let k = goalKey; from.has(k); ) { const e = from.get(k); chain[0].kind = e.kind; chain[0].face = e.face; chain.unshift({ node: e.node, kind: 'walk' }); k = e.prev; }
   const P = n => [g.cx(n.i), hOf(n), g.cz(n.k)];
   // Straight walking between a and b (line of sight over walkable floor, each sample within a step of the last).
   // (Not across a floor costlier than its ends': the search went round it.)
@@ -244,7 +273,7 @@ export function computePath(nav, start, finish) {
   const corners = [{ node: chain[0].node, kind: 'walk' }];
   let a = 0;
   for (let j = 1; j < chain.length; j++) {
-    if (chain[j].kind !== 'walk') { if (corners[corners.length - 1].node !== chain[j - 1].node) corners.push({ node: chain[j - 1].node, kind: 'walk' }); corners.push({ node: chain[j].node, kind: chain[j].kind }); a = j; continue; }
+    if (chain[j].kind !== 'walk') { if (corners[corners.length - 1].node !== chain[j - 1].node) corners.push({ node: chain[j - 1].node, kind: 'walk' }); corners.push({ node: chain[j].node, kind: chain[j].kind, face: chain[j].face }); a = j; continue; }
     if (j + 1 < chain.length && chain[j + 1].kind === 'walk' && straight(chain[a].node, chain[j + 1].node)) continue;
     corners.push({ node: chain[j].node, kind: 'walk' }); a = j;
   }
@@ -257,6 +286,11 @@ export function computePath(nav, start, finish) {
   for (let j = 1; j < corners.length; j++) {
     const pa = j === 1 ? wps[0].pos : P(corners[j - 1].node), pb = j === corners.length - 1 ? [finish.x, floorAt(finish.x, finish.z, hOf(f)), finish.z] : P(corners[j].node);
     if (corners[j].kind === 'jump') { wps[wps.length - 1].action = 'Jump'; wps[wps.length - 1].label = 'Jump'; add(pb); continue; }
+    if (corners[j].kind === 'climb') { // up the truss's face, then its top
+      const fc = corners[j].face, n = Math.max(1, Math.ceil((pb[1] - pa[1]) / sp - 1e-9));
+      for (let q = 1; q < n; q++) add([fc[0], pa[1] + (pb[1] - pa[1]) * q / n, fc[1]], 'Walk', 'Climb');
+      add(pb, 'Walk', 'Climb'); continue;
+    }
     if (corners[j].kind === 'drop') { add(pb); continue; }
     const L = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]), n = Math.max(1, Math.ceil(L / sp - 1e-9));
     // (the height followed along the way as straight() did, column by column, so a slope or a bump is kept)
@@ -277,7 +311,8 @@ export function computePath(nav, start, finish) {
 export function occlusion(nav, waypoints, from = 1) {
   for (let j = Math.max(1, from); j < waypoints.length; j++) {
     const a = waypoints[j - 1], b = waypoints[j];
-    if (a.action === 'Jump' || Math.abs(b.pos[1] - a.pos[1]) > STEP) { // a jump or a drop: both ends still stand
+    if (b.label === 'Climb' && j + 1 < waypoints.length && waypoints[j + 1].label === 'Climb') continue; // (on the truss's face: its top is checked)
+    if (a.action === 'Jump' || Math.abs(b.pos[1] - a.pos[1]) > STEP) { // a jump, a drop or a climb: both ends still stand
       const fb = nav.floors(b.pos[0], b.pos[2]).find(f => Math.abs(f.h - b.pos[1]) < 0.5);
       if (!fb || !nav.clear(b.pos[0], fb.h, b.pos[2], fb.up)) return j + 1;
       continue;

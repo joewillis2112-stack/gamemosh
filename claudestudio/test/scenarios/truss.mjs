@@ -64,5 +64,26 @@ export default async function (t) {
   await run(`game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 16`);
 
   if (t.shot) { await run(`local c = workspace.CurrentCamera; c.CameraType = Enum.CameraType.Scriptable; c.CFrame = CFrame.lookAt(Vector3.new(4, 9, 6), Vector3.new(2, 7, -10))`); await t.sim(2); await t.frames(3); await t.golden('truss'); }
+  // PathfindingService with AgentCanClimb: from the spawn to the platform at the tower's top, its waypoints followed
+  // with MoveTo (Roblox's usual script): up the truss (waypoints labelled Climb) and onto the platform.
+  await run(`workspace.CurrentCamera.CameraType = Enum.CameraType.Custom`); await place(0, 12);
+  await run(`local PFS = game:GetService("PathfindingService")
+    local hum = game.Players.LocalPlayer.Character.Humanoid; local root = hum.Parent.HumanoidRootPart
+    local p = PFS:CreatePath({ AgentCanClimb = true }); p:ComputeAsync(root.Position, Vector3.new(0, 23, -16))
+    local w = p:GetWaypoints(); local climbs = 0
+    for _, q in ipairs(w) do if q.Label == "Climb" then climbs += 1 end end
+    print("trusspath", p.Status.Name, #w, climbs)
+    task.spawn(function()
+      for i, q in ipairs(w) do
+        if q.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
+        hum:MoveTo(q.Position); if not hum.MoveToFinished:Wait() then print("trussfollow stuck", i, string.format("%.1f %.1f %.1f", root.Position.X, root.Position.Y, root.Position.Z)) return end
+      end
+      print("trussfollow arrived")
+    end)`);
+  for (let i = 0; i < 60 && !logs('trussfollow').length; i++) await t.sim(15);
+  const tp = logs('trusspath').replace(/^.*trusspath /, '').split(' '), tf = logs('trussfollow'), onTop = await st();
+  check(tp[0] === 'Success' && +tp[2] >= 4, `a path up the truss (AgentCanClimb): ${tp[0]}, ${tp[1]} waypoints, ${tp[2]} labelled Climb`);
+  check(/arrived/.test(tf) && onTop.grounded && near(onTop.foot, 20, 0.1) && onTop.z < -11, `following it with MoveTo: up the truss and onto the platform (${tf.replace(/^.*trussfollow /, '')}; feet ${onTop.foot.toFixed(2)}, z ${onTop.z.toFixed(2)})`);
+
   if (fail.length) throw new Error(fail.length + ' failed');
 }

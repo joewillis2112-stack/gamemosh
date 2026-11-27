@@ -103,6 +103,30 @@ const crosses = (w, b, r = 0) => w.slice(1).some((p, i) => { const a = w[i].pos;
   check(status === 'Success' && ms < 4000 && w.length > 10, `300 studs through ${dm.workspace.children.length - 1} pillars: ${status} in ${ms.toFixed(0)} ms (${w.length} waypoints)`);
 }
 
+// TrussParts (AgentCanClimb): a tower 20 high with a platform at its top behind it. Without climbing: no way up. With
+// it: up the truss, its waypoints on its face labelled Climb, every WaypointSpacing, then the top and off onto the
+// platform. Costs.Climb math.huge: no way. A ramp beside it, against a climb cost of 20: the ramp. A tilted truss isn't
+// climbed. Occlusion doesn't count the waypoints on the face as unsupported.
+{
+  const tower = () => { const dm = place(); const t = dm.create('TrussPart'); dm.set(t, 'Size', new V3(2, 20, 2)); dm.set(t, 'Anchored', true); dm.set(t, 'CFrame', new CF([0, 10, -10, 1, 0, 0, 0, 1, 0, 0, 0, 1])); dm.setParent(t, dm.workspace); part(dm, 'Top', [8, 1, 8], [0, 19.5, -15]); return { dm, t }; };
+  const { dm, t } = tower();
+  const no = solve(dm, [0, 3, 0], [0, 23, -16]), up = solve(dm, [0, 3, 0], [0, 23, -16], { AgentCanClimb: true }), w = up.waypoints;
+  const cl = w.filter(p => p.label === 'Climb'), last = cl[cl.length - 1];
+  const onFace = cl.slice(0, -1).every(p => Math.abs(p.pos[2] + 9) < 1e-6 && Math.abs(p.pos[0]) < 1e-6), rising = cl.every((p, i) => !i || p.pos[1] > cl[i - 1].pos[1]);
+  const gaps = cl.map((p, i) => p.pos[1] - (i ? cl[i - 1].pos[1] : w[w.indexOf(cl[0]) - 1].pos[1]));
+  check(no.status === 'NoPath' && up.status === 'Success', `a platform 20 up, a truss to it: without AgentCanClimb ${no.status}; with it ${up.status}`);
+  check(cl.length === 5 && onFace && rising && gaps.every(d => d <= 4 + 1e-6) && Math.abs(last.pos[1] - 20) < 1e-6 && Math.abs(last.pos[2] + 10) < 0.3 && w.every(p => p.action === 'Walk'), `climbing: ${cl.length} waypoints labelled Climb up its face (z -9) every ${gaps.map(d => d.toFixed(1)).join(', ')} studs, the last on its top at ${last && last.pos[1].toFixed(1)}; all Walk`);
+  check(Math.abs(w[w.length - 1].pos[1] - 20) < 1e-6 && w[w.length - 1].pos[2] === -16, `then off onto the platform (${w[w.length - 1].pos.map(v => v.toFixed(1))})`);
+  const huge = solve(dm, [0, 3, 0], [0, 23, -16], { AgentCanClimb: true, Costs: { Climb: Infinity } });
+  check(huge.status === 'NoPath', `Costs.Climb math.huge: ${huge.status}`);
+  check(occlusion(new NavWorld(collectObstacles(dm, isA), { AgentCanClimb: true }), w, 1) === -1, 'occlusion: the climb is clear (the waypoints on the face aren\'t asked to stand)');
+  const r = tower().dm; const ramp = r.create('WedgePart'); r.set(ramp, 'Size', new V3(8, 20, 28)); r.set(ramp, 'Anchored', true); r.set(ramp, 'CFrame', new CF([0, 10, -33, 1, 0, 0, 0, 1, 0, 0, 0, 1])); r.setParent(ramp, r.workspace); // (rising to the platform's far edge)
+  const viaRamp = solve(r, [0, 3, 0], [0, 23, -16], { AgentCanClimb: true, Costs: { Climb: 20 } }), viaTruss = solve(r, [0, 3, 0], [0, 23, -16], { AgentCanClimb: true });
+  check(viaRamp.status === 'Success' && !viaRamp.waypoints.some(p => p.label === 'Climb') && viaTruss.waypoints.some(p => p.label === 'Climb'), `with a long way round by a ramp: at Costs.Climb 20 the ramp (${viaRamp.status}, ${length(viaRamp.waypoints).toFixed(0)} studs), at 1 the truss`);
+  const tilt = place(); const tt = tilt.create('TrussPart'); tilt.set(tt, 'Size', new V3(2, 20, 2)); tilt.set(tt, 'Anchored', true); const c = Math.cos(0.3), sn = Math.sin(0.3); tilt.set(tt, 'CFrame', new CF([0, 10, -10, 1, 0, 0, 0, c, -sn, 0, sn, c])); tilt.setParent(tt, tilt.workspace); part(tilt, 'Top', [8, 1, 8], [0, 19.5, -15]);
+  check(solve(tilt, [0, 3, 0], [0, 23, -16], { AgentCanClimb: true }).status === 'NoPath', 'a tilted truss isn\'t climbed');
+}
+
 // The Terrain. A place of terrain ground (Grass, its top at y 0) and what's filled on it.
 const tplace = (mat = 'Grass') => { const dm = new DataModel(), V = dm.workspace.children.find(c => c.ClassName === 'Terrain').voxels; fill(V, [0, -8, 0], [256, 16, 256], mat); return { dm, V }; };
 function fill(V, c, size, mat, kind = 'block') {

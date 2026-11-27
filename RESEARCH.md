@@ -571,6 +571,10 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Extending water into partly filled ground (a hill's edge) put the water's boundary outside the hill's drawn surface: a dark wedge of water on dry ground beside the hill, caught only by a golden. Water may extend only where full ground surrounds it, so its boundary stays inside the ground.
   - The blended water field (swimming, buoyancy) must not take the drawing's extension: water drawn under a bank's top would float parts lying within 12 studs of the shore.
   - Keep one rule for "drawn water" and let the mesher pass a faster cell reader into it, rather than copying the rule into the mesher's loop. The copy had already drifted once in this session.
+- [Studio] **Climbing paths lessons (2026-11-27):**
+  - Roblox's docs state less than they seem to: the Climb label and its default cost, nothing about which waypoints carry it. Their own sample script was the best evidence (it treats a Climb waypoint as reached going up). Read the sample code, not just the property table.
+  - A test geometry outside the search box tests nothing. A ramp meant as the long way round lay beyond the 32-stud margin, so the "cost 20 picks the ramp" check failed for the wrong reason. Keep alternatives inside the searched area, or check that each one is reachable on its own first.
+  - Adding a scenario step before a golden shot moves the character into the shot. Add new steps after the golden.
 
 ## 5. Ways to work that held up
 
@@ -784,3 +788,4 @@ A working log for this repo. It records common themes, what has been learned, mi
   - TrussPart and climbing.
   - Swimming in Terrain water (along the camera's look, Humanoid.Swimming), parts floating in it (buoyancy, drag, BuoyancySensor), and `workspace:Raycast` hitting the Terrain as drawn (IgnoreWater).
   - Suite 27 (constraints commit) failed on the place-file test (attachment axes, AssemblyMass) and three editor goldens (a new AssemblyMass row that read 0); all fixed. PathfindingService over the Terrain: floors, clearance, water swum, a Jump out; MoveTo swimmers head for their goal.
+  - Shorelines: water runs flat into the bank (no V of air). PathfindingService climbs TrussParts (AgentCanClimb, Label Climb). Suite 28 running on 0cd8a5a.
