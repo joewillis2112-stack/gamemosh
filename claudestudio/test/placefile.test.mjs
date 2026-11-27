@@ -19,7 +19,8 @@ function dump(dm) {
   const out = [];
   const walk = i => {
     if (i.isCharacter) return;
-    const props = Object.entries(i.props).filter(([k]) => !['AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'ViewportSize'].includes(k)).map(([k, v]) => {
+    // (velocities and AssemblyMass are worked out by the engine, the mass when a script reads it: not kept)
+    const props = Object.entries(i.props).filter(([k]) => !['AssemblyLinearVelocity', 'AssemblyAngularVelocity', 'ViewportSize', 'AssemblyMass'].includes(k)).map(([k, v]) => {
       if (v && v.dm) return `${k}=@${path(v)}`;
       if (v && v.m) return `${k}=${v.m.map(x => x.toFixed(4)).join(',')}`;
       if (v instanceof V3) return `${k}=${[v.x, v.y, v.z].map(x => x.toFixed(3)).join(',')}`;

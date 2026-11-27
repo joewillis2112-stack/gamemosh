@@ -59,6 +59,7 @@ export class Properties {
     if (!items.length) { this.el.innerHTML = '<div class="empty">Nothing selected</div>'; return; }
     const first = items[0], cls = items.every(i => i.ClassName === first.ClassName) ? first.ClassName : null;
     const props = cls ? propertiesOf(cls) : propertiesOf('Instance');
+    for (const i of items) for (const p of props) if (p.name in i.props) this.dm.readout(i, p.name); // (AssemblyMass and the like: worked out when read)
     const groups = new Map();
     for (const p of props) { if (HIDDEN.has(p.name) || !(p.name in first.props)) continue; if (!groups.has(p.owner)) groups.set(p.owner, []); groups.get(p.owner).push(p); }
     const html = [`<div class="head">${esc(cls || 'Instances')} (${items.length})</div>`];

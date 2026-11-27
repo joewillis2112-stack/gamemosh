@@ -552,6 +552,20 @@ A working log for this repo. It records common themes, what has been learned, mi
   - `getMassProperties().inertia` is per unit mass. A 2 x 2 x 2 block of mass 5.6 reports 0.667 and answers a unit angular impulse with 0.268 rad/s (1 / 3.73). Multiply by the mass.
   - Havok's defaults aren't Roblox's: bodies start with angular damping 0.1, and the world caps speed at 200 per second. A falling block lost 1% of its sideways speed a second at the cap. Exact checks against physics (Torque at T / I, a hover at m g) found both; looser ones (within 4%) would have hidden them.
   - `scene._advancePhysicsEngineStep` fires onBefore/onAfterPhysicsObservable once per substep, but Babylon's `applyForce` scales by the plugin's fixed step, not the substep. Apply impulses with the substep's own dt.
+- [Studio] **Truss, swimming and water lessons (2026-11-27):**
+  - A rounding test needs a case where the candidate roundings disagree. TrussPart sizes passed with `ceil` in place of `round` until a 6.8 case (round: 6, ceil: 8) went in.
+  - On the phone runs the touch camera's follow mode swings the yaw behind the character, so "forward" drifted between checks. Movement scenarios reset `camera.yaw` and `lastCamPos` after each teleport.
+  - A cube of density 0.7 floats tilted, which is real physics: a cube is stable upright only below about 0.21 or above about 0.79. A float-height test needs a slab, which is stable flat.
+  - Buoyancy alone bobs for ever; Havok adds no damping once ours is off. Heave damping at half the critical rate, sqrt(g / depth under), settles it within a second, the way water's drag does.
+  - The drawn terrain is the SurfaceNets mesh, not the 0.5 level of the occupancy blended between cells. A ray against the blended field stopped 0.67 studs inside a drawn sphere. Raycast the mesher's own triangles; a test comparing against the drawn triangles from 20 directions now reads 0.000.
+  - voxels.js and mesher.js import each other, so one module's top-level code meets the other in its temporal dead zone. Let mesher register itself (`Voxels.meshChunk = meshChunk`) instead of importing it back.
+  - A "keep the nearest hit" mutant survived every ray in the place, because a cell walk meets the nearest triangle first in ordinary terrain. Only a synthetic case, two triangles in one bucket stored far one first, catches it.
+- [Studio] **Pathfinding over terrain lessons (2026-11-27):**
+  - Smooth terrain's mesher draws ground and water apart, so where they meet each bevels down: a V of air 2.5 deep along every shore, too steep to walk. Floors meant for an agent can't come from the water's mesh. Take the water's level from its cells (where the field crosses 0.5 at the middle of the nearest water column) and swim any floor that has water over it.
+  - A general ray walker costs about 5 microseconds a call even with nothing to hit. The pathfinder's 60,000 floor columns and 115,000 inside tests are all vertical, so a dedicated column routine (2D point in triangle, height interpolated, a stamp instead of a Set) cut the floors from 1.9 s to 0.6 s. Profile which calls dominate before tuning the general one.
+  - Waypoint heights taken at grid-column middles sit up to 0.1 off sloped ground, and a guess carried from the last waypoint falls out of tolerance on a 23 degree ramp (1.6 studs of rise per 4-stud spacing). Follow the height along the run as the straightness check did, then take the exact floor at the waypoint.
+  - The place-file round trip broke on two things the constraints work added: an attachment's axes (derived from its CFrame, which the loader writes directly) and AssemblyMass (worked out on read, so a fresh copy's is 0). Derived values need re-deriving on load, and read-time values must stay out of the comparison.
+  - A Properties row for a read-time value showed 0 because the panel read the props table, not the script's getter. Put the "bring it up to date" step in one DataModel method (`readout`) that both use.
 
 ## 5. Ways to work that held up
 
@@ -763,3 +777,5 @@ A working log for this repo. It records common themes, what has been learned, mi
   - Suite 26 green apart from that check. Main went to b484ec1 (SurfaceGui, decals, the test fix).
   - Constraints: the mechanical ones as Havok joints, the movers as impulses. Exact checks against physics turned up Havok's integration of gravity, its effective mass, its default damping and its speed cap; all fixed.
   - TrussPart and climbing.
+  - Swimming in Terrain water (along the camera's look, Humanoid.Swimming), parts floating in it (buoyancy, drag, BuoyancySensor), and `workspace:Raycast` hitting the Terrain as drawn (IgnoreWater).
+  - Suite 27 (constraints commit) failed on the place-file test (attachment axes, AssemblyMass) and three editor goldens (a new AssemblyMass row that read 0); all fixed. PathfindingService over the Terrain: floors, clearance, water swum, a Jump out; MoveTo swimmers head for their goal.

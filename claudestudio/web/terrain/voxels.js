@@ -16,6 +16,56 @@ export const MATERIAL_INDEX = Object.fromEntries(TERRAIN_MATERIALS.map((m, i) =>
 const WATER = 1; // TERRAIN_MATERIALS' index of Water
 const NONE = [];
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+// The squared distance from a point to a triangle (Ericson, Real-Time Collision Detection 5.1.5).
+function ptTriDist2(p, a, b, c) {
+  const ab = sub3(b, a), ac = sub3(c, a), ap = sub3(p, a), d1 = dot3(ab, ap), d2 = dot3(ac, ap);
+  const at = (q) => { const e = sub3(p, q); return dot3(e, e); }, on = (o, e, t) => at([o[0] + e[0] * t, o[1] + e[1] * t, o[2] + e[2] * t]);
+  if (d1 <= 0 && d2 <= 0) return at(a);
+  const bp = sub3(p, b), d3 = dot3(ab, bp), d4 = dot3(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return at(b);
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) return on(a, ab, d1 / (d1 - d3));
+  const cp = sub3(p, c), d5 = dot3(ab, cp), d6 = dot3(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return at(c);
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) return on(a, ac, d2 / (d2 - d6));
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return on(b, sub3(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)));
+  const den = 1 / (va + vb + vc), v = vb * den, w = vc * den;
+  return at([a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w]);
+}
+// The squared distance between segments p1-q1 and p2-q2 (Ericson 5.1.9).
+function segSegDist2(p1, q1, p2, q2) {
+  const d1 = sub3(q1, p1), d2 = sub3(q2, p2), r = sub3(p1, p2), a = dot3(d1, d1), e = dot3(d2, d2), f = dot3(d2, r), EPS = 1e-12;
+  let s, t;
+  if (a <= EPS && e <= EPS) { s = 0; t = 0; }
+  else if (a <= EPS) { s = 0; t = clamp01(f / e); }
+  else {
+    const c = dot3(d1, r);
+    if (e <= EPS) { t = 0; s = clamp01(-c / a); }
+    else {
+      const b = dot3(d1, d2), den = a * e - b * b;
+      s = den > EPS ? clamp01((b * f - c * e) / den) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp01(-c / a); } else if (t > 1) { t = 1; s = clamp01((b - c) / a); }
+    }
+  }
+  const x = [0, 1, 2].map(i => p1[i] + d1[i] * s - p2[i] - d2[i] * t);
+  return dot3(x, x);
+}
+// The squared distance from the segment a-b to the triangle P (0 when it crosses it): the least of its ends' to the
+// triangle and its own to the triangle's edges, when it doesn't cross.
+export function segTriDist2(a, b, P) {
+  const [A, B, C] = P, d = sub3(b, a), e1 = sub3(B, A), e2 = sub3(C, A);
+  const pv = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]], det = dot3(e1, pv);
+  if (Math.abs(det) > 1e-12) {
+    const tv = sub3(a, A), u = dot3(tv, pv) / det, qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]], v = dot3(d, qv) / det, t = dot3(e2, qv) / det;
+    if (u >= 0 && v >= 0 && u + v <= 1 && t >= 0 && t <= 1) return 0;
+  }
+  return Math.min(ptTriDist2(a, A, B, C), ptTriDist2(b, A, B, C), segSegDist2(a, b, A, B), segSegDist2(a, b, B, C), segSegDist2(a, b, C, A));
+}
 // A ray against a triangle (Moller-Trumbore): { t, normal (the vertex normals blended) } or null.
 function rayTri(o, d, tri) {
   const [A, B, C] = tri.p, e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
@@ -38,6 +88,8 @@ export const MATERIAL_COLORS = {
 };
 
 const key = (cx, cy, cz) => cx + ',' + cy + ',' + cz;
+/** A cell's number in the rays' buckets (cells within 65536 of the origin each way). */
+export const cellKey = (i, j, k) => ((i + 65536) * 131072 + (j + 65536)) * 131072 + (k + 65536);
 const fdiv = (a, b) => Math.floor(a / b);
 
 export class Voxels {
@@ -45,7 +97,7 @@ export class Voxels {
     this.chunks = new Map(); // "cx,cy,cz" -> { occ: Uint8Array, mat: Uint8Array }
     this.dirty = new Set();  // chunk keys changed since the last take()
     this.version = 0;        // bumped on every change
-    this.rayMeshed = new Set(); this.rayCells = new Map(); this.rayOwned = new Map(); // rays' triangles (raycast)
+    this.rayMeshed = new Set(); this.rayCells = new Map(); this.rayOwned = new Map(); this.rayReady = new Set(); this.raySpans = new Map(); this.rayStamp = 0; // rays' triangles (raycast): chunks meshed, cellKey -> triangles, a chunk's, cells whose chunks are meshed, columns' heights
     this.colors = Object.fromEntries(Object.entries(MATERIAL_COLORS).map(([k, v]) => [k, v.slice()]));
   }
   chunk(cx, cy, cz, make = false) {
@@ -75,6 +127,13 @@ export class Voxels {
    *  no hit there (as from inside a part). Chunks are meshed on demand and their triangles bucketed by 4-stud cell
    *  (kept until the chunk changes); the ray steps cell by cell through the terrain's box. */
   raycast(o, d, len, ignoreWater = false) {
+    const best = this.rayNearest(o, d, len, ignoreWater);
+    // A ray from inside solid terrain: no hit on its way out (the triangle faces away from it).
+    if (!best || (!best.tri.water && dot3(best.tri.g, d) > 0)) return null;
+    return { t: best.t, normal: best.normal, material: best.tri.water ? 'Water' : TERRAIN_MATERIALS[best.tri.mat] };
+  }
+  /** The nearest triangle a ray meets, facing it or not: { t, normal, tri } or null (tri.g its outward face normal). */
+  rayNearest(o, d, len, ignoreWater = false) {
     const B = this.bounds();
     if (!B) return null;
     let t0 = 0, t1 = len;
@@ -105,21 +164,75 @@ export class Voxels {
       const a = tNext[0] <= tNext[1] && tNext[0] <= tNext[2] ? 0 : tNext[1] <= tNext[2] ? 1 : 2;
       c[a] += step[a]; t = tNext[a]; tNext[a] += tDelta[a];
     }
-    if (!best) return null;
-    // A ray from inside solid terrain: no hit on its way out (the triangle faces away from it).
-    if (!best.tri.water && dot3(best.normal, d) > 0) return null;
-    return { t: best.t, normal: best.normal, material: best.tri.water ? 'Water' : TERRAIN_MATERIALS[best.tri.mat] };
+    return best;
+  }
+  /** Is a point inside solid terrain as drawn? A ray up from it leaves through a face that looks away from it. */
+  inside(x, y, z) {
+    // (no solid in the cells around it: out, the surface being drawn only where there is)
+    const i = Math.floor(x / CELL - 0.5), j = Math.floor(y / CELL - 0.5), k = Math.floor(z / CELL - 0.5);
+    let any = false;
+    for (let a = 0; a < 2 && !any; a++) for (let b = 0; b < 2 && !any; b++) for (let c = 0; c < 2 && !any; c++) { const g = this.get(i + a, j + b, k + c); if (g.occ > 0 && g.mat !== WATER) any = true; }
+    if (!any) return false;
+    const above = this.columnHits(x, z, y + 1e-6);
+    return above.length > 0 && above[above.length - 1].g > 0;
+  }
+  /** Where the vertical line at (x, z) crosses the solid terrain's triangles between heights lo and hi, from the top
+   *  down: [{ h, up (the mesh's normal there, its y), g (the face's outward normal's y: > 0 a top), mat }]. */
+  columnHits(x, z, lo = -Infinity, hi = Infinity) {
+    const i = Math.floor(x / CELL), k = Math.floor(z / CELL), span = this.raySpan(i, k), out = [];
+    if (!span || Math.min(hi, span[1]) < Math.max(lo, span[0])) return out;
+    const stamp = ++this.rayStamp;
+    for (let j = Math.floor(Math.min(hi, span[1]) / CELL); j >= Math.floor(Math.max(lo, span[0]) / CELL); j--) for (const t of this.rayCellTris(i, j, k)) {
+      if (t.water || t.stamp === stamp) continue;
+      t.stamp = stamp;
+      if (x < t.lo[0] || x > t.hi[0] || z < t.lo[2] || z > t.hi[2]) continue;
+      const [A, B, C] = t.p, bx = B[0] - A[0], bz = B[2] - A[2], cx = C[0] - A[0], cz = C[2] - A[2], px = x - A[0], pz = z - A[2], d = bx * cz - cx * bz;
+      if (Math.abs(d) < 1e-12) continue; // (upright: a vertical line runs along it)
+      const u = (px * cz - cx * pz) / d, v = (bx * pz - px * bz) / d;
+      if (u < 0 || v < 0 || u + v > 1) continue;
+      const w = 1 - u - v, h = A[1] * w + B[1] * u + C[1] * v;
+      if (h < lo || h > hi) continue;
+      const n0 = t.n[0][0] * w + t.n[1][0] * u + t.n[2][0] * v, n1 = t.n[0][1] * w + t.n[1][1] * u + t.n[2][1] * v, n2 = t.n[0][2] * w + t.n[1][2] * u + t.n[2][2] * v;
+      out.push({ h, up: n1 / (Math.hypot(n0, n1, n2) || 1), g: t.g[1], mat: t.mat });
+    }
+    return out.sort((a, b) => b.h - a.h);
+  }
+  /** Does a capsule (the segment a-b, radius r) touch solid terrain as drawn, or lie inside it? Exact against the
+   *  mesher's triangles; one touching none is wholly inside or wholly out, which a ray from its end tells. */
+  capsuleHits(a, b, r) {
+    const B = this.bounds();
+    if (!B || [0, 1, 2].some(i => Math.max(a[i], b[i]) + r < B[0][i] || Math.min(a[i], b[i]) - r > B[1][i])) return false;
+    const lo = [0, 1, 2].map(i => Math.floor((Math.min(a[i], b[i]) - r) / CELL)), hi = [0, 1, 2].map(i => Math.floor((Math.max(a[i], b[i]) + r) / CELL));
+    const seen = new Set(), r2 = r * r, lo3 = [0, 1, 2].map(i => Math.min(a[i], b[i]) - r), hi3 = [0, 1, 2].map(i => Math.max(a[i], b[i]) + r);
+    for (let i = lo[0]; i <= hi[0]; i++) for (let j = lo[1]; j <= hi[1]; j++) for (let k = lo[2]; k <= hi[2]; k++)
+      for (const tri of this.rayCellTris(i, j, k)) {
+        if (tri.water || seen.has(tri)) continue;
+        seen.add(tri);
+        if (tri.hi[0] < lo3[0] || tri.lo[0] > hi3[0] || tri.hi[1] < lo3[1] || tri.lo[1] > hi3[1] || tri.hi[2] < lo3[2] || tri.lo[2] > hi3[2]) continue;
+        if (segTriDist2(a, b, tri.p) < r2) return true;
+      }
+    return this.inside(a[0], a[1], a[2]);
   }
   // The triangles near a cell (every chunk whose mesh can reach it meshed first).
   rayCellTris(i, j, k) {
-    const ci = fdiv(i, CHUNK), cj = fdiv(j, CHUNK), ck = fdiv(k, CHUNK);
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let e = -1; e <= 1; e++) {
-      const x = ci + a, y = cj + b, z = ck + e;
-      // (Only chunks whose margin covers the cell.)
-      if (fdiv(i - 1, CHUNK) > x || fdiv(i + 1, CHUNK) < x || fdiv(j - 1, CHUNK) > y || fdiv(j + 1, CHUNK) < y || fdiv(k - 1, CHUNK) > z || fdiv(k + 1, CHUNK) < z) continue;
-      this.rayChunk(x, y, z);
+    const n = cellKey(i, j, k);
+    if (!this.rayReady.has(n)) { // (only the chunks whose margin covers the cell)
+      for (let x = fdiv(i - 1, CHUNK); x <= fdiv(i + 1, CHUNK); x++) for (let y = fdiv(j - 1, CHUNK); y <= fdiv(j + 1, CHUNK); y++) for (let z = fdiv(k - 1, CHUNK); z <= fdiv(k + 1, CHUNK); z++) this.rayChunk(x, y, z);
+      this.rayReady.add(n);
     }
-    return this.rayCells.get(key(i, j, k)) || NONE;
+    return this.rayCells.get(n) || NONE;
+  }
+  /** The heights a column of cells' triangles span (cell column i, k): [lo, hi], or null when it has none. A ray down
+   *  it need only cover them. */
+  raySpan(i, k) {
+    const n = cellKey(i, 0, k);
+    let out = this.raySpans.get(n);
+    if (out !== undefined) return out;
+    out = null;
+    const B = this.bounds();
+    if (B) for (let j = Math.floor(B[0][1] / CELL); j <= Math.floor(B[1][1] / CELL); j++) for (const t of this.rayCellTris(i, j, k)) out = out ? [Math.min(out[0], t.lo[1]), Math.max(out[1], t.hi[1])] : [t.lo[1], t.hi[1]];
+    this.raySpans.set(n, out);
+    return out;
   }
   // A chunk's triangles for rays, bucketed into the cells (with a cell's margin) their boxes cover.
   rayChunk(cx, cy, cz) {
@@ -135,9 +248,15 @@ export class Voxels {
       const P = g.positions, N = g.normals, I = g.indices;
       for (let n = 0; n < I.length; n += 3) {
         const v = [I[n], I[n + 1], I[n + 2]], tri = { p: v.map(q => [P[q * 3], P[q * 3 + 1], P[q * 3 + 2]]), n: v.map(q => [N[q * 3], N[q * 3 + 1], N[q * 3 + 2]]), mat: g.materials[v[0]], water: isWater };
-        const lo = [0, 1, 2].map(a => Math.floor(Math.min(tri.p[0][a], tri.p[1][a], tri.p[2][a]) / CELL)), hi = [0, 1, 2].map(a => Math.floor(Math.max(tri.p[0][a], tri.p[1][a], tri.p[2][a]) / CELL));
+        { // (its face normal, turned to agree with the mesh's normals at its corners: outward)
+          const [A, Bv, C] = tri.p, e1 = sub3(Bv, A), e2 = sub3(C, A), g0 = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+          const ns = [0, 1, 2].map(q => tri.n[0][q] + tri.n[1][q] + tri.n[2][q]), l = (Math.hypot(...g0) || 1) * (dot3(g0, ns) < 0 ? -1 : 1);
+          tri.g = g0.map(q => q / l);
+        }
+        tri.lo = [0, 1, 2].map(a => Math.min(tri.p[0][a], tri.p[1][a], tri.p[2][a])); tri.hi = [0, 1, 2].map(a => Math.max(tri.p[0][a], tri.p[1][a], tri.p[2][a]));
+        const lo = tri.lo.map(v => Math.floor(v / CELL)), hi = tri.hi.map(v => Math.floor(v / CELL));
         for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) {
-          const ck = key(x, y, z);
+          const ck = cellKey(x, y, z);
           let list = this.rayCells.get(ck); if (!list) this.rayCells.set(ck, list = []);
           list.push(tri); cells.push([ck, tri]);
         }
@@ -148,6 +267,7 @@ export class Voxels {
   // A chunk changed: its triangles (and its neighbours', which mesh across the border) are dropped.
   rayForget(kk) {
     if (!this.rayMeshed.delete(kk)) return;
+    this.rayReady.clear(); this.raySpans.clear();
     for (const [ck, tri] of this.rayOwned.get(kk) || []) { const l = this.rayCells.get(ck); if (l) { const i = l.indexOf(tri); if (i >= 0) l.splice(i, 1); if (!l.length) this.rayCells.delete(ck); } }
     this.rayOwned.delete(kk);
   }
@@ -161,6 +281,22 @@ export class Voxels {
       if (g.mat === WATER) sum += g.occ * wt;
     }
     return sum;
+  }
+  /** The surface of the water a point is in or by, as a swimmer floats on it: where the water's field crosses 0.5
+   *  going up from height y, at the middle of the nearest cell columns with water there (so not dipping at a shore,
+   *  where the mesher draws water and ground each bevelled down to meet), the highest of them; or null. */
+  waterLevel(x, y, z) {
+    const i0 = fdiv(x, CELL), j0 = fdiv(y, CELL), k0 = fdiv(z, CELL), wet = (i, j, k) => { const g = this.get(i, j, k); return g.mat === WATER ? g.occ : 0; };
+    let best = null;
+    for (let i = i0 - 1; i <= i0 + 1; i++) for (let k = k0 - 1; k <= k0 + 1; k++) {
+      let j = j0 - 1;
+      while (j <= j0 + 1 && wet(i, j, k) < 0.5) j++;
+      if (j > j0 + 1) continue;
+      for (let n = 0; n < 4096 && wet(i, j + 1, k) >= 0.5; n++) j++;
+      const a = wet(i, j, k), b = wet(i, j + 1, k), L = (j + 0.5) * CELL + CELL * (a - 0.5) / (a - b);
+      if (best === null || L > best) best = L;
+    }
+    return best;
   }
   occ(x, y, z) { const c = this.chunk(fdiv(x, CHUNK), fdiv(y, CHUNK), fdiv(z, CHUNK)); return c ? c.occ[idx(x, y, z)] / 255 : 0; }
   set(x, y, z, occ, mat) {
@@ -200,7 +336,7 @@ export class Voxels {
       if (occ !== cur.occ || mat !== cur.mat) this.set(x, y, z, occ, mat);
     }
   }
-  clear() { for (const k of this.chunks.keys()) this.dirty.add(k); this.chunks.clear(); this.version++; this.rayMeshed.clear(); this.rayCells.clear(); this.rayOwned.clear(); }
+  clear() { for (const k of this.chunks.keys()) this.dirty.add(k); this.chunks.clear(); this.version++; this.rayMeshed.clear(); this.rayCells.clear(); this.rayOwned.clear(); this.rayReady.clear(); this.raySpans.clear(); }
   /** The world box [[min], [max]] holding every water cell (and a cell's reach beyond), or null when there's none. */
   waterBounds() {
     let lo = null, hi = null;

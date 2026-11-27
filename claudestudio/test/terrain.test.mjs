@@ -4,7 +4,7 @@
 // shapes put them; triangles wind as Babylon's front faces; volumes match;
 // materials colour the surface; water meshes apart; save/load is exact.
 // Run: node test/terrain.test.mjs
-import { Voxels, CELL, CHUNK, shapes, boxBounds, MATERIAL_COLORS } from '../web/terrain/voxels.js';
+import { Voxels, CELL, CHUNK, shapes, boxBounds, MATERIAL_COLORS, segTriDist2, cellKey } from '../web/terrain/voxels.js';
 import { meshChunk } from '../web/terrain/mesher.js';
 import { dab, restore } from '../web/terrain/brush.js';
 
@@ -221,12 +221,56 @@ function windingBad({ P, N: Nn, T }) {
   // small one in the next cell hit sooner (synthetic triangles in the rays' buckets).
   const sy = new Voxels(); sy.fill(shapes.block(cf(32, -40, 32), { x: 64, y: 8, z: 64 }), [0, -44, 0], [64, -36, 64], 'Slate');
   for (let cx = -1; cx <= 4; cx++) for (let cy = -4; cy <= 1; cy++) for (let cz = -1; cz <= 4; cz++) sy.rayMeshed.add(`${cx},${cy},${cz}`); // (no meshing: only these)
-  const far = { p: [[1, 0, -3], [1, 4, -3], [27, 2, 7]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], mat: 3, water: false }; // spans x 1..27, met at x = 14
-  const nearT = { p: [[5.5, 0, 0], [5.5, 4, 0], [5.5, 2, 4]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], mat: 3, water: false }; // in cell x = 1, met at x = 5.5
-  for (let x = 0; x <= 6; x++) { const k = `${x},0,0`; sy.rayCells.set(k, (sy.rayCells.get(k) || []).concat(far)); }
-  sy.rayCells.set('1,0,0', (sy.rayCells.get('1,0,0') || []).concat(nearT));
+  const far = { lo: [1, 0, -3], hi: [27, 4, 7], p: [[1, 0, -3], [1, 4, -3], [27, 2, 7]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], g: [-1, 0, 0], mat: 3, water: false }; // spans x 1..27, met at x = 14
+  const nearT = { lo: [5.5, 0, 0], hi: [5.5, 4, 4], p: [[5.5, 0, 0], [5.5, 4, 0], [5.5, 2, 4]], n: [[-1, 0, 0], [-1, 0, 0], [-1, 0, 0]], g: [-1, 0, 0], mat: 3, water: false }; // in cell x = 1, met at x = 5.5
+  for (let x = 0; x <= 6; x++) { const k = cellKey(x, 0, 0); sy.rayCells.set(k, (sy.rayCells.get(k) || []).concat(far)); }
+  sy.rayCells.set(cellKey(1, 0, 0), (sy.rayCells.get(cellKey(1, 0, 0)) || []).concat(nearT));
   const nh = sy.raycast([0.5, 2, 2], [1, 0, 0], 100);
   check(nh && Math.abs(nh.t - 5) < 1e-6, `the nearest of two triangles (5 studs on), not the first one found (13.5): ${nh && nh.t.toFixed(2)}`);
+
+  // Shapes against the drawn terrain (the pathfinder's tests): a segment's distance to a triangle, against sampling
+  // both densely; a point inside or not; a capsule touching the ball's triangles, against every one of them.
+  let rnd = 7; const R = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  let dworst = 0, dlow = 0;
+  for (let n = 0; n < 300; n++) {
+    const tri = [0, 1, 2].map(() => [R() * 3, R() * 3, R() * 3]), a = [R() * 4, R() * 4, R() * 4], c = n % 3 ? [R() * 4, R() * 4, R() * 4] : a.slice(); // (a third are points)
+    let bf = Infinity;
+    for (let i = 0; i <= 40; i++) { const q = a.map((x, j) => x + (c[j] - x) * i / 40);
+      for (let u = 0; u <= 40; u++) for (let v = 0; u + v <= 40; v++) { const w = [0, 1, 2].map(j => tri[0][j] + (tri[1][j] - tri[0][j]) * u / 40 + (tri[2][j] - tri[0][j]) * v / 40); bf = Math.min(bf, Math.hypot(q[0] - w[0], q[1] - w[1], q[2] - w[2])); } }
+    const ex = Math.sqrt(segTriDist2(a, c, tri));
+    dworst = Math.max(dworst, bf - ex); dlow = Math.max(dlow, ex - bf);
+  }
+  check(dlow < 1e-9 && dworst < 0.25, `a segment's distance to a triangle: never more than dense sampling finds (by ${dlow.toExponential(1)}), at most ${dworst.toFixed(3)} less (300 random)`);
+  // The water's level as a swimmer floats on it: a pool's surface (0) in it, at its shore (where the mesh bevels down)
+  // and over the ground's bevel beside it; none on dry land; a cell a quarter empty at the top lowers it as the field
+  // does; by two pools, the higher.
+  const wl = new Voxels(); wl.fill(shapes.block(cf(0, -8, 0), { x: 128, y: 16, z: 128 }), [-64, -16, -64], [64, 0, 64], 'Rock');
+  wl.fill(shapes.block(cf(0, -6, -20), { x: 40, y: 12, z: 40 }), [-20, -12, -40], [20, 0, 0], 'Water');
+  for (let i = -9; i <= -6; i++) for (let j = -3; j <= -1; j++) for (let k = -5; k <= -1; k++) wl.set(i, j, k, j === -1 ? 0 : 1, 1); // (a second pool, x -36..-20 beside the first, its top cell empty: level -4)
+  const lv = (x, y, z) => { const L = wl.waterLevel(x, y, z); return L === null ? 'none' : L.toFixed(2); };
+  const part = new Voxels(); part.set(0, -1, 0, 0.75, 1); part.set(0, -2, 0, 1, 1);
+  check(lv(0, -5, -20) === '0.00' && lv(-19, -3, -39) === '0.00' && lv(21.5, -1, -20) === '0.00' && lv(-40, 0.5, 40) === 'none' && lv(-30, -6, -10) === '-4.00' && lv(-20.5, -6, -2) === '0.00',
+    `water level: in the pool ${lv(0, -5, -20)}, at its shore ${lv(-19, -3, -39)}, over the bank's bevel ${lv(21.5, -1, -20)}, dry land ${lv(-40, 0.5, 40)}, the lower pool ${lv(-30, -6, -10)}, between the two ${lv(-20.5, -6, -2)}`);
+  const pl = part.waterLevel(2, -5, 2), wantPl = -2 + 4 * (0.75 - 0.5) / 0.75;
+  check(pl !== null && Math.abs(pl - wantPl) < 0.01, `water level of a cell three quarters full: ${pl && pl.toFixed(3)}, where its field crosses 0.5 (${wantPl.toFixed(3)})`);
+  check(v.inside(5, -4, 5) && !v.inside(5, 4, 5) && b.inside(0, 0, 0) && b.inside(9, 0, 0) && !b.inside(11, 0, 0) && !b.inside(0, 12, 0), 'inside: under the ground and in the ball yes, above it and beside the ball no');
+  const ballTris = []; for (let i = 0; i < T.length; i += 3) ballTris.push(T.slice(i, i + 3).map(k => [P[k * 3], P[k * 3 + 1], P[k * 3 + 2]]));
+  let agree = 0, both = [0, 0];
+  for (let n = 0; n < 200; n++) {
+    const a = [R() * 14, R() * 14, R() * 14], c = [a[0] + R() * 3, a[1] + R() * 5, a[2] + R() * 3], r = 0.5 + Math.abs(R()) * 2;
+    const want = ballTris.some(t => segTriDist2(a, c, t) < r * r) || Math.hypot(...a) < 9.5, got = b.capsuleHits(a, c, r);
+    if (got === want) agree++; both[got ? 1 : 0]++;
+  }
+  check(agree === 200 && both[0] > 40 && both[1] > 40, `a capsule touching the ball: as every drawn triangle says, ${agree} of 200 (${both[1]} touching, ${both[0]} clear)`);
+  // Just touching from each side, and just clear: 0.1 inside or outside the radius of the drawn surface (found by ray).
+  let sides = 0;
+  for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    const hit = b.raycast(d.map(x => x * 30), d.map(x => -x), 40), s0 = 30 - hit.t; // (the drawn surface, s0 from the centre)
+    const at = (off, r) => { const c = d.map(x => x * (s0 + r + off)); return b.capsuleHits(c, c.map((v, i) => v + (d[i] ? 0 : 0.01)), r); }; // (a short segment across the ray)
+    if (at(-0.1, 1.5) && !at(0.1, 1.5)) sides++;
+  }
+  check(sides === 6, `a capsule 0.1 inside its radius of the ball's drawn surface touches it, 0.1 outside doesn't, from each of 6 sides (${sides})`);
+  check(b.capsuleHits([0, -2, 0], [0, 2, 0], 1) && !b.capsuleHits([0, 13, 0], [0, 20, 0], 2) && !b.capsuleHits([0, 60, 0], [0, 70, 0], 2), 'a capsule wholly inside the ball touches it; one above it, or outside the terrain\'s box, doesn\'t');
 }
 
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }

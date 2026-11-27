@@ -27,4 +27,5 @@ The guide page (characters/pathfinding.md) isn't in our copy. Roblox doesn't pub
 - A* over 8 neighbours (no corner cutting), jump and drop links reaching past the agent's clearance; Costs multiply a floor's
   material cost. Then straightened (line of sight over walkable floor) and spaced by WaypointSpacing.
 - Waypoints are at floor level; a jump's take-off waypoint has Action Jump and Label "Jump".
-- Not yet: Terrain, TrussPart climbing, PathfindingModifier, PathfindingLink, ClosestNoPath / partial paths.
+- [Studio] Terrain (2026-11-27): done (claudestudio/PLAN.md). Roblox's docs give water a material cost (Costs.Water, math.huge to keep out); how its navmesh treats shores and the ground under water isn't documented, so ours (swum at the surface, a Jump out) is OURS.
+- Not yet: TrussPart climbing, PathfindingModifier, PathfindingLink, ClosestNoPath / partial paths.

@@ -233,7 +233,7 @@ async function main() {
       if (hum.walk && (hum.walk.kind === 'dir' || Math.hypot(c.dx, c.dz) > 1e-3)) { endWalk(hum, false); hum.walk = null; }
       const w = hum.walk ? walkStep(hum, player.holder.position, t) : null;
       if (w) { c.dx = w[0]; c.dz = w[1]; }
-      player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch);
+      player.setInput(c.dx, c.dz, c.jump || scriptJump, c.touch, w ? w[2] : null);
       player.step(dt, GRAVITY);
     }
     npcs.update(t, dt);

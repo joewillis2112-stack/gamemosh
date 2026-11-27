@@ -2,16 +2,21 @@
 // so this one is OURS throughout; the API around it (Path, PathWaypoint, statuses, Blocked) is Roblox's, in
 // web/datamodel.js. Pure: parts in, waypoints out (Node tests run it: test/pathfinding.test.mjs).
 // - A navigation grid of half-stud columns over the start-finish box plus a margin, evaluated lazily as the search
-//   reaches it: a column's floors are the tops of the collidable parts under it (exact ray tests, up to 4 levels);
-//   a floor is walkable if it slopes under 60 degrees and a vertical capsule of AgentRadius, from a step above it
-//   to AgentHeight, is clear (exact shape tests). Characters and the parts of humanoid models aren't obstacles.
+//   reaches it: a column's floors are the tops of the collidable parts under it (exact ray tests, up to 4 levels)
+//   and of the Terrain as drawn (its mesh's triangles, terrain/voxels.js). A floor with water over it (more than a
+//   quarter stud) is swum instead: at the water's level, flat, of material Water (so Costs.Water prices it), the
+//   level taken from the water's cells, not the mesh, which bevels down where water meets ground (OURS). A floor is walkable if it slopes under
+//   60 degrees and a vertical capsule of AgentRadius, from a step above it to AgentHeight, is clear of parts and
+//   terrain (exact shape tests). Characters and the parts of humanoid models aren't obstacles.
 // - Moves: to a neighbour (8 ways, no corner cutting) within a 1-stud step; a jump up to 7 studs (AgentCanJump)
-//   or a drop of up to 20, reaching across the ledge the clearance keeps the agent from.
+//   or a drop of up to 20, reaching across the ledge the clearance keeps the agent from; out of water onto land is a
+//   jump too (a swimmer gets out with one).
 // - A* (Costs multiply the cost of walking on a floor of that material), then the walking runs straightened by line
 //   of sight over walkable floor (never across a floor costlier than the segment's ends) and spaced by WaypointSpacing. Waypoints stand on the floor; a jump's take-off is
 //   Action Jump, Label "Jump".
 import { rayPart } from './raycast.js';
 import { partShape, capsuleHits, sphereHits } from './runtime/shapes.js';
+import { TERRAIN_MATERIALS } from './terrain/voxels.js';
 
 export const AGENT = { AgentRadius: 2, AgentHeight: 5, AgentCanJump: true, AgentCanClimb: false, WaypointSpacing: 4, Costs: {} };
 const CELL = 0.5, STEP = 1, JUMP = 7, DROP = 20, MARGIN = 32, MAX_SIDE = 768, LEVELS = 4, JUMP_COST = 4, MAX_EXPAND = 400000;
@@ -36,10 +41,18 @@ export function collectObstacles(dm, isA) {
   return out;
 }
 
-/** The world as the agent sees it: obstacles with a broad phase, columns' floors, clearance. */
+/** The Terrain's voxels in a DataModel's Workspace, if it has any. */
+export function terrainOf(dm) {
+  const T = dm.workspace.children.find(c => c.ClassName === 'Terrain');
+  return T && T.voxels && T.voxels.bounds() ? T.voxels : null;
+}
+
+/** The world as the agent sees it: obstacles with a broad phase, the Terrain (voxels, or null), columns' floors,
+ *  clearance. */
 export class NavWorld {
-  constructor(parts, agent = AGENT) {
+  constructor(parts, agent = AGENT, terrain = null) {
     this.agent = { ...AGENT, ...agent };
+    this.terrain = terrain;
     this.buckets = new Map();
     this.parts = parts.map(p => {
       const m = p.cf.m, h = [p.size.x / 2, p.size.y / 2, p.size.z / 2];
@@ -52,7 +65,8 @@ export class NavWorld {
         }
       return rec;
     });
-    this.top = Math.max(0, ...this.parts.map(p => p.hi[1])) + 1;
+    this.top = Math.max(0, ...this.parts.map(p => p.hi[1]), terrain ? terrain.bounds()[1][1] : 0) + 1;
+    this.bottom = Math.min(0, ...this.parts.map(p => p.lo[1]), terrain ? terrain.bounds()[0][1] : 0) - 1;
   }
   near(x0, z0, x1, z1) {
     const out = new Set();
@@ -68,9 +82,19 @@ export class NavWorld {
       const hit = rayPart([x, this.top, z], [0, -1, 0], this.top - p.lo[1] + 1, p);
       if (hit) out.push({ h: this.top - hit.t, up: hit.normal[1], material: p.material });
     }
+    const T = this.terrain;
+    if (T) {
+      for (const c of T.columnHits(x, z)) if (c.g > 0) out.push({ h: c.h, up: c.up, material: TERRAIN_MATERIALS[c.mat] }); // (the Terrain's faces looking up)
+      for (let n = 0; n < out.length; n++) { // under water: swum at its level
+        const f = out[n];
+        if (T.waterAt(x, f.h + 0.25, z) <= 0.01) continue;
+        const L = T.waterLevel(x, f.h + 0.25, z);
+        if (L !== null && L - f.h > 0.25) out[n] = { h: L, up: 1, material: 'Water' };
+      }
+    }
     out.sort((a, b) => b.h - a.h);
     const kept = [];
-    for (const f of out) if ((!kept.length || kept[kept.length - 1].h - f.h > 0.05) && !this.solid(x, f.h + 0.05, z)) kept.push(f); // (a top inside another part is covered: no floor)
+    for (const f of out) if ((!kept.length || kept[kept.length - 1].h - f.h > 0.05) && !this.solid(x, f.h + 0.05, z)) kept.push(f); // (a top inside another part, or under the Terrain, is covered: no floor)
     return kept.slice(0, LEVELS);
   }
   // Room for the agent standing on a floor at height h (sloping: the capsule starts higher, so the slope itself
@@ -82,12 +106,12 @@ export class NavWorld {
       if (p.hi[1] < y0 - r || p.lo[1] > y1 + r || p.hi[0] < x - r || p.lo[0] > x + r || p.hi[2] < z - r || p.lo[2] > z + r) continue;
       if (capsuleHits(x, y0, z, x, y1, z, r, p.S)) return false;
     }
-    return true;
+    return !this.terrain || !this.terrain.capsuleHits([x, y0, z], [x, y1, z], r);
   }
   /** Is the point inside a part? */
   solid(x, y, z) {
     for (const p of this.near(x, z, x, z)) if (y >= p.lo[1] && y <= p.hi[1] && sphereHits(x, y, z, 0.01, p.S)) return true;
-    return false;
+    return !!this.terrain && this.terrain.inside(x, y, z);
   }
 }
 
@@ -131,7 +155,8 @@ export function computePath(nav, start, finish) {
   // within the agent's reach of it.
   const anchor = p => {
     const i = Math.floor((p.x - x0) / CELL), k = Math.floor((p.z - z0) / CELL), c = g.col(i, k) || [];
-    const fl = c.find(f => f.h <= p.y + 0.5);
+    // (in water, under its surface: the surface it swims at)
+    const fl = c.find(f => f.h <= p.y + 0.5) || (nav.terrain && nav.terrain.waterAt(p.x, p.y, p.z) >= 0.5 ? c.filter(f => f.material === 'Water' && f.h > p.y).pop() : null);
     if (!fl) return null;
     const R = Math.ceil((A.AgentRadius + 2) / CELL);
     let best = null, bd = Infinity;
@@ -165,7 +190,8 @@ export function computePath(nav, start, finish) {
       if (l >= 0 && (!diag || (g.level(n.i + di, n.k, h) >= 0 && g.level(n.i, n.k + dk, h) >= 0))) {
         const m = { i: n.i + di, k: n.k + dk, l }, mk = key(g, m.i, m.k, l), c = g.col(m.i, m.k)[l];
         const t = gn + (diag ? Math.SQRT2 : 1) * CELL * costOf(c.material) + Math.abs(c.h - h) * 0.5;
-        if (t < (gScore.get(mk) ?? Infinity)) { gScore.set(mk, t); from.set(mk, { prev: nk, node: n, kind: 'walk' }); push(t + heur(m), m); }
+        const out = c.material !== 'Water' && g.col(n.i, n.k)[n.l].material === 'Water'; // (out of water onto land: a swimmer climbs out with a jump, OURS)
+        if (t < (gScore.get(mk) ?? Infinity)) { gScore.set(mk, t); from.set(mk, { prev: nk, node: n, kind: out ? 'jump' : 'walk' }); push(t + heur(m), m); }
         continue;
       }
       if (diag) continue; // jumps and drops go straight
@@ -225,18 +251,25 @@ export function computePath(nav, start, finish) {
   // Waypoints: the start, the corners with WaypointSpacing between, the finish; a jump's take-off says so.
   const sp = Math.max(0.5, A.WaypointSpacing || 4), wps = [];
   const add = (pos, action = 'Walk', label = '') => wps.push({ pos, action, label });
-  const floorAt = (x, z, h) => { const i = Math.floor((x - x0) / CELL), k = Math.floor((z - z0) / CELL), l = g.level(i, k, h, STEP + 0.5); return l >= 0 ? g.col(i, k)[l].h : h; };
-  add([start.x, hOf(s), start.z]);
+  // (the floor at the point itself, the nearest within a step to h: a column's floor is at its middle)
+  const floorAt = (x, z, h) => { let best = h, bd = STEP + 0.5; for (const fl of nav.floors(x, z)) { const d = Math.abs(fl.h - h); if (d <= bd) { bd = d; best = fl.h; } } return best; };
+  add([start.x, floorAt(start.x, start.z, hOf(s)), start.z]);
   for (let j = 1; j < corners.length; j++) {
-    const pa = j === 1 ? wps[0].pos : P(corners[j - 1].node), pb = j === corners.length - 1 ? [finish.x, hOf(f), finish.z] : P(corners[j].node);
+    const pa = j === 1 ? wps[0].pos : P(corners[j - 1].node), pb = j === corners.length - 1 ? [finish.x, floorAt(finish.x, finish.z, hOf(f)), finish.z] : P(corners[j].node);
     if (corners[j].kind === 'jump') { wps[wps.length - 1].action = 'Jump'; wps[wps.length - 1].label = 'Jump'; add(pb); continue; }
     if (corners[j].kind === 'drop') { add(pb); continue; }
     const L = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]), n = Math.max(1, Math.ceil(L / sp - 1e-9));
-    let h = pa[1];
-    for (let q = 1; q < n; q++) { const x = pa[0] + (pb[0] - pa[0]) * q / n, z = pa[2] + (pb[2] - pa[2]) * q / n; h = floorAt(x, z, h); add([x, h, z]); }
+    // (the height followed along the way as straight() did, column by column, so a slope or a bump is kept)
+    const m = Math.max(1, Math.ceil(L / 0.25));
+    let h = pa[1], q = 1;
+    for (let j = 1; j <= m && q < n; j++) {
+      const i = Math.floor((pa[0] + (pb[0] - pa[0]) * j / m - x0) / CELL), k = Math.floor((pa[2] + (pb[2] - pa[2]) * j / m - z0) / CELL), l = g.level(i, k, h);
+      if (l >= 0) h = g.col(i, k)[l].h;
+      for (; q < n && q / n <= j / m + 1e-9; q++) { const x = pa[0] + (pb[0] - pa[0]) * q / n, z = pa[2] + (pb[2] - pa[2]) * q / n; add([x, floorAt(x, z, h), z]); }
+    }
     add(pb);
   }
-  if (corners.length === 1) add([finish.x, hOf(f), finish.z]);
+  if (corners.length === 1) add([finish.x, floorAt(finish.x, finish.z, hOf(f)), finish.z]);
   return { status: 'Success', waypoints: wps };
 }
 

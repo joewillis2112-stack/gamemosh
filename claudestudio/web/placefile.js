@@ -158,8 +158,13 @@ export function loadPlace(dm, file) {
       try { inst.props[k] = decode(ty, v); } catch (e) { warnings.push(`${inst.ClassName}.${k}: ${e.message} (skipped)`); } // a value the type refuses keeps the default
     }
     fontsAfterLoad(inst, props);
-    // A part's derived properties follow its CFrame.
-    if (inst.props.CFrame && isA(inst.ClassName, 'BasePart')) { const cf = inst.props.CFrame; inst.props.Position = new V3(cf.x, cf.y, cf.z); inst.props.Orientation = new V3(...cf.toOrientation()); }
+    // A part's or an attachment's derived properties follow its CFrame (an attachment's axes are its X and Y).
+    if (inst.props.CFrame && (isA(inst.ClassName, 'BasePart') || inst.ClassName === 'Attachment')) {
+      const cf = inst.props.CFrame, R = cf.m;
+      if (types.has('Position')) inst.props.Position = new V3(cf.x, cf.y, cf.z);
+      if (types.has('Orientation')) inst.props.Orientation = new V3(...cf.toOrientation());
+      if (inst.ClassName === 'Attachment') { inst.props.Axis = new V3(R[3], R[6], R[9]); inst.props.SecondaryAxis = new V3(R[4], R[7], R[10]); }
+    }
   };
   const build = (n, parent) => {
     // A new DataModel already has some children (the Workspace's Camera, StarterPlayer's

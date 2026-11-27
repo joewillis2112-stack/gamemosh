@@ -12,7 +12,7 @@ import { BrickColor, defineBrickColor } from './brickcolor.js';
 import { Font, fontFromEnum, enumFromFont, FONT_WEIGHTS, FONT_STYLES } from './fonts.js';
 import { Assemblies, isJoint } from './assembly.js';
 import { BODY_PRESETS, SHAPE_PROPS, makeBody, describedBody } from './runtime/bodygen.js';
-import { NavWorld, collectObstacles, computePath, occlusion, AGENT } from './pathfinding.js';
+import { NavWorld, collectObstacles, terrainOf, computePath, occlusion, AGENT } from './pathfinding.js';
 import { PHYSICAL } from './runtime/physprops.js';
 export { CF, BrickColor, Font };
 export const T = { NIL: 0, BOOL: 1, NUM: 2, STR: 3, VEC: 4, INST: 5, METHOD: 6, SIGNAL: 7, ERR: 8, LIST: 9, COLOR: 10, ENUM: 11, CFRAME: 12, DICT: 13, TWEENINFO: 14, UDIM: 15, UDIM2: 16, VEC2: 17, NUMRANGE: 18, NUMSEQ: 19, COLORSEQ: 20, BRICKCOLOR: 21, FONT: 22 };
@@ -958,7 +958,7 @@ function newPath(dm, agent) { const p = new Instance(dm, 'Path'); p.agent = agen
 function computeInto(path, start, finish) {
   if (!(start instanceof V3)) throw new Error('Unable to cast ' + typeName(start) + ' to Vector3');
   if (!(finish instanceof V3)) throw new Error('Unable to cast ' + typeName(finish) + ' to Vector3');
-  const dm = path.dm, r = computePath(new NavWorld(collectObstacles(dm, isA), path.agent), start, finish);
+  const dm = path.dm, r = computePath(new NavWorld(collectObstacles(dm, isA), path.agent, terrainOf(dm)), start, finish);
   path.waypoints = r.waypoints; path.blocked = false;
   dm.set(path, 'Status', r.status);
 }
@@ -980,7 +980,7 @@ defineClass('Path', 'Instance', {
     CheckOcclusionAsync(self, start) {
       const n = self.waypoints.length;
       if (typeof start !== 'number' || start < 0 || start > n) throw new Error('Start index out of range');
-      return self.dm.defer(self, [occlusion(new NavWorld(collectObstacles(self.dm, isA), self.agent), self.waypoints, Math.max(1, Math.floor(start)))]);
+      return self.dm.defer(self, [occlusion(new NavWorld(collectObstacles(self.dm, isA), self.agent, terrainOf(self.dm)), self.waypoints, Math.max(1, Math.floor(start)))]);
     },
   },
   events: ['Blocked', 'Unblocked'],
@@ -995,7 +995,7 @@ export function checkPaths(dm, t) {
     if (p.destroyed) { dm.paths.delete(p); continue; }
     const conns = dm.connsOf.get(p), listened = conns && ((conns.get('Blocked') || new Set()).size || (conns.get('Unblocked') || new Set()).size);
     if (!listened || p.props.Status !== 'Success' || p.waypoints.length < 2) continue;
-    const i = occlusion(nav || (nav = new NavWorld(collectObstacles(dm, isA), p.agent)), p.waypoints, 1);
+    const i = occlusion(nav || (nav = new NavWorld(collectObstacles(dm, isA), p.agent, terrainOf(dm))), p.waypoints, 1);
     if (i > 0 && p.blocked !== i) { p.blocked = i; dm.fire(p, 'Blocked', [i]); }
     else if (i < 0 && p.blocked) { const was = p.blocked; p.blocked = false; dm.fire(p, 'Unblocked', [was]); }
   }
@@ -1295,6 +1295,14 @@ export class DataModel {
     this.notify(inst, 'CFrame');
     if (part && key !== 'CFrame') this.assemblies.reweld(inst); // Position, Orientation: it moves alone; its WeldConstraints re-take their offsets
     for (const k of changed) this.fire(inst, 'Changed', [k]);
+  }
+  /** Brings a property the engine works out when it's read up to date in inst.props: an assembly's (joints placed
+   *  first), AssemblyMass, an attachment's World ones (its part may have moved). Scripts' reads and the Properties
+   *  panel both go through it. */
+  readout(inst, key) {
+    if (ASSEMBLY_READS.has(key)) this.assemblies.flush();
+    if (inst.ClassName === 'Attachment' && key.startsWith('World')) this.attachmentWorld(inst);
+    if (key === 'AssemblyMass' && isA(inst.ClassName, 'BasePart')) { const a = this.assemblies.of.get(inst); inst.props.AssemblyMass = a ? a.parts.reduce((m, q) => m + (q.props.Massless && q !== a.root ? 0 : partMass(q)), 0) : partMass(inst); }
   }
   // An attachment's frame in the world: its part's CFrame times its own (refreshed on every read).
   attachmentParentCF(a) { const p = a.parent; return p && isA(p.ClassName, 'BasePart') && p.props.CFrame ? p.props.CFrame : new CF(); }
@@ -1663,10 +1671,8 @@ export function makeHost(dm, log = console.log) {
       if (key === 'ClassName') { host.ret = host.put([], inst.ClassName); return 1; }
       // A layout's AbsoluteContentSize is current when read (Roblox: 'updates as soon as it's read'): lay out now.
       if (key === 'AbsoluteContentSize' && dm.hooks.layoutNow) dm.hooks.layoutNow();
-      if (ASSEMBLY_READS.has(key)) dm.assemblies.flush(); // joints placed before a placement is read
       if (key in inst.props) {
-        if (inst.ClassName === 'Attachment' && key.startsWith('World')) dm.attachmentWorld(inst); // its part may have moved
-        if (key === 'AssemblyMass' && isA(inst.ClassName, 'BasePart')) { const a = dm.assemblies.of.get(inst); inst.props.AssemblyMass = a ? a.parts.reduce((m, q) => m + (q.props.Massless && q !== a.root ? 0 : partMass(q)), 0) : partMass(inst); }
+        dm.readout(inst, key); // (worked out when read)
         const ty = typeOf(inst.ClassName, key);
         const v = inst.props[key];
         host.ret = host.put([], ty && ty.startsWith('Enum.') && typeof v === 'string' ? enumItem(ty.slice(5), v) : v);

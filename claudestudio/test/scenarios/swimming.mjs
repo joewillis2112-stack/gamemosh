@@ -79,6 +79,33 @@ export default async function (t) {
     print("rays|" .. r(Vector3.new(30, 10, 30), Vector3.new(0, -50, 0)) .. "|" .. r(Vector3.new(4, 10, -24), Vector3.new(0, -50, 0)) .. "|" .. r(Vector3.new(4, 10, -24), Vector3.new(0, -50, 0), iw) .. "|" .. r(Vector3.new(30, 10, 30), Vector3.new(0, -50, 0), ex))`); await t.sim(1);
   const rays = (logs('rays|').split('rays|')[1] || '').split('|');
   check(rays[0] === 'Terrain 0.000 Rock 1.00' && rays[1] === 'Terrain 0.000 Water 1.00' && rays[2] === 'Terrain -12.000 Rock 1.00' && rays[3] === 'none', `workspace:Raycast hits the Terrain: the ground (${rays[0]}), the water (${rays[1]}), its floor with IgnoreWater (${rays[2]}); filtered out: ${rays[3]}`);
+  // PathfindingService over the Terrain: from the spawn's side across the pool to the far bank, swum straight over
+  // (its waypoints on the water's surface); with Costs.Water = math.huge, round it. The character follows the first
+  // with MoveTo, through the water and out.
+  await place(0, 3, 10); await t.sim(30);
+  await run(`local PFS = game:GetService("PathfindingService")
+    local hum = game.Players.LocalPlayer.Character.Humanoid; local root = hum.Parent.HumanoidRootPart
+    local a = PFS:CreatePath(); a:ComputeAsync(root.Position, Vector3.new(0, 3, -50))
+    local b = PFS:CreatePath({ Costs = { Water = math.huge } }); b:ComputeAsync(root.Position, Vector3.new(0, 3, -50))
+    local function info(p) local w = p:GetWaypoints(); local len, wet, wide = 0, 0, 0
+      for i = 2, #w do len += (Vector3.new(w[i].Position.X, 0, w[i].Position.Z) - Vector3.new(w[i - 1].Position.X, 0, w[i - 1].Position.Z)).Magnitude end
+      for _, q in ipairs(w) do if q.Position.Z < -4 and q.Position.Z > -36 and math.abs(q.Position.X) < 19 then wet += 1; wide = math.max(wide, math.abs(q.Position.X)) end end
+      return string.format("%s %.1f %d %.1f", p.Status.Name, len, wet, wide) end
+    print("paths|" .. info(a) .. "|" .. info(b))
+    task.spawn(function()
+      for i, w in ipairs(a:GetWaypoints()) do
+        if w.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
+        hum:MoveTo(w.Position); if not hum.MoveToFinished:Wait() then print("swum stuck", i, string.format("%.1f %.1f", root.Position.Z, root.Position.Y)) return end
+      end
+      local j = 0; for _, q in ipairs(a:GetWaypoints()) do if q.Action == Enum.PathWaypointAction.Jump then j += 1 end end
+      print("swum arrived", string.format("%.1f %.1f, %d jump", root.Position.Z, root.Position.Y, j))
+    end)`);
+  for (let i = 0; i < 80 && !logs('swum ').length; i++) await t.sim(15);
+  const pa = (logs('paths|').split('paths|')[1] || '').split('|').map(x => x.split(' ')), swum = logs('swum ');
+  check(pa[0][0] === 'Success' && Math.abs(+pa[0][1] - 60) < 2 && +pa[0][2] >= 6 && +pa[0][3] < 1, `a path across the pool: ${pa[0].join(' ')} (status, studs, waypoints over the water, widest)`);
+  check(pa[1] && pa[1][0] === 'Success' && +pa[1][2] === 0 && +pa[1][1] > 80, `Costs.Water = math.huge: round it (${pa[1] && pa[1].join(' ')})`);
+  const end = await st();
+  check(/arrived/.test(swum) && near(end.z, -50, 1.5) && end.grounded && !end.swimming, `following it with MoveTo: across the water and out onto the far bank (${swum.replace(/^.*swum /, '')}; grounded ${end.grounded})`);
   if (t.shot) { await place(0, 3, -16); await t.sim(120); await t.frames(3); await t.shot('swimming'); }
   if (fail.length) throw new Error(fail.length + ' failed');
 }

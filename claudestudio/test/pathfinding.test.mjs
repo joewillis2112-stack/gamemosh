@@ -1,8 +1,11 @@
 // The pathfinding solver (web/pathfinding.js) on places built in a DataModel: open ground, a wall to go round, a gap
 // too narrow for the agent, a step, a ledge to jump (and none without jumping), a drop, a closed room, start and
-// finish inside parts, material costs, occlusion after a wall appears, and a large field of pillars in time.
+// finish inside parts, material costs, occlusion after a wall appears, and a large field of pillars in time; over the
+// Terrain as drawn: its ground, a wall of it, a ramp to a plateau, a tunnel, a pool swum (or not, by Costs.Water),
+// start inside rock, a part on it, occlusion when it changes, and a long way over it in time.
 import { DataModel, V3, CF, isA } from '../web/datamodel.js';
-import { NavWorld, collectObstacles, computePath, occlusion } from '../web/pathfinding.js';
+import { NavWorld, collectObstacles, terrainOf, computePath, occlusion } from '../web/pathfinding.js';
+import { shapes, boxBounds } from '../web/terrain/voxels.js';
 
 const fail = [];
 const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail.push(what); };
@@ -15,7 +18,7 @@ function part(dm, name, size, pos, props = {}) {
   dm.setParent(p, dm.workspace);
   return p;
 }
-const solve = (dm, a, b, agent = {}) => { const nav = new NavWorld(collectObstacles(dm, isA), agent); return { nav, ...computePath(nav, { x: a[0], y: a[1], z: a[2] }, { x: b[0], y: b[1], z: b[2] }) }; };
+const solve = (dm, a, b, agent = {}) => { const nav = new NavWorld(collectObstacles(dm, isA), agent, terrainOf(dm)); return { nav, ...computePath(nav, { x: a[0], y: a[1], z: a[2] }, { x: b[0], y: b[1], z: b[2] }) }; };
 const length = w => w.slice(1).reduce((s, p, i) => s + Math.hypot(p.pos[0] - w[i].pos[0], p.pos[2] - w[i].pos[2]), 0);
 // Does the segment pass through the box (x0..x1, z0..z1) grown by r?
 const crosses = (w, b, r = 0) => w.slice(1).some((p, i) => { const a = w[i].pos; for (let t = 0; t <= 1; t += 0.02) { const x = a[0] + (p.pos[0] - a[0]) * t, z = a[2] + (p.pos[2] - a[2]) * t; if (x > b[0] - r && x < b[1] + r && z > b[2] - r && z < b[3] + r) return true; } return false; });
@@ -98,6 +101,70 @@ const crosses = (w, b, r = 0) => w.slice(1).some((p, i) => { const a = w[i].pos;
   for (let x = -140; x <= 140; x += 10) for (let z = -140; z <= 140; z += 10) if ((x / 10 + z / 10) % 3 === 0) part(dm, 'P', [3, 8, 3], [x + 5, 4, z + 5]);
   const t0 = performance.now(), { status, waypoints: w } = solve(dm, [-140, 3, -140], [140, 3, 140]), ms = performance.now() - t0;
   check(status === 'Success' && ms < 4000 && w.length > 10, `300 studs through ${dm.workspace.children.length - 1} pillars: ${status} in ${ms.toFixed(0)} ms (${w.length} waypoints)`);
+}
+
+// The Terrain. A place of terrain ground (Grass, its top at y 0) and what's filled on it.
+const tplace = (mat = 'Grass') => { const dm = new DataModel(), V = dm.workspace.children.find(c => c.ClassName === 'Terrain').voxels; fill(V, [0, -8, 0], [256, 16, 256], mat); return { dm, V }; };
+function fill(V, c, size, mat, kind = 'block') {
+  const m = [...c, 1, 0, 0, 0, 1, 0, 0, 0, 1], sz = { x: size[0], y: size[1], z: size[2] }, b = boxBounds(m, sz);
+  V.fill(shapes[kind](m, sz), b.min, b.max, mat);
+}
+const ground = (V, x, z, from = 60) => { const h = V.raycast([x, from, z], [0, -1, 0], 200); return h ? from - h.t : null; };
+// The least distance from the path's way to a box (x0..x1, z0..z1), its corners round.
+const clearOf = (w, b) => Math.min(...w.slice(1).flatMap((p, i) => { const a = w[i].pos, out = []; for (let t = 0; t <= 1; t += 0.02) { const x = a[0] + (p.pos[0] - a[0]) * t, z = a[2] + (p.pos[2] - a[2]) * t; out.push(Math.hypot(Math.max(b[0] - x, 0, x - b[1]), Math.max(b[2] - z, 0, z - b[3]))); } return out; }));
+const onGround = (V, w) => w.every(p => Math.abs(p.pos[1] - ground(V, p.pos[0], p.pos[2], p.pos[1] + 3)) < 0.1); // (0.1: a waypoint exactly on a triangle's edge may meet a sliver the ray misses)
+{
+  const { dm, V } = tplace();
+  const { status, waypoints: w } = solve(dm, [0, 3, 0], [40, 3, 0]);
+  check(status === 'Success' && w.length === 11 && w.every(p => Math.abs(p.pos[2]) < 1e-6) && onGround(V, w), `terrain ground: a straight path on its drawn surface (${status}, ${w.length} waypoints, y ${w.map(p => p.pos[1].toFixed(2)).slice(0, 3)}...)`);
+  const s2 = solve(dm, [30, -4, 30], [40, 3, 0]).status;
+  check(s2 === 'FailStartNotEmpty', `a start inside the ground: ${s2}`);
+}
+{
+  const { dm, V } = tplace(); fill(V, [20, 6, 0], [4, 12, 40], 'Rock');
+  const { status, waypoints: w } = solve(dm, [0, 3, 0], [40, 3, 0]);
+  check(status === 'Success' && clearOf(w, [18, 22, -18, 18]) > 1.9 && length(w) > 42 && onGround(V, w), `a wall of terrain (drawn 10 high, z -18..18: its 4-stud cells): round it, ${clearOf(w, [18, 22, -18, 18]).toFixed(2)} from it (${status}, ${length(w).toFixed(1)} studs)`);
+}
+{
+  const { dm, V } = tplace(); fill(V, [0, 5, 40], [64, 10, 24], 'Rock'); fill(V, [0, 5, 16], [12, 10, 24], 'Rock', 'wedge');
+  const { status, waypoints: w } = solve(dm, [0, 3, -10], [0, 13, 44]);
+  const on = solve(dm, [0.6, 8, 15.51], [1.4, 13, 43.4]).waypoints, e0 = on[0], e1 = on[on.length - 1];
+  check(Math.abs(e0.pos[1] - ground(V, 0.6, 15.51)) < 0.02 && Math.abs(e1.pos[1] - ground(V, 1.4, 43.4)) < 0.02, `from partway up the ramp: the first and last waypoints stand on the ground under the start and the finish exactly (${e0.pos[1].toFixed(3)} on ${ground(V, 0.6, 15.51).toFixed(3)}, ${e1.pos[1].toFixed(3)} on ${ground(V, 1.4, 43.4).toFixed(3)})`);
+  const up = w.filter(p => p.pos[2] > 6 && p.pos[2] < 26);
+  check(status === 'Success' && w.every(p => p.action === 'Walk') && up.length >= 3 && up.every(p => Math.abs(p.pos[0]) < 6 && p.pos[1] > 0.5 && p.pos[1] < 9.5) && Math.abs(w[w.length - 1].pos[1] - 10) < 0.3 && onGround(V, w), `a plateau 10 high (past a jump) and a ramp of terrain: up the ramp, walking (${status}, heights ${up.map(p => p.pos[1].toFixed(1))})`);
+}
+{
+  const { dm, V } = tplace(); fill(V, [20, 8, 0], [8, 16, 256], 'Rock'); fill(V, [20, 4, 0], [12, 8, 8], 'Air');
+  const a = solve(dm, [0, 3, 0], [40, 3, 0]), b = solve(dm, [0, 3, 0], [40, 3, 0], { AgentHeight: 10 }), c = solve(dm, [0, 3, 0], [40, 3, 0], { AgentRadius: 4.5 });
+  check(a.status === 'Success' && a.waypoints.every(p => Math.abs(p.pos[2]) < 2.5) && Math.abs(length(a.waypoints) - 40) < 1 && onGround(V, a.waypoints), `a tunnel 8 wide and 8 high through a wall of terrain: through it (${a.status}, ${length(a.waypoints).toFixed(1)} studs)`);
+  check(b.status === 'NoPath' && c.status === 'NoPath', `too tall for it (AgentHeight 10): ${b.status}; too wide (AgentRadius 4.5): ${c.status}`);
+}
+{
+  const { dm, V } = tplace('Rock'); fill(V, [0, -6, -20], [40, 12, 40], 'Water');
+  const a = solve(dm, [0, 3, -50], [0, 3, 10]);
+  const inPool = a.waypoints.filter(p => p.pos[2] > -38 && p.pos[2] < -2);
+  check(a.status === 'Success' && Math.abs(length(a.waypoints) - 60) < 1 && inPool.length >= 6 && inPool.every(p => Math.abs(p.pos[1]) < 0.05), `a pool: swum straight across, its waypoints on the water's surface (${a.status}, ${length(a.waypoints).toFixed(1)} studs, y ${inPool.map(p => p.pos[1].toFixed(2)).slice(0, 3)}...)`);
+  const jumps = a.waypoints.map((p, i) => [p, i]).filter(([p]) => p.action === 'Jump'), jz = jumps.length === 1 ? jumps[0][0].pos[2] : null, next = jumps.length === 1 ? a.waypoints[jumps[0][1] + 1] : null;
+  check(jumps.length === 1 && jz > -2 && jz < 4 && next && next.pos[2] > jz && next.pos[2] < jz + 2, `out of the water onto the far bank (the pool's edge at z 0, its bevel swum), one Jump: at z ${jz && jz.toFixed(2)}, landing at ${next && next.pos[2].toFixed(2)} (none going in)`);
+  const b = solve(dm, [0, 3, -50], [0, 3, 10], { Costs: { Water: Infinity } }), c = solve(dm, [0, 3, -50], [0, 3, 10], { Costs: { Water: 20 } });
+  check(b.status === 'Success' && !crosses(b.waypoints, [-20, 20, -40, 0], -0.5) && c.status === 'Success' && !crosses(c.waypoints, [-20, 20, -40, 0], -0.5) && length(c.waypoints) > 80, `Costs.Water math.huge, or 20: round the pool instead (${length(b.waypoints).toFixed(1)}, ${length(c.waypoints).toFixed(1)} studs)`);
+  const d = solve(dm, [0, -10, -20], [0, 3, 10]);
+  check(d.status === 'Success' && d.waypoints[0].pos[1] > -0.05, `from the pool's floor, 10 under: the path starts at the surface, not on the floor (y ${d.waypoints[0].pos[1].toFixed(2)})`);
+}
+{
+  const { dm, V } = tplace(); part(dm, 'Wall', [2, 10, 20], [20, 5, 0]);
+  const { status, waypoints: w } = solve(dm, [0, 3, 0], [40, 3, 0]);
+  check(status === 'Success' && clearOf(w, [19, 21, -10, 10]) > 1.9 && onGround(V, w), `a part standing on terrain: round it, ${clearOf(w, [19, 21, -10, 10]).toFixed(2)} from it (${length(w).toFixed(1)} studs)`);
+  const nav0 = new NavWorld(collectObstacles(dm, isA), {}, terrainOf(dm)), before = occlusion(nav0, w, 1);
+  fill(V, [32, 6, 0], [4, 12, 60], 'Rock');
+  const after = occlusion(new NavWorld(collectObstacles(dm, isA), {}, terrainOf(dm)), w, 1), at = after > 0 ? w[after - 1].pos[0] : null;
+  check(before === -1 && after > 1 && at >= 26 && at <= 34, `occlusion: clear (${before}), then a terrain wall filled at x 32 blocks waypoint ${after} (x ${at && at.toFixed(1)})`);
+}
+{
+  const { dm, V } = tplace();
+  for (let x = -96; x <= 96; x += 24) for (let z = -96; z <= 96; z += 24) if ((x + z) % 48 === 0) fill(V, [x, 0, z], [8, 8, 8], 'Rock', 'ball');
+  const t0 = performance.now(), { status, waypoints: w } = solve(dm, [-100, 3, -100], [100, 3, 100]), ms = performance.now() - t0;
+  check(status === 'Success' && ms < 6000 && onGround(V, w), `200 studs over terrain round boulders: ${status} in ${ms.toFixed(0)} ms (${w.length} waypoints)`);
 }
 if (fail.length) { console.log(fail.length + ' failed'); process.exit(1); }
 console.log('PASS');

@@ -9,7 +9,7 @@ import { endWalk } from '../datamodel.js';
 export const MOVETO_TIMEOUT = 8, ARRIVE = 1;
 
 /** The input [dx, dz] (world, length <= 1) the humanoid's walk asks for at time t (s), standing at `foot`
- *  ({ x, y, z }); null when it isn't walking. camForward: the camera's flat look direction { x, z } (unit),
+ *  ({ x, y, z }), and for a MoveTo the goal's height third (a swimmer heads for it); null when it isn't walking. camForward: the camera's flat look direction { x, z } (unit),
  *  for Move relative to it. */
 export function walkStep(hum, foot, t, camForward = null) {
   const w = hum.walk;
@@ -26,10 +26,10 @@ export function walkStep(hum, foot, t, camForward = null) {
   if (w.part) {
     if (w.part.destroyed) { endWalk(hum, false); return null; }
     const c = w.part.props.CFrame, m = c.m;
-    g = { x: c.x + m[3] * g.x + m[4] * g.y + m[5] * g.z, y: 0, z: c.z + m[9] * g.x + m[10] * g.y + m[11] * g.z }; // PointToWorldSpace
+    g = { x: c.x + m[3] * g.x + m[4] * g.y + m[5] * g.z, y: c.y + m[6] * g.x + m[7] * g.y + m[8] * g.z, z: c.z + m[9] * g.x + m[10] * g.y + m[11] * g.z }; // PointToWorldSpace
   }
   const dx = g.x - foot.x, dz = g.z - foot.z, d = Math.hypot(dx, dz);
   if (d < ARRIVE) { endWalk(hum, true); return null; }
   if (t - w.since > MOVETO_TIMEOUT) { endWalk(hum, false); return null; }
-  return [dx / d, dz / d];
+  return [dx / d, dz / d, g.y];
 }

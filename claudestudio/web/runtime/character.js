@@ -550,8 +550,10 @@ export class Character {
   }
 
   // Input for this frame: world-space direction (x, z), length <= 1; jump pressed.
-  setInput(dirX, dirZ, jump, touch = false) {
+  // seekY: a MoveTo's goal height (null for a player's input): swimming heads for it rather than along the camera.
+  setInput(dirX, dirZ, jump, touch = false, seekY = null) {
     if (this.dead) { dirX = dirZ = 0; jump = false; }
+    this.seekY = seekY;
     this.moveDir.set(dirX, 0, dirZ);
     if (this.moveDir.lengthSquared() > 1) this.moveDir.normalize();
     this.jumpHeld = jump;
@@ -651,9 +653,14 @@ export class Character {
     }
     if (swimming) {
       const sp = 0.875 * H.WalkSpeed, chestIn = wet(H.Height * 0.75) >= 0.5, kk = 1 - Math.exp(-H.Accel * dt);
-      // The input in 3D: its forward part along the camera's look (pitch and all), the rest level.
+      // The input in 3D: its forward part along the camera's look (pitch and all), the rest level. A MoveTo heads for
+      // its goal instead: up to it from under the surface (the chest's height), down to it below the feet (OURS).
       let m3 = new Vector3(this.moveDir.x, 0, this.moveDir.z);
-      const L = this.look && this.look();
+      const L = this.seekY === null || this.seekY === undefined ? this.look && this.look() : null;
+      if (!L && this.seekY !== null && this.seekY !== undefined && m3.lengthSquared() > 0.01) {
+        const dy = this.seekY > foot ? this.seekY - (foot + H.Height * 0.75) : this.seekY - foot;
+        if (dy > 0 || this.seekY < foot - 0.5) { const l = Math.hypot(1, dy / 4); m3 = new Vector3(m3.x / l, Math.max(-1, Math.min(1, dy / 4)) / l, m3.z / l); } // (4 studs out: a full turn up or down)
+      }
       if (L) {
         const fl = Math.hypot(L[0], L[2]);
         if (fl > 1e-3) { const f = new Vector3(L[0] / fl, 0, L[2] / fl), amt = this.moveDir.x * f.x + this.moveDir.z * f.z, n = Math.hypot(...L); m3 = m3.subtract(f.scale(amt)).add(new Vector3(L[0] / n, L[1] / n, L[2] / n).scale(amt)); }

@@ -118,7 +118,7 @@ export class Npcs {
       p.AutoJumpEnabled = false; p.MaxSlopeAngle = Math.min(89, Math.max(0, h.MaxSlopeAngle));
       const w = e.dead ? null : walkStep(e.hum, e.char.holder.position, t, fwd), jump = !e.dead && h.Jump;
       if (h.Jump) h.Jump = false; // taken, as for the player
-      e.char.setInput(w ? w[0] : 0, w ? w[1] : 0, jump);
+      e.char.setInput(w ? w[0] : 0, w ? w[1] : 0, jump, false, w && w.length > 2 ? w[2] : null);
       e.char.step(dt, this.gravity);
       this.sync(e);
       e.body.update(dt);
