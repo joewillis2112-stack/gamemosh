@@ -13,6 +13,7 @@ export const CELL = 4, CHUNK = 16, CHUNK_CELLS = CHUNK * CHUNK * CHUNK;
 // Roblox's terrain materials (Enum.Material names), index 0 is Air.
 export const TERRAIN_MATERIALS = ['Air', 'Water', 'Grass', 'Slate', 'Concrete', 'Brick', 'Sand', 'WoodPlanks', 'Rock', 'Glacier', 'Snow', 'Sandstone', 'Mud', 'Basalt', 'Ground', 'CrackedLava', 'Asphalt', 'Cobblestone', 'Ice', 'LeafyGrass', 'Salt', 'Limestone', 'Pavement'];
 export const MATERIAL_INDEX = Object.fromEntries(TERRAIN_MATERIALS.map((m, i) => [m, i]));
+const WATER = 1; // TERRAIN_MATERIALS' index of Water
 // Default colours (Terrain:GetMaterialColor), sRGB 0-255. UNSURE: by eye from
 // Roblox's default terrain, not read from the engine.
 export const MATERIAL_COLORS = {
@@ -43,6 +44,17 @@ export class Voxels {
     if (!c) return { occ: 0, mat: 0 };
     const i = idx(x, y, z);
     return { occ: c.occ[i] / 255, mat: c.mat[i] };
+  }
+  /** How much water a world point is in (0..1): water's occupancy at the cells' centres, blended between them (so
+   *  0.5 is the surface the mesher draws). */
+  waterAt(px, py, pz) {
+    const u = px / CELL - 0.5, v = py / CELL - 0.5, w = pz / CELL - 0.5, i = Math.floor(u), j = Math.floor(v), k = Math.floor(w), fu = u - i, fv = v - j, fw = w - k;
+    let sum = 0;
+    for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
+      const g = this.get(i + a, j + b, k + c), wt = (a ? fu : 1 - fu) * (b ? fv : 1 - fv) * (c ? fw : 1 - fw);
+      if (g.mat === WATER) sum += g.occ * wt;
+    }
+    return sum;
   }
   occ(x, y, z) { const c = this.chunk(fdiv(x, CHUNK), fdiv(y, CHUNK), fdiv(z, CHUNK)); return c ? c.occ[idx(x, y, z)] / 255 : 0; }
   set(x, y, z, occ, mat) {

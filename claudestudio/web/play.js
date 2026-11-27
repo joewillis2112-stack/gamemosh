@@ -131,11 +131,15 @@ async function main() {
   };
   // A tier change rebuilds a generated body at the new tier's detail.
   graphics.add({ setTier: t => { bodyTier = t; if (player.bodyParams) rebody(player.bodyParams); } });
+  // How much Terrain water a point is in (runtime/character.js swims in it), for the player and NPCs.
+  const waterAt = (x, y, z) => { const T = dm.workspace.children.find(c => c.ClassName === 'Terrain'); return T && T.voxels ? T.voxels.waterAt(x, y, z) : 0; };
+  player.water = waterAt;
   // The character's AnimationTracks (its Humanoid's Animator) pose it over its own clips.
   player.joints = () => { const h = players.humanoid, a = h && !h.destroyed && h.children.find(c => c.ClassName === 'Animator'); return a ? animatedJoints(a) : new Map(); };
   const rigs = new Rigs(scene, dm, R.shadows, { quality });
   graphics.add(rigs);
   const npcs = new Npcs({ scene, dm, world, shadows: R.shadows, gravity: GRAVITY, quality }); // rigs with unanchored roots walk
+  npcs.water = waterAt;
   graphics.add(npcs);
   // Characters touch characters: the player's body and the NPCs' (runtime/humevents.js).
   players.others = () => npcs.bodies();

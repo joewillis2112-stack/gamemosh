@@ -868,7 +868,7 @@ defineClass('Humanoid', 'Instance', {
     ApplyDescription(self, desc) { return applyDescription(self, desc); }, // (deprecated in Roblox for ApplyDescriptionAsync)
     GetAppliedDescription(self) { const d = self.children.find(c => c.ClassName === 'HumanoidDescription'); return [(d && self.dm.clone(d)) || new Instance(self.dm, 'HumanoidDescription')]; },
   },
-  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Climbing', 'Touched', 'ApplyDescriptionFinished', 'MoveToFinished'],
+  events: ['Died', 'HealthChanged', 'Jumping', 'Running', 'FreeFalling', 'Climbing', 'Swimming', 'Touched', 'ApplyDescriptionFinished', 'MoveToFinished'],
 });
 /** A humanoid's MoveTo ends: reached, or not (the 8 s timer, a new goal or direction, a teleport). */
 export function endWalk(hum, reached) {

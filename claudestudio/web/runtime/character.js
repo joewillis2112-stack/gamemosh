@@ -615,8 +615,14 @@ export class Character {
     // walking into a truss takes hold of it; on it, input toward it climbs, away from it climbs down (and walks off
     // it at the bottom), none holds still, sideways input is ignored; a fresh jump pushes off it (JumpPower up,
     // WalkSpeed away) and it can't be taken again for 0.3 s; past its top the climb's speed carries the feet over.
-    const climb = this.dead ? null : this.climbProbe();
     const fresh = this.jumpHeld && !this.prevJump;
+    // Swimming (Roblox: in Terrain water, at 87.5% of WalkSpeed; Humanoid.Swimming's page). this.water(x, y, z): how
+    // much water a point is in (play.js: the Terrain's). OURS where Roblox doesn't say: swimming while the waist is
+    // under water (shallower is wading: walking); input swims level; holding jump swims up; with no jump the body
+    // floats up at 4 studs/s until its chest is out, and rests there; there a fresh jump leaps out (JumpPower).
+    const pos0 = this.ctrl.getPosition(), wet = h => this.water && !this.dead ? this.water(pos0.x, foot + h, pos0.z) : 0;
+    const swimming = wet(H.Height * 0.5) >= 0.5;
+    const climb = this.dead || swimming ? null : this.climbProbe();
     this.climbOff = Math.max(0, (this.climbOff || 0) - dt);
     let climbing = false, toward = 0;
     if (climb) {
@@ -641,7 +647,16 @@ export class Character {
       this.climbOver -= dt; // stepping over the top
       horiz = new Vector3(this.climbDir.x * H.WalkSpeed * 0.5, 0, this.climbDir.z * H.WalkSpeed * 0.5);
     }
-    if (climbing) { /* (set above) */ }
+    if (swimming) {
+      const sp = 0.875 * H.WalkSpeed, chestIn = wet(H.Height * 0.75) >= 0.5, kk = 1 - Math.exp(-H.Accel * dt);
+      horiz = new Vector3(v.x, 0, v.z);
+      horiz.addInPlace(this.moveDir.scale(sp).subtract(horiz).scale(kk));
+      if (!chestIn && fresh) { this.vy = H.JumpPower; this.justJumped = 0.1; this.jumpAnim = 0.31; this.on.jump && this.on.jump(); } // out
+      else { const up = this.jumpHeld && chestIn, want = up ? sp : this.jumpHeld ? 0 : chestIn ? 4 : 0; this.vy += (want - this.vy) * (up ? kk : 1 - Math.exp(-6 * dt)); } // (swimming up eases in as swimming along)
+      outY = this.vy; grounded = false;
+    }
+    this.swimming = swimming;
+    if (climbing || swimming) { /* (set above) */ }
     else if (grounded && (this.jumpHeld || this.wantsAutoJump(dt, new Vector3(v.x - fv.x, 0, v.z - fv.z), gravity))) {
       // Jump: vertical speed is tracked here and the body moves by the step's
       // mean velocity, so the arc is exact: JumpPower²/2g = 6.37 studs.
@@ -680,12 +695,12 @@ export class Character {
     this.grounded = grounded;
     this.airTime = grounded ? 0 : (this.airTime || 0) + dt;
     if (!grounded) this.blockedTime = 0;
-    if (climbing) this.airTime = 0;
+    if (climbing || swimming) this.airTime = 0;
     this.prevJump = this.jumpHeld;
 
     // Turn toward movement (not while climbing: facing the truss).
     const sp = Math.hypot(this.velocity.x - fv.x, this.velocity.z - fv.z); // over the floor: carried standing still is idle
-    if (this.moveDir.lengthSquared() > 0.01 && !climbing) {
+    if (this.moveDir.lengthSquared() > 0.01 && !climbing) { // (swimming turns as walking)
       const target = Math.atan2(this.moveDir.x, this.moveDir.z);
       let d = target - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -700,6 +715,7 @@ export class Character {
     let state;
     if (this.dead) state = this.anim.clips.die ? 'die' : 'idle';
     else if (this.climbing) state = 'climb';
+    else if (this.swimming) state = 'swim';
     else if (!this.grounded && this.jumpAnim > 0) state = 'jump';
     else if (!this.grounded && (this.justJumped > 0 || this.airTime > 0.12 || this.state === 'jump' || this.state === 'fall')) state = 'fall';
     else if (sp > (this.state === 'walk' ? 0.3 : 0.75)) state = 'walk'; // Roblox walks above 0.75; the lower exit stops flicker when pushing into a wall
@@ -741,6 +757,14 @@ export class Character {
         rate = adv / dt;
       }
       if (this.anim.current !== clip) this.anim.play(clip, 0.2, rate);
+      else this.anim.layers.find(l => l.clip === clip).speed = rate;
+    } else if (state === 'swim') {
+      // Animate's swim: the swim clip at speed / 10 when moving faster than 1 stud/s, else swimidle; faded in over
+      // 0.4 s. Bodies without them: walk and idle (OURS).
+      const speed = Math.hypot(this.velocity.x, this.vy, this.velocity.z), moving = speed > 1;
+      const clip = moving ? (this.anim.clips.swim ? 'swim' : 'walk') : (this.anim.clips.swimidle ? 'swimidle' : 'idle');
+      const rate = moving ? (clip === 'swim' ? speed / 10 : speed / (this.walkNatural || 10)) : 1;
+      if (this.anim.current !== clip) this.anim.play(clip, 0.4, rate);
       else this.anim.layers.find(l => l.clip === clip).speed = rate;
     } else if (state === 'climb') {
       // Animate's climb: faded in over 0.1 s, played at speed / 5 (held still: paused). A body without a climb clip

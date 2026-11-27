@@ -8,7 +8,7 @@ import { CF } from '../cframe.js';
 import { compileSequence, sampleSequence } from '../animation.js';
 
 /** The character's states (runtime/character.js) and the R15 clip each plays. */
-export const R15_STATE_CLIPS = { idle: 'idle', walk: 'walk', sprint: 'run', jump: 'jump', fall: 'fall', climb: 'climb', swim: 'swim', sit: 'sit' };
+export const R15_STATE_CLIPS = { idle: 'idle', walk: 'walk', sprint: 'run', jump: 'jump', fall: 'fall', climb: 'climb', swim: 'swim', swimidle: 'swimidle', sit: 'sit' };
 
 /** An R15 body's parts from a loaded glb: Map(part name -> { node, size, joint, c0, c1 }), or null if
  *  the file isn't an R15 body. */

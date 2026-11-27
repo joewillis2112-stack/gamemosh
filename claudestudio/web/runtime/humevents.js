@@ -20,7 +20,7 @@ export class HumanoidEvents {
   step(c, hum) {
     const md = c.moveDir, H = hum.props;
     H.MoveDirection = new V3(md.x, 0, md.z);
-    H.FloorMaterial = c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';
+    H.FloorMaterial = c.swimming ? 'Water' : c.grounded && c.floorPart ? c.floorPart.props.Material : 'Air';
     if (c.state !== this.lastState) {
       if (c.state === 'jump' && this.lastState !== 'jump') this.dm.fire(hum, 'Jumping', [true]);
       if (c.state === 'fall') this.dm.fire(hum, 'FreeFalling', [true]);
@@ -33,6 +33,9 @@ export class HumanoidEvents {
     // stops; ours does once).
     if (c.climbing) { const cs = Math.abs(c.vy); if (Math.abs(cs - (this.lastClimb ?? -1)) > 0.1) { this.lastClimb = cs; this.dm.fire(hum, 'Climbing', [cs]); } }
     else if (this.lastClimb !== undefined) { if (this.lastClimb > 0) this.dm.fire(hum, 'Climbing', [0]); this.lastClimb = undefined; }
+    // Swimming(speed) the same way (its speed through the water, horizontal and vertical).
+    if (c.swimming) { const ss = Math.hypot(c.velocity.x, c.vy, c.velocity.z); if (Math.abs(ss - (this.lastSwim ?? -1)) > 0.1) { this.lastSwim = ss; this.dm.fire(hum, 'Swimming', [ss]); } }
+    else if (this.lastSwim !== undefined) { if (this.lastSwim > 0) this.dm.fire(hum, 'Swimming', [0]); this.lastSwim = undefined; }
   }
 
   // The body's touching capsule: [ax, ay, az, by, R] (vertical, from the soles up).

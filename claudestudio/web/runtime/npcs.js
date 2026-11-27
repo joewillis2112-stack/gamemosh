@@ -51,6 +51,7 @@ export class Npcs {
       if (this.npcs.get(model) !== e) { char.holder.dispose(false, true); char.ctrl.dispose(); return; } // gone meanwhile
       model.isCharacter = true; // runtime/rigs.js stops drawing it as a statue
       e.char = char; e.loading = false;
+      if (this.water) char.water = this.water; // (swims in the Terrain's water, as the player does)
       if (params) { char.bodyParams = params; char.colors = bodyColors(params); } // (CharacterBody gives it a BodyColors)
       const look = [-cf.m[5], -cf.m[11]];
       char.teleport(new Vector3(cf.x, cf.y - char.rootHeight, cf.z), Math.atan2(look[0], look[1]));
